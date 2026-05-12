@@ -44,13 +44,16 @@ export function ElementInspectorPanel({
     onDraftChange({ ...draft, [field]: value })
   }
 
-  const handleLayoutBlur = (): void => {
-    onLayoutChange({
-      x: draft.layoutX,
-      y: draft.layoutY,
-      width: draft.layoutWidth,
-      height: draft.layoutHeight
-    })
+  const handleLayoutBlur = (changedField: LayoutField): void => {
+    // Only send the field that actually changed to avoid clobbering
+    // auto/percentage/flex widths when the user only intended to move.
+    const patch = { x: '', y: '', width: '', height: '' }
+    const value = draft[changedField]
+    if (changedField === 'layoutX') patch.x = value
+    else if (changedField === 'layoutY') patch.y = value
+    else if (changedField === 'layoutWidth') patch.width = value
+    else if (changedField === 'layoutHeight') patch.height = value
+    onLayoutChange(patch)
   }
 
   return (
@@ -83,18 +86,14 @@ export function ElementInspectorPanel({
           <span className="text-[11px] font-medium text-[#7a875f]">
             {t('sessionDetail.adjustLayout')}
           </span>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-4 gap-2">
             {LAYOUT_LABELS.map(({ field, label }) => (
-              <label key={field} className="block space-y-1">
+              <div key={field} className="space-y-1 text-center">
                 <span className="text-[11px] font-medium text-[#7a875f]">{label}</span>
-                <Input
-                  type="number"
-                  value={draft[field]}
-                  onChange={(e) => handleLayoutInput(field, e.target.value)}
-                  onBlur={handleLayoutBlur}
-                  className="h-9 rounded-[10px] border-[#d7cbb7]/80 bg-[#fffdf8]/92 px-2.5 text-xs text-center"
-                />
-              </label>
+                <div className="h-9 rounded-[10px] border border-[#d7cbb7]/80 bg-[#fffdf8]/92 px-2.5 text-xs leading-9 text-[#5a6a4f]">
+                  {draft[field] || '—'}
+                </div>
+              </div>
             ))}
           </div>
         </div>

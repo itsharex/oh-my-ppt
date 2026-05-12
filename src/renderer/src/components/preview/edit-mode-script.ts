@@ -304,6 +304,10 @@ export function buildEditModeInjectScript(previewScale = 1): string {
     if (isScaffoldBlock(element)) return false;
     if (!isInsidePageRoot(element)) return false;
     if (["SCRIPT", "STYLE", "LINK", "META", "TITLE"].includes(element.tagName)) return false;
+    // Atomic visual elements — rendered as a single unit, internals should
+    // not be individually selected; clicks bubble up to the parent container.
+    if (element.closest("svg")) return false;
+    if (["CANVAS", "VIDEO", "AUDIO", "IFRAME"].includes(element.tagName)) return false;
     const contentRoot = getContentRoot(element);
     const boundaryRoot = contentRoot || getPageRoot(element);
     if (!boundaryRoot || element === boundaryRoot) return false;
@@ -426,7 +430,13 @@ export function buildEditModeInjectScript(previewScale = 1): string {
     if (computed.display === "inline") {
       target.style.display = "inline-block";
     }
-    target.style.translate = "var(--ppt-drag-x, 0px) var(--ppt-drag-y, 0px)";
+    // Read custom property values and set translate directly as numeric px.
+    // Using var() references can be a no-op when the same template string is
+    // already in the inline style (persisted from a previous drag), preventing
+    // CSS variable changes from taking effect before getBoundingClientRect().
+    const x = parsePx(target.style.getPropertyValue("--ppt-drag-x") || computed.getPropertyValue("--ppt-drag-x"));
+    const y = parsePx(target.style.getPropertyValue("--ppt-drag-y") || computed.getPropertyValue("--ppt-drag-y"));
+    target.style.translate = x.toFixed(1) + "px " + y.toFixed(1) + "px";
     target.style.willChange = "transform";
   };
 
@@ -478,6 +488,10 @@ export function buildEditModeInjectScript(previewScale = 1): string {
     const style = document.createElement("style");
     style.id = STYLE_ID;
     style.textContent = \`
+      html, body, body * {
+        animation: none !important;
+        transition: none !important;
+      }
       .\${HOVER_CLASS} {
         outline: 2px dashed rgba(93,107,77,0.78) !important;
         outline-offset: 3px !important;
@@ -492,7 +506,6 @@ export function buildEditModeInjectScript(previewScale = 1): string {
         box-shadow: 0 0 0 4px rgba(93,107,77,0.14) !important;
         cursor: move !important;
         user-select: none !important;
-        transition: none !important;
       }
       .\${SELECTED_CLASS} * {
         cursor: move !important;
@@ -630,6 +643,21 @@ export function buildEditModeInjectScript(previewScale = 1): string {
     cursorHost.style.cursor = "move";
   }
   ensureStyle();
+
+  // Kill residual animations from ppt-default-motion (anime.js).
+  (() => {
+    if (window.PPT && typeof window.PPT.stopAnimations === "function") {
+      try { window.PPT.stopAnimations(); } catch (_e) {}
+    }
+    const root = document.querySelector(".ppt-page-root, [data-ppt-guard-root='1']");
+    if (!root) return;
+    root.querySelectorAll("[style]").forEach((el) => {
+      const s = el.style;
+      if (s.transition && (s.transition.includes("transform") || s.transition.includes("opacity"))) {
+        s.transition = "";
+      }
+    });
+  })();
 
   // --- Visual helpers ---
   const setHover = (target) => {
