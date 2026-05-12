@@ -304,6 +304,7 @@ export const PreviewIframe = forwardRef<
           bounds?: EditSelectionPayload['bounds']
           translateX?: number
           translateY?: number
+          editability?: EditSelectionPayload['editability']
         }
 
         // Inspector: element selected (AI mode)
@@ -344,7 +345,8 @@ export const PreviewIframe = forwardRef<
               style: parsed.style || {},
               bounds: parsed.bounds,
               translateX: Number(parsed.translateX || 0),
-              translateY: Number(parsed.translateY || 0)
+              translateY: Number(parsed.translateY || 0),
+              editability: parsed.editability || undefined
             })
           })().catch(() => {})
           return

@@ -127,6 +127,7 @@ export interface UpdateElementLayoutPayload {
     width?: number
     height?: number
   }>
+  isAbsoluteMode?: boolean
 }
 
 export interface UpdateElementPropertiesPayload {

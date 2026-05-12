@@ -15,46 +15,26 @@ export interface ElementEditDraft {
   layoutHeight: string
 }
 
-type LayoutField = 'layoutX' | 'layoutY' | 'layoutWidth' | 'layoutHeight'
-
-const LAYOUT_LABELS: Array<{ field: LayoutField; label: string }> = [
-  { field: 'layoutX', label: 'X' },
-  { field: 'layoutY', label: 'Y' },
-  { field: 'layoutWidth', label: 'W' },
-  { field: 'layoutHeight', label: 'H' }
+const LAYOUT_FIELDS: Array<{ key: keyof ElementEditDraft; label: string }> = [
+  { key: 'layoutX', label: 'X' },
+  { key: 'layoutY', label: 'Y' },
+  { key: 'layoutWidth', label: 'W' },
+  { key: 'layoutHeight', label: 'H' }
 ]
 
 export function ElementInspectorPanel({
   selection,
   draft,
   onDraftChange,
-  onLayoutChange,
   onClose
 }: {
   selection: EditSelectionPayload | null
   draft: ElementEditDraft
   onDraftChange: (draft: ElementEditDraft) => void
-  onLayoutChange: (layout: { x: string; y: string; width: string; height: string }) => void
   onClose: () => void
 }): React.JSX.Element {
   const t = useT()
   const isText = selection?.isText ?? false
-
-  const handleLayoutInput = (field: LayoutField, value: string): void => {
-    onDraftChange({ ...draft, [field]: value })
-  }
-
-  const handleLayoutBlur = (changedField: LayoutField): void => {
-    // Only send the field that actually changed to avoid clobbering
-    // auto/percentage/flex widths when the user only intended to move.
-    const patch = { x: '', y: '', width: '', height: '' }
-    const value = draft[changedField]
-    if (changedField === 'layoutX') patch.x = value
-    else if (changedField === 'layoutY') patch.y = value
-    else if (changedField === 'layoutWidth') patch.width = value
-    else if (changedField === 'layoutHeight') patch.height = value
-    onLayoutChange(patch)
-  }
 
   return (
     <div className="flex h-full w-[320px] shrink-0 flex-col border-l border-[#d9cfbd]/60 bg-[#fffaf1]/96 shadow-[-8px_0_24px_rgba(93,107,77,0.06)]">
@@ -81,20 +61,20 @@ export function ElementInspectorPanel({
 
       {/* Content */}
       <div className="flex-1 space-y-3 overflow-y-auto px-3.5 py-3.5">
-        {/* Layout editing (always shown) */}
+        {/* Layout display (read-only, position changes via drag only) */}
         <div className="space-y-1.5">
           <span className="text-[11px] font-medium text-[#7a875f]">
             {t('sessionDetail.adjustLayout')}
           </span>
           <div className="grid grid-cols-4 gap-2">
-            {LAYOUT_LABELS.map(({ field, label }) => (
-              <div key={field} className="space-y-1 text-center">
-                <span className="text-[11px] font-medium text-[#7a875f]">{label}</span>
-                <div className="h-9 rounded-[10px] border border-[#d7cbb7]/80 bg-[#fffdf8]/92 px-2.5 text-xs leading-9 text-[#5a6a4f]">
-                  {draft[field] || '—'}
+            {LAYOUT_FIELDS.map(({ key, label }) => (
+                <div key={key} className="space-y-1 text-center">
+                  <span className="text-[11px] font-medium text-[#7a875f]">{label}</span>
+                  <div className="h-9 flex items-center justify-center rounded-[10px] border border-[#d7cbb7]/60 bg-[#f5efe4]/60 px-2.5 text-xs text-[#7a875f]">
+                    {draft[key]}
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))}
           </div>
         </div>
 

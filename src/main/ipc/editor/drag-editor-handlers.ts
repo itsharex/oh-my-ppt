@@ -102,7 +102,8 @@ function patchDraggedElementStyle(
   y: number,
   width: number | null,
   height: number | null,
-  childUpdates: ChildStyleUpdate[]
+  childUpdates: ChildStyleUpdate[],
+  isAbsoluteMode: boolean
 ): string {
   const $ = cheerio.load(html, { scriptingEnabled: false })
   let target
@@ -117,22 +118,40 @@ function patchDraggedElementStyle(
 
   const styleMap = parseStyle(target.attr('style') || '')
   const tagName = String(target.get(0)?.tagName || '').toLowerCase()
-  if (INLINE_TAGS.has(tagName) && !styleMap.has('display')) {
-    styleMap.set('display', 'inline-block')
+
+  if (isAbsoluteMode) {
+    // Inspector edit mode: position:absolute with direct left/top/width/height
+    styleMap.set('position', 'absolute')
+    styleMap.set('left', `${x}px`)
+    styleMap.set('top', `${y}px`)
+    if (width !== null) styleMap.set('width', `${width}px`)
+    if (height !== null) styleMap.set('height', `${height}px`)
+    if (!styleMap.has('z-index')) styleMap.set('z-index', '10')
+    // Clear translate mechanism
+    styleMap.delete('--ppt-drag-x')
+    styleMap.delete('--ppt-drag-y')
+    styleMap.delete('translate')
+    styleMap.delete('will-change')
+    target.attr('data-ppt-layout-converted', '1')
+  } else {
+    // Drag mode: position:relative with translate offset
+    if (INLINE_TAGS.has(tagName) && !styleMap.has('display')) {
+      styleMap.set('display', 'inline-block')
+    }
+    const position = String(styleMap.get('position') || '').trim().toLowerCase()
+    if (!position || position === 'static') {
+      styleMap.set('position', 'relative')
+    }
+    if (!styleMap.has('z-index')) {
+      styleMap.set('z-index', '10')
+    }
+    styleMap.set('--ppt-drag-x', `${x}px`)
+    styleMap.set('--ppt-drag-y', `${y}px`)
+    styleMap.set('translate', 'var(--ppt-drag-x, 0px) var(--ppt-drag-y, 0px)')
+    if (width !== null) styleMap.set('width', `${width}px`)
+    if (height !== null) styleMap.set('height', `${height}px`)
+    styleMap.delete('will-change')
   }
-  const position = String(styleMap.get('position') || '').trim().toLowerCase()
-  if (!position || position === 'static') {
-    styleMap.set('position', 'relative')
-  }
-  if (!styleMap.has('z-index')) {
-    styleMap.set('z-index', '10')
-  }
-  styleMap.set('--ppt-drag-x', `${x}px`)
-  styleMap.set('--ppt-drag-y', `${y}px`)
-  styleMap.set('translate', 'var(--ppt-drag-x, 0px) var(--ppt-drag-y, 0px)')
-  if (width !== null) styleMap.set('width', `${width}px`)
-  if (height !== null) styleMap.set('height', `${height}px`)
-  styleMap.delete('will-change')
   target.attr('style', serializeStyle(styleMap))
 
   for (const childUpdate of childUpdates) {
@@ -168,6 +187,7 @@ export function registerDragEditorHandlers(ctx: IpcContext): void {
       width?: unknown
       height?: unknown
       childUpdates?: unknown
+      isAbsoluteMode?: unknown
     }
     const sessionId = normalizeSessionId(record.sessionId)
     const htmlPath = typeof record.htmlPath === 'string' ? record.htmlPath : ''
@@ -192,7 +212,8 @@ export function registerDragEditorHandlers(ctx: IpcContext): void {
         clampDragValue(record.y),
         clampSizeValue(record.width),
         clampSizeValue(record.height),
-        normalizeChildStyleUpdates(record.childUpdates)
+        normalizeChildStyleUpdates(record.childUpdates),
+        !!record.isAbsoluteMode
       )
       await fs.promises.writeFile(safeHtmlPath, nextHtml, 'utf-8')
     })

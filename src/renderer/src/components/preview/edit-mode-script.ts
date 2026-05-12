@@ -23,6 +23,12 @@ export interface EditSelectionPayload {
   }
   translateX: number
   translateY: number
+  editability?: {
+    x: boolean
+    y: boolean
+    width: boolean
+    height: boolean
+  }
 }
 
 export interface EditModeMovePayload {
@@ -729,6 +735,9 @@ export function buildEditModeInjectScript(previewScale = 1): string {
   };
 
   // --- Emit helpers ---
+  // All elements can be edited — first edit converts to position:absolute.
+  const analyzeEditability = () => ({ x: true, y: true, width: true, height: true });
+
   const emitSelected = (target, selector) => {
     const elementTag = target.tagName ? target.tagName.toLowerCase() : "";
     const isText = isEditableTextElement(target);
@@ -756,13 +765,14 @@ export function buildEditModeInjectScript(previewScale = 1): string {
         backgroundColor: computed.backgroundColor || ""
       } : {},
       bounds: {
-        x: Math.round(rect.left * 10) / 10,
-        y: Math.round(rect.top * 10) / 10,
-        width: Math.round(rect.width * 10) / 10,
-        height: Math.round(rect.height * 10) / 10
-      },
-      translateX: currentDragX,
-      translateY: currentDragY
+            x: Math.round(rect.left * 10) / 10,
+            y: Math.round(rect.top * 10) / 10,
+            width: Math.round(rect.width * 10) / 10,
+            height: Math.round(rect.height * 10) / 10
+          },
+      translateX: target.hasAttribute("data-ppt-layout-converted") ? 0 : currentDragX,
+      translateY: target.hasAttribute("data-ppt-layout-converted") ? 0 : currentDragY,
+      editability: analyzeEditability(target)
     }));
   };
 
@@ -770,6 +780,24 @@ export function buildEditModeInjectScript(previewScale = 1): string {
   const applyPendingDrag = () => {
     frameId = 0;
     if (!dragState) return;
+    // Absolute-converted elements: move via left/top directly
+    if (dragState.target.hasAttribute("data-ppt-layout-converted")) {
+      const delta = getPointerDelta(
+        dragState.target,
+        pendingClientX,
+        pendingClientY,
+        dragState.startClientX,
+        dragState.startClientY
+      );
+      dragState.target.style.left = (dragState.baseX + delta.x).toFixed(1) + "px";
+      dragState.target.style.top = (dragState.baseY + delta.y).toFixed(1) + "px";
+      // Sync the viewport tracker so next Inspector edit computes correct delta
+      const dragRect = dragState.target.getBoundingClientRect();
+      dragState.target.setAttribute("data-ppt-last-vp-x", dragRect.left.toFixed(1));
+      dragState.target.setAttribute("data-ppt-last-vp-y", dragRect.top.toFixed(1));
+      updateOverlay();
+      return;
+    }
     const delta = getPointerDelta(
       dragState.target,
       pendingClientX,
@@ -822,9 +850,19 @@ export function buildEditModeInjectScript(previewScale = 1): string {
       if (affectsWidth) item.element.style.width = roundPx(item.baseWidth * scaleX).toFixed(1) + "px";
       if (affectsHeight) item.element.style.height = roundPx(item.baseHeight * scaleY).toFixed(1) + "px";
     });
-    resizeState.target.style.setProperty("--ppt-drag-x", nextX.toFixed(1) + "px");
-    resizeState.target.style.setProperty("--ppt-drag-y", nextY.toFixed(1) + "px");
-    ensureDragTranslate(resizeState.target);
+    // Absolute-converted elements: move via left/top
+    if (resizeState.target.hasAttribute("data-ppt-layout-converted")) {
+      resizeState.target.style.left = nextX.toFixed(1) + "px";
+      resizeState.target.style.top = nextY.toFixed(1) + "px";
+      // Sync the viewport tracker so next Inspector edit computes correct delta
+      const resizeRect = resizeState.target.getBoundingClientRect();
+      resizeState.target.setAttribute("data-ppt-last-vp-x", resizeRect.left.toFixed(1));
+      resizeState.target.setAttribute("data-ppt-last-vp-y", resizeRect.top.toFixed(1));
+    } else {
+      resizeState.target.style.setProperty("--ppt-drag-x", nextX.toFixed(1) + "px");
+      resizeState.target.style.setProperty("--ppt-drag-y", nextY.toFixed(1) + "px");
+      ensureDragTranslate(resizeState.target);
+    }
     resizeNestedCharts(resizeState.target);
     updateOverlay();
   };
@@ -916,11 +954,16 @@ export function buildEditModeInjectScript(previewScale = 1): string {
     if (handle && selectedElement) {
       const selector = buildStableSelector(selectedElement);
       if (!selector) return;
-      const computed = getComputedStyle(selectedElement);
+      const isAbsSel = selectedElement.hasAttribute("data-ppt-layout-converted");
+      const computed = isAbsSel ? null : getComputedStyle(selectedElement);
       const rect = selectedElement.getBoundingClientRect();
-      const baseX = parsePx(selectedElement.style.getPropertyValue("--ppt-drag-x") || computed.getPropertyValue("--ppt-drag-x"));
-      const baseY = parsePx(selectedElement.style.getPropertyValue("--ppt-drag-y") || computed.getPropertyValue("--ppt-drag-y"));
-      ensureDragTranslate(selectedElement);
+      const baseX = isAbsSel
+        ? parseFloat(selectedElement.style.left || "0")
+        : parsePx(selectedElement.style.getPropertyValue("--ppt-drag-x") || computed.getPropertyValue("--ppt-drag-x"));
+      const baseY = isAbsSel
+        ? parseFloat(selectedElement.style.top || "0")
+        : parsePx(selectedElement.style.getPropertyValue("--ppt-drag-y") || computed.getPropertyValue("--ppt-drag-y"));
+      if (!isAbsSel) ensureDragTranslate(selectedElement);
       pendingClientX = event.clientX;
       pendingClientY = event.clientY;
       const elementTag = selectedElement.tagName ? selectedElement.tagName.toLowerCase() : "";
@@ -971,9 +1014,14 @@ export function buildEditModeInjectScript(previewScale = 1): string {
 
     // All elements: deferred drag. Record start position.
     // < 3px on pointerup = click (emit selected). >= 3px on pointermove = drag.
-    const computed = getComputedStyle(target);
-    const baseX = parsePx(target.style.getPropertyValue("--ppt-drag-x") || computed.getPropertyValue("--ppt-drag-x"));
-    const baseY = parsePx(target.style.getPropertyValue("--ppt-drag-y") || computed.getPropertyValue("--ppt-drag-y"));
+    const isAbsConverted = target.hasAttribute("data-ppt-layout-converted");
+    const computed = isAbsConverted ? null : getComputedStyle(target);
+    const baseX = isAbsConverted
+      ? parseFloat(target.style.left || "0")
+      : parsePx(target.style.getPropertyValue("--ppt-drag-x") || computed.getPropertyValue("--ppt-drag-x"));
+    const baseY = isAbsConverted
+      ? parseFloat(target.style.top || "0")
+      : parsePx(target.style.getPropertyValue("--ppt-drag-y") || computed.getPropertyValue("--ppt-drag-y"));
     const elementTag = target.tagName ? target.tagName.toLowerCase() : "";
     dragPendingState = {
       target,
@@ -1031,12 +1079,24 @@ export function buildEditModeInjectScript(previewScale = 1): string {
         applyPendingResize();
       }
       const target = resizeState.target;
-      const nextX = parsePx(target.style.getPropertyValue("--ppt-drag-x"));
-      const nextY = parsePx(target.style.getPropertyValue("--ppt-drag-y"));
+      const isAbsUp = target.hasAttribute("data-ppt-layout-converted");
+      // For absolute elements: payload.x = displacement (same semantics as translate offset)
+      // For translate elements: payload.x = the translate offset
+      let nextX, nextY;
+      if (isAbsUp) {
+        const currentLeft = parseFloat(target.style.left || "0");
+        const currentTop = parseFloat(target.style.top || "0");
+        nextX = currentLeft - resizeState.baseX;
+        nextY = currentTop - resizeState.baseY;
+      } else {
+        nextX = parsePx(target.style.getPropertyValue("--ppt-drag-x"));
+        nextY = parsePx(target.style.getPropertyValue("--ppt-drag-y"));
+      }
       const nextWidth = parsePx(target.style.width) || resizeState.baseWidth;
       const nextHeight = parsePx(target.style.height) || resizeState.baseHeight;
-      const deltaX = nextX - resizeState.baseX;
-      const deltaY = nextY - resizeState.baseY;
+      // For absolute: nextX is already displacement from baseX. For translate: nextX is the offset.
+      const deltaX = isAbsUp ? nextX : (nextX - resizeState.baseX);
+      const deltaY = isAbsUp ? nextY : (nextY - resizeState.baseY);
       const scale = nextWidth / resizeState.baseWidth;
       const affectsWidth = resizeState.dir.includes("w") || resizeState.dir.includes("e");
       const affectsHeight = resizeState.dir.includes("n") || resizeState.dir.includes("s");
@@ -1086,10 +1146,33 @@ export function buildEditModeInjectScript(previewScale = 1): string {
     pendingClientY = event.clientY;
     applyPendingDrag();
     const target = dragState.target;
-    const nextX = parsePx(target.style.getPropertyValue("--ppt-drag-x"));
-    const nextY = parsePx(target.style.getPropertyValue("--ppt-drag-y"));
-    const deltaX = nextX - dragState.baseX;
-    const deltaY = nextY - dragState.baseY;
+    const isAbsDrag = target.hasAttribute("data-ppt-layout-converted");
+    // For absolute elements: payload.x = visual displacement from the position
+    // at selection time. handleElementMoved computes visualX = originalCSSX + payload.x,
+    // where originalCSSX = bounds.x (since translateX=0). So payload.x = currentViewportX - bounds.x.
+    // For translate elements: payload.x = the translate offset directly.
+    let nextX, nextY;
+    if (isAbsDrag) {
+      const dragRect = target.getBoundingClientRect();
+      // baseX for absolute was stored as style.left (offsetParent-relative).
+      // We need the viewport displacement: use rect delta from drag start.
+      // dragState.baseX = initial style.left; applyPendingDrag set style.left = baseX + pointerDelta.
+      // So the pointer delta = currentLeft - baseX = viewport displacement.
+      const currentLeft = parseFloat(target.style.left || "0");
+      const pointerDeltaX = currentLeft - dragState.baseX;
+      const pointerDeltaY = parseFloat(target.style.top || "0") - dragState.baseY;
+      // payload.x = displacement from selection-time viewport position
+      // At selection time, translateX was 0 (cleared during conversion), so:
+      // originalCSSX = bounds.x, and we want visualX = bounds.x + payload.x = currentViewportX
+      // => payload.x = pointerDeltaX (the movement since drag start)
+      nextX = pointerDeltaX;
+      nextY = pointerDeltaY;
+    } else {
+      nextX = parsePx(target.style.getPropertyValue("--ppt-drag-x"));
+      nextY = parsePx(target.style.getPropertyValue("--ppt-drag-y"));
+    }
+    const deltaX = isAbsDrag ? nextX : (nextX - dragState.baseX);
+    const deltaY = isAbsDrag ? nextY : (nextY - dragState.baseY);
     try {
       target.releasePointerCapture?.(event.pointerId);
     } catch (_error) {}
@@ -1143,24 +1226,60 @@ export function buildEditModeInjectScript(previewScale = 1): string {
     } catch (_error) {}
   };
 
+  // Convert element to position:absolute on first layout edit ("browser-like").
+  // Uses incremental approach (same as drag) to avoid coordinate system issues:
+  // remember the last viewport position, compute delta, apply to style.left/top.
   window.__pptEditModeSetLayout = (selector, layout) => {
     try {
       const el = document.querySelector(selector);
       if (!el) return;
-      const currentDragX = parsePx(el.style.getPropertyValue("--ppt-drag-x"));
-      const currentDragY = parsePx(el.style.getPropertyValue("--ppt-drag-y"));
-      const rect = el.getBoundingClientRect();
-      if (layout.x !== undefined || layout.y !== undefined) {
-        const baseLeft = rect.left - currentDragX;
-        const baseTop = rect.top - currentDragY;
-        const newDragX = layout.x !== undefined ? (layout.x - baseLeft) : currentDragX;
-        const newDragY = layout.y !== undefined ? (layout.y - baseTop) : currentDragY;
-        el.style.setProperty("--ppt-drag-x", newDragX.toFixed(1) + "px");
-        el.style.setProperty("--ppt-drag-y", newDragY.toFixed(1) + "px");
+      // First edit: convert to position:absolute
+      if (!el.hasAttribute("data-ppt-layout-converted")) {
+        // 1. Record current visual position BEFORE changing position
+        const rect = el.getBoundingClientRect();
+        // 2. Set position:absolute first — this changes the offsetParent
+        el.style.position = "absolute";
+        // 3. Force synchronous reflow so offsetParent updates to the absolute context
+        void el.offsetTop;
+        // 4. Now read the NEW offsetParent (nearest positioned ancestor for absolute)
+        const newOffsetParent = el.offsetParent;
+        const newOffsetRect = newOffsetParent
+          ? newOffsetParent.getBoundingClientRect()
+          : { left: 0, top: 0 };
+        // 5. Set left/top using pre-conversion visual position minus new offset
+        el.style.left = (rect.left - newOffsetRect.left).toFixed(1) + "px";
+        el.style.top = (rect.top - newOffsetRect.top).toFixed(1) + "px";
+        el.style.width = Math.max(1, rect.width).toFixed(1) + "px";
+        el.style.height = Math.max(1, rect.height).toFixed(1) + "px";
+        el.style.zIndex = "10";
+        // Clear translate mechanism
+        el.style.translate = "";
+        el.style.removeProperty("--ppt-drag-x");
+        el.style.removeProperty("--ppt-drag-y");
+        // Remember the current viewport position for delta-based updates
+        el.setAttribute("data-ppt-last-vp-x", rect.left.toFixed(1));
+        el.setAttribute("data-ppt-last-vp-y", rect.top.toFixed(1));
+        el.setAttribute("data-ppt-layout-converted", "1");
+      }
+      // Incremental: compute delta from last known viewport position,
+      // apply to current style.left/top (offsetParent-relative).
+      // This mirrors how drag works — only relative changes, no coordinate conversion.
+      if (layout.x !== undefined) {
+        const lastVpX = parseFloat(el.getAttribute("data-ppt-last-vp-x") || "0");
+        const delta = layout.x - lastVpX;
+        const curLeft = parseFloat(el.style.left || "0");
+        el.style.left = (curLeft + delta).toFixed(1) + "px";
+        el.setAttribute("data-ppt-last-vp-x", layout.x.toFixed(1));
+      }
+      if (layout.y !== undefined) {
+        const lastVpY = parseFloat(el.getAttribute("data-ppt-last-vp-y") || "0");
+        const delta = layout.y - lastVpY;
+        const curTop = parseFloat(el.style.top || "0");
+        el.style.top = (curTop + delta).toFixed(1) + "px";
+        el.setAttribute("data-ppt-last-vp-y", layout.y.toFixed(1));
       }
       if (layout.width !== undefined) el.style.width = Math.max(1, layout.width).toFixed(1) + "px";
       if (layout.height !== undefined) el.style.height = Math.max(1, layout.height).toFixed(1) + "px";
-      ensureDragTranslate(el);
       updateOverlay();
     } catch (_error) {}
   };

@@ -927,7 +927,8 @@ export function SessionDetailPage(): React.JSX.Element {
           y: edit.y,
           width: edit.width,
           height: edit.height,
-          childUpdates: edit.childUpdates
+          childUpdates: edit.childUpdates,
+          isAbsoluteMode: (edit as { isAbsoluteMode?: boolean }).isAbsoluteMode
         })
         if (!result.success) {
           throw new Error(t('sessionDetail.layoutSaveFailed'))
@@ -1026,65 +1027,6 @@ export function SessionDetailPage(): React.JSX.Element {
         }
       })
     }
-  }
-
-  const handleLayoutDraftChange = (layout: {
-    x: string
-    y: string
-    width: string
-    height: string
-  }): void => {
-    if (!textSelection || !selectedPage?.pageId || !textSelection.bounds) return
-
-    // NaN guard for partial input (e.g. user typed just "-")
-    if (layout.x !== '' && !Number.isFinite(Number(layout.x))) return
-    if (layout.y !== '' && !Number.isFinite(Number(layout.y))) return
-    if (layout.width !== '' && !Number.isFinite(Number(layout.width))) return
-    if (layout.height !== '' && !Number.isFinite(Number(layout.height))) return
-
-    // Live preview in iframe
-    const layoutPatch: Record<string, number> = {}
-    if (layout.x !== '') layoutPatch.x = Number(layout.x)
-    if (layout.y !== '') layoutPatch.y = Number(layout.y)
-    if (layout.width !== '') layoutPatch.width = Number(layout.width)
-    if (layout.height !== '') layoutPatch.height = Number(layout.height)
-    previewIframeRef.current?.setElementLayout(textSelection.selector, layoutPatch)
-
-    // Record as pending drag edit (upsert by pageId + htmlPath + selector, same key as handleElementMoved)
-    if (!id || !selectedPage?.htmlPath) return
-    // All offsets are computed relative to the initial selection snapshot.
-    // Each keystroke recalculates from the original bounds, so multiple edits
-    // produce the correct final value via upsert overwrite.
-    const prevX = textSelection.bounds.x
-    const prevY = textSelection.bounds.y
-    const newAbsX = layout.x !== '' ? Number(layout.x) : prevX
-    const newAbsY = layout.y !== '' ? Number(layout.y) : prevY
-    const newDragX = (textSelection.translateX ?? 0) + (newAbsX - prevX)
-    const newDragY = (textSelection.translateY ?? 0) + (newAbsY - prevY)
-
-    const nextEdit: EditModeMovePayload & { pageId: string; htmlPath: string } = {
-      selector: textSelection.selector,
-      label: textSelection.selector,
-      elementTag: textSelection.elementTag,
-      x: newDragX,
-      y: newDragY,
-      deltaX: newDragX - (textSelection.translateX ?? 0),
-      deltaY: newDragY - (textSelection.translateY ?? 0),
-      ...(layout.width !== '' ? { width: Number(layout.width) } : {}),
-      ...(layout.height !== '' ? { height: Number(layout.height) } : {}),
-      pageId: selectedPage.pageId,
-      htmlPath: selectedPage.htmlPath
-    }
-    setPendingDragEdits((items) => {
-      const idx = items.findIndex(
-        (item) =>
-          item.pageId === nextEdit.pageId &&
-          item.htmlPath === nextEdit.htmlPath &&
-          item.selector === nextEdit.selector
-      )
-      if (idx < 0) return [...items, nextEdit]
-      return items.map((item, i) => (i === idx ? nextEdit : item))
-    })
   }
 
   // When user starts editing a new element, save the previous text edit as pending
@@ -1193,7 +1135,6 @@ export function SessionDetailPage(): React.JSX.Element {
               selection={textSelection}
               draft={textDraft}
               onDraftChange={handleTextDraftChange}
-              onLayoutChange={handleLayoutDraftChange}
               onClose={handleCancelTextEdit}
             />
           )}
