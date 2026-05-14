@@ -10,6 +10,7 @@ import {
 import {
   FREEZE_PAGE_FOR_PPTX_SCRIPT,
   HIDE_FOR_PPTX_BACKGROUND_SCRIPT,
+  RESET_SCALE_FOR_PPTX_CAPTURE_SCRIPT,
   WAIT_FOR_PPTX_CAPTURE_FRAME_SCRIPT
 } from './browser-scripts'
 
@@ -296,6 +297,9 @@ export const captureHtmlPageToPptxImageSlide = async ({
       waitForPrintReadySignal
     )
 
+    // Reset page fit scale for full-resolution capture
+    await win.webContents.executeJavaScript(RESET_SCALE_FOR_PPTX_CAPTURE_SCRIPT, true)
+
     const image = await captureFullPage(win)
     const png = image.toPNG()
 
@@ -357,6 +361,10 @@ export const extractHtmlPageToPptxSlide = async ({
     )
 
     const slide = normalizeExtractedHtmlToPptxSlide(extracted, page.title)
+
+    // Reset page fit scale BEFORE background capture for full resolution,
+    // but AFTER extraction (which used the scaled coordinates for correct positions).
+    await win.webContents.executeJavaScript(RESET_SCALE_FOR_PPTX_CAPTURE_SCRIPT, true)
 
     // Background capture: keep decorative elements (blur blobs, glass-morphism) visible,
     // hide text and non-decorative shapes/images (which are extracted separately).

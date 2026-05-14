@@ -58,8 +58,6 @@ export const FREEZE_PAGE_FOR_EXPORT_SCRIPT = `
     }
   });
 
-  const scope = root.querySelector?.(':scope > .ppt-page-fit-scope');
-  if (scope) scope.style.transform = 'scale(1)';
   if (document.fonts?.ready) {
     try {
       await document.fonts.ready;
@@ -70,6 +68,25 @@ export const FREEZE_PAGE_FOR_EXPORT_SCRIPT = `
 `
 
 export const FREEZE_PAGE_FOR_PPTX_SCRIPT = FREEZE_PAGE_FOR_EXPORT_SCRIPT
+
+/**
+ * Reset ppt-page-fit-scope transform to scale(1) for full-resolution capture.
+ * Must be executed AFTER text/shape extraction (which needs the scaled coordinates)
+ * but BEFORE screen capture.
+ */
+export const RESET_SCALE_FOR_PPTX_CAPTURE_SCRIPT = `
+(async () => {
+  const root =
+    document.querySelector('.ppt-page-root[data-ppt-guard-root="1"]') ||
+    document.querySelector('.ppt-page-root') ||
+    document.body;
+  const scope = root.querySelector(':scope > .ppt-page-fit-scope');
+  if (scope) scope.style.transform = 'scale(1)';
+  void document.body.offsetHeight;
+  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  return true;
+})()
+`
 
 export const HIDE_TEXT_FOR_PPTX_BACKGROUND_SCRIPT = `
 (async () => {
@@ -160,12 +177,21 @@ export const HIDE_FOR_PPTX_BACKGROUND_SCRIPT = `
   const style = document.createElement('style');
   style.id = 'ohmyppt-pptx-hide-elements';
   style.textContent = [
-    'img:not([data-pptx-animated]), canvas:not([data-pptx-animated]) { opacity: 0 !important; visibility: hidden !important; }',
+    // Precisely hide extracted shapes (background/border) and images (visibility)
+    '[data-pptx-extracted-shape] { background-color: transparent !important; border-color: transparent !important; }',
+    '[data-pptx-extracted-image] { opacity: 0 !important; visibility: hidden !important; }',
+    // Hide non-animated images (fallback for non-extracted decorative images)
+    'img:not([data-pptx-animated]):not([data-pptx-extracted-image]), canvas:not([data-pptx-animated]):not([data-pptx-extracted-image]) { opacity: 0 !important; visibility: hidden !important; }',
+    // Make container backgrounds transparent (catch-all for non-extracted containers)
     'section:not([data-pptx-animated]), main:not([data-pptx-animated]), article:not([data-pptx-animated]), header:not([data-pptx-animated]), footer:not([data-pptx-animated]), aside:not([data-pptx-animated]), div:not([data-pptx-animated]), figure:not([data-pptx-animated]), figcaption:not([data-pptx-animated]), table:not([data-pptx-animated]), td:not([data-pptx-animated]), th:not([data-pptx-animated]) { background-color: transparent !important; border-color: transparent !important; }',
-    'body :not(.katex):not(.katex *):not(canvas):not([data-pptx-animated]) { -webkit-text-fill-color: transparent !important; -webkit-text-stroke-color: transparent !important; text-shadow: none !important; text-decoration-color: transparent !important; caret-color: transparent !important; }',
-    'body :not(.katex):not(.katex *)::before, body :not(.katex):not(.katex *)::after { -webkit-text-fill-color: transparent !important; -webkit-text-stroke-color: transparent !important; text-shadow: none !important; text-decoration-color: transparent !important; }',
+    // Hide all text (extracted text + fallback for missed text)
+    'body :not(.katex):not(.katex *):not(canvas):not([data-pptx-animated]):not([data-pptx-extracted-image]) { color: transparent !important; -webkit-text-fill-color: transparent !important; -webkit-text-stroke-color: transparent !important; text-shadow: none !important; text-decoration-color: transparent !important; caret-color: transparent !important; }',
+    'body :not(.katex):not(.katex *)::before, body :not(.katex):not(.katex *)::after { color: transparent !important; -webkit-text-fill-color: transparent !important; -webkit-text-stroke-color: transparent !important; text-shadow: none !important; text-decoration-color: transparent !important; }',
+    // Preserve katex rendering
     '.katex, .katex * { -webkit-text-fill-color: currentColor !important; text-shadow: none !important; }',
+    // Hide SVG text (can't extract it anyway)
     'svg text, svg tspan { fill: transparent !important; stroke: transparent !important; }',
+    // Hide input/textarea text
     'input, textarea { color: transparent !important; -webkit-text-fill-color: transparent !important; }'
   ].join('\\n');
   document.head.appendChild(style);

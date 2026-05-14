@@ -21,6 +21,8 @@ export const buildTableExtractScript = (options: HtmlToPptxExtractOptions): stri
     }
     const m = source.match(/rgba?\\(\\s*(\\d+(?:\\.\\d+)?)(?:\\s*,\\s*|\\s+)(\\d+(?:\\.\\d+)?)(?:\\s*,\\s*|\\s+)(\\d+(?:\\.\\d+)?)(?:\\s*(?:,|\\/)\\s*(\\d+(?:\\.\\d+)?%?))?/i);
     if (!m) return '';
+    const alpha = m[4] === undefined ? 1 : String(m[4]).endsWith('%') ? Number.parseFloat(m[4]) / 100 : Number(m[4]);
+    if (alpha <= 0.02) return '';
     return [m[1], m[2], m[3]]
       .map((p) => Math.max(0, Math.min(255, Math.round(Number(p) || 0))).toString(16).padStart(2, '0'))
       .join('')
@@ -79,19 +81,30 @@ export const buildTableExtractScript = (options: HtmlToPptxExtractOptions): stri
     if (maxCols === 0) continue;
 
     // compute column widths: collect per-cell width contribution per column
+    // Track rowspan occupancy so colIdx skips columns consumed by previous rows' rowspan
     const colWidthsPx = new Array(maxCols).fill(0);
     const rowHeightsPx = [];
-    for (const tr of trs) {
+    const rowSpanGrid = new Array(trs.length).fill(null).map(() => new Array(maxCols).fill(false));
+    for (let trIdx = 0; trIdx < trs.length; trIdx++) {
+      const tr = trs[trIdx];
       const trRect = tr.getBoundingClientRect();
       rowHeightsPx.push(trRect.height);
       let colIdx = 0;
       for (const cell of tr.children) {
         if (cell.tagName !== 'TD' && cell.tagName !== 'TH') continue;
         const cs = Number(cell.getAttribute('colspan') || 1);
+        const rs = Number(cell.getAttribute('rowspan') || 1);
+        while (colIdx < maxCols && rowSpanGrid[trIdx][colIdx]) colIdx++;
+        if (colIdx >= maxCols) break;
         const cellRect = cell.getBoundingClientRect();
         const perCol = cellRect.width / cs;
         for (let c = 0; c < cs && colIdx + c < maxCols; c++) {
           colWidthsPx[colIdx + c] = Math.max(colWidthsPx[colIdx + c], perCol);
+        }
+        for (let r = 1; r < rs && trIdx + r < trs.length; r++) {
+          for (let c = 0; c < cs && colIdx + c < maxCols; c++) {
+            rowSpanGrid[trIdx + r][colIdx + c] = true;
+          }
         }
         colIdx += cs;
       }
