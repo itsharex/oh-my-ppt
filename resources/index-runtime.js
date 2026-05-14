@@ -1,6 +1,6 @@
 (function () {
   'use strict';
-  // @ohmyppt-index-runtim:arcsin1:v2
+  // @ohmyppt-index-runtim:arcsin1:v2.0.7
 
   var pages = JSON.parse(document.getElementById('pages-data')?.textContent || '[]');
   var frameViewport = document.getElementById('frameViewport');
@@ -67,15 +67,17 @@
       presentBtn.textContent = presentMode ? '退出演示' : '演示模式（ESC退出）';
     }
     if (syncQuery) {
-      var next = new URLSearchParams(window.location.search);
-      if (presentMode) next.set('present', '1');
-      else next.delete('present');
-      var query = next.toString();
-      window.history.replaceState(
-        null,
-        '',
-        window.location.pathname + (query ? '?' + query : '') + (window.location.hash || '')
-      );
+      try {
+        var next = new URLSearchParams(window.location.search);
+        if (presentMode) next.set('present', '1');
+        else next.delete('present');
+        var query = next.toString();
+        window.history.replaceState(
+          null,
+          '',
+          window.location.pathname + (query ? '?' + query : '') + (window.location.hash || '')
+        );
+      } catch (_) {}
     }
     scheduleFitFrame();
   }
@@ -192,6 +194,9 @@
   function exitPresentMode() {
     if (!presentMode) return;
     applyPresentMode(false, true);
+    if (document.fullscreenElement) {
+      try { document.exitFullscreen(); } catch (_) {}
+    }
   }
 
   function toggleFullscreen() {
@@ -218,6 +223,11 @@
     }
     if (event.key === 'Escape' && presentMode) {
       event.preventDefault();
+      exitPresentMode();
+    }
+  });
+  document.addEventListener('fullscreenchange', function () {
+    if (!document.fullscreenElement && presentMode) {
       exitPresentMode();
     }
   });

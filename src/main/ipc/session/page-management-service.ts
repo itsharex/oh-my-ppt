@@ -3,7 +3,7 @@ import * as fs from 'fs'
 import path from 'path'
 import { buildProjectIndexHtml } from '../engine/template'
 
-const INDEX_RUNTIME_MARKER = '@ohmyppt-index-runtim:arcsin1:v2'
+const INDEX_RUNTIME_MARKER = '@ohmyppt-index-runtim:arcsin1:v2.0.7'
 
 const resolvePageHtmlPath = (
   projectDir: string,
