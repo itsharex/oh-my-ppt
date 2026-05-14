@@ -268,11 +268,14 @@ export const buildHtmlToPptxExtractScript = (options: HtmlToPptxExtractOptions):
     const style = window.getComputedStyle(element);
     const { rect, x, y, w, h } = elementToBox(element);
     if (!isVisible(element, style, rect)) continue;
+    // Skip decorative blur blobs - cannot be faithfully rendered in PPTX
+    if (/blur/i.test(style.filter || '')) continue;
+    const opacity = Number(style.opacity || '1');
+    if (opacity < 0.15) continue;
     const fill = rgbToHex(style.backgroundColor);
     const borderColor = rgbToHex(style.borderColor);
     const borderWidth = Number.parseFloat(style.borderWidth || '0') || 0;
     const hasBorder = borderWidth > 0 && style.borderStyle !== 'none' && borderColor;
-    const opacity = Number(style.opacity || '1');
     if ((!fill || fill === backgroundColor) && !hasBorder) continue;
     if (!hasBorder && rect.width * rect.height < minShapeArea) continue;
     if (rect.width < 24 || rect.height < 16) continue;
@@ -317,7 +320,7 @@ export const buildHtmlToPptxExtractScript = (options: HtmlToPptxExtractOptions):
     return false;
   };
   const textWidthIn = (x, width, fontSizePt, text, shouldWrap = false) => {
-    if (shouldWrap) return Math.max(0.12, Math.min(slideWidthIn - x, width));
+    if (shouldWrap) return Math.max(0.12, Math.min(slideWidthIn - x, width * 1.2));
     const hasCjk = /[\\u3400-\\u9fff\\uf900-\\ufaff]/.test(text);
     const factor = hasCjk ? 1.28 : 1.18;
     const padding = Math.max(0.16, Math.min(0.6, fontSizePt / 72 * 0.4));
@@ -674,6 +677,9 @@ export const buildHtmlToPptxExtractScript = (options: HtmlToPptxExtractOptions):
     const style = window.getComputedStyle(element);
     const { rect, x, y, w, h } = elementToBox(element);
     if (!isVisible(element, style, rect)) continue;
+    // Skip decorative blurred/transparent images (blur blobs, faint SVGs)
+    if (/blur/i.test(style.filter || '')) continue;
+    if (Number(style.opacity || '1') < 0.15) continue;
     const dataUri = element.tagName === 'CANVAS' ? canvasToDataUri(element) : await imageToDataUri(element);
     if (!/^data:image\\/(?:png|jpeg|jpg|gif);base64,/i.test(dataUri)) continue;
     if (maxImageDataUriLength > 128 && dataUri.length > maxImageDataUriLength) continue;
@@ -945,7 +951,7 @@ const buildPptxGenDocument = (document: HtmlToPptxDocument): PptxGenJS => {
   slides.forEach((sourceSlide) => {
     const slide = pptx.addSlide()
     slide.background = { color: normalizeHexColor(sourceSlide.backgroundColor, 'FFFFFF') }
-    // Z-order: background → shapes → tables → images → texts
+    // Z-order: background → images → shapes → tables → texts
     if (sourceSlide.backgroundImage) {
       slide.addImage({
         data: sourceSlide.backgroundImage.dataUri,
@@ -956,6 +962,17 @@ const buildPptxGenDocument = (document: HtmlToPptxDocument): PptxGenJS => {
         altText: 'Slide visual background'
       })
     }
+    ;(sourceSlide.images || []).forEach((image) => {
+      slide.addImage({
+        data: image.dataUri,
+        x: image.x,
+        y: image.y,
+        w: image.w,
+        h: image.h,
+        altText: image.alt,
+        rotate: image.rotate || undefined
+      })
+    })
     ;(sourceSlide.shapes || []).forEach((shape) => {
       slide.addShape(mapPptxShapeType(pptx, shape), {
         x: shape.x,
@@ -1022,18 +1039,6 @@ const buildPptxGenDocument = (document: HtmlToPptxDocument): PptxGenJS => {
         w: table.w,
         colW: table.colWidths.length > 0 ? table.colWidths : undefined,
         rowH: table.rowHeights.length > 0 ? table.rowHeights : undefined
-      })
-    })
-
-    ;(sourceSlide.images || []).forEach((image) => {
-      slide.addImage({
-        data: image.dataUri,
-        x: image.x,
-        y: image.y,
-        w: image.w,
-        h: image.h,
-        altText: image.alt,
-        rotate: image.rotate || undefined
       })
     })
 

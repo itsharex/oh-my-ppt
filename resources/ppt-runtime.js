@@ -122,6 +122,10 @@
   function applyPrintAnimationEndState(rawTargets, params) {
     var targets = normalizeTargets(rawTargets);
     if (!targets.length || !params || typeof params !== "object") return;
+    // Mark animated targets so the PPTX export can keep them in the background screenshot
+    targets.forEach(function (el) {
+      if (el && el.nodeType === 1) el.setAttribute("data-pptx-animated", "1");
+    });
     var transformKeys = {
       x: true,
       y: true,
