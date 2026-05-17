@@ -3,6 +3,7 @@ import type { PPTDatabase } from '../db/database'
 import type { AgentManager } from '../agent'
 import { createIpcContext } from './context'
 import { registerSessionHandlers } from './session/session-handlers'
+import { registerSessionImportHandlers } from './session/session-import-handlers'
 import { registerAssetHandlers, registerLocalAssetProtocol } from './io/assets-handlers'
 import { registerGenerationHandlers } from './engine/generation-handlers'
 import { registerExportHandlers } from './io/export-handlers'
@@ -28,6 +29,7 @@ export function setupIPC(
   const context = createIpcContext(mainWindow, db, agentManager)
 
   registerSessionHandlers(context)
+  registerSessionImportHandlers(context)
   registerPageManagementHandlers(context)
   registerAssetHandlers(context)
   registerGenerationHandlers(context)

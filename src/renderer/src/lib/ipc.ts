@@ -94,6 +94,15 @@ export interface ExportDeckResult {
   pageCount?: number
 }
 
+export interface ImportSessionFileResult {
+  success: boolean
+  cancelled?: boolean
+  sessionId?: string
+  title?: string
+  pageCount?: number
+  warnings?: string[]
+}
+
 export interface EnsureElementAnchorPayload {
   sessionId?: string
   htmlPath: string
@@ -285,6 +294,8 @@ export const ipc = {
     getIpc().invoke('session:delete', sessionId) as Promise<{ success: boolean }>,
   updateSessionTitle: (payload: { sessionId: string; title: string }) =>
     getIpc().invoke('session:updateTitle', payload) as Promise<{ ok: boolean }>,
+  importSessionFile: () =>
+    getIpc().invoke('session:importFile') as Promise<ImportSessionFileResult>,
   startGenerate: (payload: GenerateStartPayload) =>
     getIpc().invoke('generate:start', payload) as Promise<{
       success: boolean

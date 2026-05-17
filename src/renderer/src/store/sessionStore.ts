@@ -70,6 +70,13 @@ interface SessionStore {
   loadMessages: (payload: { sessionId: string; chatType: 'main' | 'page'; pageId?: string }) => Promise<void>
   deleteSession: (sessionId: string) => Promise<void>
   updateSessionTitle: (payload: { sessionId: string; title: string }) => Promise<void>
+  importSessionFile: () => Promise<{
+    cancelled?: boolean
+    sessionId?: string
+    title?: string
+    pageCount?: number
+    warnings?: string[]
+  }>
   setCurrentSession: (session: Session | null) => void
   setMessages: (messages: Message[]) => void
   addMessage: (message: Message) => void
@@ -181,6 +188,14 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     if (currentSession?.id === sessionId) {
       set({ currentSession: { ...currentSession, title } })
     }
+  },
+
+  importSessionFile: async () => {
+    const result = await ipc.importSessionFile()
+    if (!result.cancelled) {
+      await get().fetchSessions()
+    }
+    return result
   },
 
   setCurrentSession: (session) => set({ currentSession: session }),
