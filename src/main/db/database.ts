@@ -176,6 +176,8 @@ export interface StyleRow {
   aliases: string // JSON array
   source: StyleSource
   styleSkill: string // plain markdown
+  version: number
+  styleCase: string
   createdAt: number
   updatedAt: number
 }
@@ -187,6 +189,7 @@ export interface ModelConfigRow {
   model: string
   apiKey: string
   baseUrl: string
+  maxTokens: number
   active: number
   createdAt: number
   updatedAt: number
@@ -1376,10 +1379,12 @@ export class PPTDatabase {
     model: string
     apiKey: string
     baseUrl: string
+    maxTokens?: number
     active?: boolean
   }): Promise<string> {
     const id = data.id || crypto.randomUUID()
     const now = Math.floor(Date.now() / 1000)
+    const maxTokens = data.maxTokens || 4096
     if (data.active) {
       await this.db
         .update(schema.modelConfigs)
@@ -1396,6 +1401,7 @@ export class PPTDatabase {
         model: data.model,
         apiKey: data.apiKey,
         baseUrl: data.baseUrl,
+        maxTokens,
         active: data.active ? 1 : 0,
         createdAt: now,
         updatedAt: now
@@ -1408,6 +1414,7 @@ export class PPTDatabase {
           model: data.model,
           apiKey: data.apiKey,
           baseUrl: data.baseUrl,
+          maxTokens,
           active: data.active ? 1 : 0,
           updatedAt: now
         }
@@ -1601,18 +1608,13 @@ export class PPTDatabase {
   }
 
   async seedStylesFromResources(): Promise<void> {
-    const rowCount = await this.countStyles()
-    if (rowCount > 0) {
-      await this._refreshStylesCache()
-      return
-    }
-
     const stylesPath = is.dev
       ? path.join(process.cwd(), 'resources', 'styles.json')
       : path.join(process.resourcesPath, 'app.asar.unpacked', 'resources', 'styles.json')
 
     if (!fs.existsSync(stylesPath)) {
       console.warn('[db] styles.json not found at', stylesPath)
+      await this._refreshStylesCache()
       return
     }
 
@@ -1625,27 +1627,100 @@ export class PPTDatabase {
       aliases?: string[]
       source?: string
       styleSkill?: string
+      version?: number
+      styleCase?: string
     }> = JSON.parse(raw)
 
-    const now = Math.floor(Date.now() / 1000)
-    for (const item of items) {
-      const id = crypto.randomUUID()
-      await this.db
-        .insert(schema.styles)
-        .values({
-          id,
-          style: item.style,
-          styleName: item.styleName,
-          description: item.description || '',
-          category: item.category || '',
-          aliases: JSON.stringify(item.aliases || []),
-          source: (item.source as StyleSource) || 'builtin',
-          styleSkill: item.styleSkill || '',
-          createdAt: now,
-          updatedAt: now
-        })
-        .run()
+    const rowCount = await this.countStyles()
+
+    if (rowCount === 0) {
+      // Fresh install: seed all
+      const now = Math.floor(Date.now() / 1000)
+      for (const item of items) {
+        await this.db
+          .insert(schema.styles)
+          .values({
+            id: crypto.randomUUID(),
+            style: item.style,
+            styleName: item.styleName,
+            description: item.description || '',
+            category: item.category || '',
+            aliases: JSON.stringify(item.aliases || []),
+            source: (item.source as StyleSource) || 'builtin',
+            styleSkill: item.styleSkill || '',
+            version: item.version || 1,
+            styleCase: item.styleCase || '',
+            createdAt: now,
+            updatedAt: now
+          })
+          .run()
+      }
+      await this._refreshStylesCache()
+      return
     }
+
+    // Table non-empty: incremental upgrade
+    await this._refreshStylesCache()
+    const now = Math.floor(Date.now() / 1000)
+
+    for (const item of items) {
+      const seedVersion = item.version || 1
+      const existing = this._stylesCache.find((r) => r.style === item.style)
+
+      if (!existing) {
+        // New style: insert
+        await this.db
+          .insert(schema.styles)
+          .values({
+            id: crypto.randomUUID(),
+            style: item.style,
+            styleName: item.styleName,
+            description: item.description || '',
+            category: item.category || '',
+            aliases: JSON.stringify(item.aliases || []),
+            source: (item.source as StyleSource) || 'builtin',
+            styleSkill: item.styleSkill || '',
+            version: seedVersion,
+            styleCase: item.styleCase || '',
+            createdAt: now,
+            updatedAt: now
+          })
+          .run()
+        continue
+      }
+
+      if (existing.source === 'builtin' && existing.version < seedVersion) {
+        // Builtin style: full upgrade
+        await this.db
+          .update(schema.styles)
+          .set({
+            styleName: item.styleName,
+            description: item.description || '',
+            category: item.category || '',
+            aliases: JSON.stringify(item.aliases || []),
+            styleSkill: item.styleSkill || '',
+            version: seedVersion,
+            styleCase: item.styleCase || '',
+            updatedAt: now
+          })
+          .where(eq(schema.styles.style, item.style))
+          .run()
+        continue
+      }
+
+      if (existing.source === 'override' && existing.version < seedVersion) {
+        // Override: only bump version, don't touch user content
+        await this.db
+          .update(schema.styles)
+          .set({ version: seedVersion, updatedAt: now })
+          .where(eq(schema.styles.style, item.style))
+          .run()
+        continue
+      }
+
+      // custom or already up-to-date: skip
+    }
+
     await this._refreshStylesCache()
   }
 
@@ -1700,6 +1775,8 @@ export class PPTDatabase {
     aliases?: string[]
     source?: StyleSource
     styleSkill?: string
+    version?: number
+    styleCase?: string
   }): Promise<string> {
     const id = data.id || crypto.randomUUID()
     const now = Math.floor(Date.now() / 1000)
@@ -1714,6 +1791,8 @@ export class PPTDatabase {
         aliases: JSON.stringify(data.aliases || []),
         source: data.source || 'custom',
         styleSkill: data.styleSkill || '',
+        version: data.version || 1,
+        styleCase: data.styleCase || '',
         createdAt: now,
         updatedAt: now
       })
@@ -1731,6 +1810,8 @@ export class PPTDatabase {
       aliases?: string[]
       source?: StyleSource
       styleSkill?: string
+      version?: number
+      styleCase?: string
     }
   ): Promise<void> {
     const now = Math.floor(Date.now() / 1000)
@@ -1741,6 +1822,8 @@ export class PPTDatabase {
     if (data.aliases !== undefined) set.aliases = JSON.stringify(data.aliases)
     if (data.source !== undefined) set.source = data.source
     if (data.styleSkill !== undefined) set.styleSkill = data.styleSkill
+    if (data.version !== undefined) set.version = data.version
+    if (data.styleCase !== undefined) set.styleCase = data.styleCase
     await this.db.update(schema.styles).set(set).where(eq(schema.styles.id, styleId)).run()
     await this._refreshStylesCache()
   }

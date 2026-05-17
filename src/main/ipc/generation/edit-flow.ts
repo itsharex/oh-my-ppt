@@ -86,6 +86,7 @@ export async function resolveEditContext(
     model: common.model,
     modelTimeouts: common.modelTimeouts,
     providerBaseUrl: common.providerBaseUrl,
+    maxTokens: common.maxTokens,
     projectId: common.projectId,
     messageScope: chatType,
     messagePageId: chatType === 'page' ? chatPageId : undefined,
@@ -94,7 +95,8 @@ export async function resolveEditContext(
     sourceDocumentPaths: [],
     topic: common.topic,
     deckTitle: common.deckTitle,
-    appLocale: common.appLocale
+    appLocale: common.appLocale,
+    fontSelection: common.fontSelection
   }
 }
 
@@ -269,6 +271,7 @@ export async function executeEditGeneration(
     apiKey: context.apiKey,
     model: context.model,
     baseUrl: context.providerBaseUrl,
+    maxTokens: context.maxTokens,
     modelTimeoutMs: context.modelTimeouts.agent,
     temperature: editTemperature,
     styleId: context.styleId,

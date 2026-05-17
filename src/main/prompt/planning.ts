@@ -1,4 +1,5 @@
 import { CONTENT_LANGUAGE_RULES } from './shared'
+import type { AvailableFont } from '../tools/font-registry'
 
 export function buildPlanningSystemPrompt(totalPages: number = 0): string {
   return [
@@ -34,7 +35,27 @@ export function buildPlanningSystemPrompt(totalPages: number = 0): string {
   ].join('\n')
 }
 
-export function buildDesignContractSystemPrompt(styleSkill?: string | null): string {
+export function buildDesignContractSystemPrompt(args?: {
+  styleSkill?: string | null
+  availableFonts?: AvailableFont[]
+  requestedFontPair?: { titleFont: string; bodyFont: string } | null
+  languageHint?: string | null
+}): string {
+  const styleSkill = args?.styleSkill
+  const availableFonts = args?.availableFonts || []
+  const requestedFontPair = args?.requestedFontPair || null
+  const fontInstruction = requestedFontPair
+    ? [
+        '- titleFont and bodyFont are fixed by the user selection. Copy them exactly:',
+        `  - titleFont: ${requestedFontPair.titleFont}`,
+        `  - bodyFont: ${requestedFontPair.bodyFont}`
+      ].join('\n')
+    : [
+        '- titleFont: choose one exact family from availableFonts whose role includes "title".',
+        '- bodyFont: choose one exact family from availableFonts whose role includes "body".',
+        '- Both titleFont and bodyFont must support the main writing system implied by languageHint.',
+        '- If using a display/handwriting font for titleFont, choose a highly readable bodyFont.'
+      ].join('\n')
   return [
     'You are a PPT visual-system designer. Generate flexible deck-level visual guardrails from the style rules.',
     '',
@@ -45,14 +66,20 @@ export function buildDesignContractSystemPrompt(styleSkill?: string | null): str
     'Field semantics:',
     '- theme describes the visual mood/design direction, not the deck content topic. Do not repeat the topic, title, year, or industry name.',
     '- background, palette, titleStyle, layoutMotif, chartStyle, and shapeLanguage must be derived from the style specification.',
+    fontInstruction,
     '- The design contract should keep the deck visually coherent while allowing slide-level variation in composition, density, and emphasis.',
     '- Avoid over-prescribing exact placements, repeated templates, or one layout that every page must copy.',
     '- Keep fields concrete and actionable, but phrase them as ranges, tendencies, and reusable tokens when the source style allows flexibility.',
     '',
+    `languageHint: ${args?.languageHint || 'unknown'}`,
+    'availableFonts:',
+    JSON.stringify(availableFonts),
+    '',
     'Return only a JSON object. Do not add explanations, Markdown, or extra text.',
-    'Use exactly these fields: theme, background, palette, titleStyle, layoutMotif, chartStyle, shapeLanguage.',
+    'Use exactly these fields: theme, background, palette, titleStyle, layoutMotif, chartStyle, shapeLanguage, titleFont, bodyFont.',
     'palette must contain 3-6 color strings.',
+    'titleFont and bodyFont must be exact family values from availableFonts.',
     'titleStyle should usually use text-4xl or text-5xl depending on content density. Do not use text-6xl, text-7xl, or text-8xl.',
-    'Format example: {"theme":"calm editorial analytics","background":"root uses warm white with subtle green wash","palette":["#f7f3e8","#5f7550","#d39d5c"],"titleStyle":"text-5xl font-semibold text-[#2f3a2a]","layoutMotif":"spacious editorial grids with organic dividers","chartStyle":"muted lines, no neon, readable labels","shapeLanguage":"8px radius, light borders, subtle shadows"}'
+    'Format example: {"theme":"calm editorial analytics","background":"root uses warm white with subtle green wash","palette":["#f7f3e8","#5f7550","#d39d5c"],"titleStyle":"text-5xl font-semibold text-[#2f3a2a]","layoutMotif":"spacious editorial grids with organic dividers","chartStyle":"muted lines, no neon, readable labels","shapeLanguage":"8px radius, light borders, subtle shadows","titleFont":"Montserrat","bodyFont":"Inter"}'
   ].join('\n')
 }

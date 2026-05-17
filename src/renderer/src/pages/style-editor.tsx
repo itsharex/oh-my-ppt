@@ -62,6 +62,7 @@ export function StyleEditorPage(): React.JSX.Element {
             source: 'custom',
             editable: true,
             category: t('styleEditor.defaultCategory'),
+            styleCase: '',
           }
           setDraft(initial)
           setLabelInput(initial.label)
@@ -118,7 +119,8 @@ export function StyleEditorPage(): React.JSX.Element {
         description: nextDescription,
         category: draft.category || t('styleEditor.defaultCategory'),
         aliases: draft.aliases || [],
-        styleSkill: nextMarkdown
+        styleSkill: nextMarkdown,
+        styleCase: draft.styleCase || ''
       }
       const result = shouldCreate
         ? await ipc.createStyle(createPayload)
@@ -140,7 +142,8 @@ export function StyleEditorPage(): React.JSX.Element {
               description: createPayload.description,
               category: createPayload.category,
               aliases: createPayload.aliases,
-              styleSkill: createPayload.styleSkill
+              styleSkill: createPayload.styleSkill,
+              styleCase: createPayload.styleCase
             }
           : prev
       )
@@ -185,7 +188,8 @@ export function StyleEditorPage(): React.JSX.Element {
             description: result.description,
             category: result.category,
             aliases: result.aliases,
-            styleSkill: result.styleSkill
+            styleSkill: result.styleSkill,
+            styleCase: result.styleCase || prev.styleCase || ''
           }
         : prev
     )
@@ -356,6 +360,16 @@ export function StyleEditorPage(): React.JSX.Element {
                   value={descriptionInput}
                   onChange={(e) => setDescriptionInput(e.target.value)}
                   placeholder={t('styleEditor.descriptionPlaceholder')}
+                />
+              </div>
+              <div className="md:col-span-2">
+                <label className="mb-2 block text-sm font-medium">{t('styleEditor.styleCaseLabel')}</label>
+                <Input
+                  value={draft.styleCase || ''}
+                  onChange={(e) =>
+                    setDraft((prev) => (prev ? { ...prev, styleCase: e.target.value } : prev))
+                  }
+                  placeholder={t('styleEditor.styleCasePlaceholder')}
                 />
               </div>
             </div>

@@ -2,8 +2,7 @@ import type { IpcContext } from '../context'
 import * as fs from 'fs'
 import path from 'path'
 import { buildProjectIndexHtml } from '../engine/template'
-
-const INDEX_RUNTIME_MARKER = '@ohmyppt-index-runtim:arcsin1:v2.0.7'
+import { ensureSessionRuntimeCompatible } from './runtime-assets'
 
 const resolvePageHtmlPath = (
   projectDir: string,
@@ -20,17 +19,6 @@ const resolvePageHtmlPath = (
   const relative = path.relative(projectRoot, resolvedCandidate)
   if (relative.startsWith('..') || path.isAbsolute(relative)) return fallbackPath
   return fs.existsSync(resolvedCandidate) ? resolvedCandidate : fallbackPath
-}
-
-async function ensureSessionRuntimeCompatible(ctx: IpcContext, projectDir: string): Promise<void> {
-  const runtimePath = path.join(projectDir, 'assets', 'index-runtime.js')
-  try {
-    const content = await fs.promises.readFile(runtimePath, 'utf-8')
-    if (content.includes(INDEX_RUNTIME_MARKER)) return
-  } catch {
-    // Missing or unreadable runtime file falls back to full asset refresh.
-  }
-  await ctx.ensureSessionAssets(projectDir)
 }
 
 export interface ManagedPage {

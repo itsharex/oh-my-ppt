@@ -33,6 +33,7 @@ export type AddPageContext = {
   apiKey: string
   model: string
   providerBaseUrl: string
+  maxTokens: number
   modelTimeouts: Record<ModelTimeoutProfile, number>
   projectDir: string
   abortSignal: AbortSignal
@@ -156,11 +157,11 @@ export async function executeAddPageGeneration(
       apiKey: context.apiKey,
       model: context.model,
       baseUrl: context.providerBaseUrl,
+      maxTokens: context.maxTokens,
       modelTimeoutMs: context.modelTimeouts.planning,
       temperature: DESIGN_CONTRACT_TEMPERATURE,
       appLocale: context.appLocale,
-      userDescription,
-      topic: context.topic,
+      userDescription,      topic: context.topic,
       existingTitles,
       signal: context.abortSignal
     })
@@ -172,6 +173,7 @@ export async function executeAddPageGeneration(
         apiKey: context.apiKey,
         model: context.model,
         baseUrl: context.providerBaseUrl,
+        maxTokens: context.maxTokens,
         modelTimeoutMs: context.modelTimeouts.planning,
         temperature: DESIGN_CONTRACT_TEMPERATURE,
         appLocale: context.appLocale,
@@ -258,6 +260,7 @@ export async function executeAddPageGeneration(
         apiKey: context.apiKey,
         model: context.model,
         baseUrl: context.providerBaseUrl,
+        maxTokens: context.maxTokens,
         modelTimeoutMs: context.modelTimeouts.agent,
         temperature: PAGE_GENERATION_TEMPERATURE,
         styleId: context.styleId,

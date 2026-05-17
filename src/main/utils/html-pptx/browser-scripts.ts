@@ -27,6 +27,169 @@ export const FREEZE_PAGE_FOR_EXPORT_SCRIPT = `
     });
   } catch (_err) {}
 
+  const waitFrames = (frames) =>
+    new Promise((resolve) => {
+      let remaining = Math.max(1, Number(frames) || 1);
+      const next = () => {
+        remaining -= 1;
+        if (remaining <= 0) {
+          resolve(true);
+          return;
+        }
+        requestAnimationFrame(next);
+      };
+      requestAnimationFrame(next);
+    });
+
+  const collectChartInstances = () => {
+    const charts = new Set();
+    const ChartCtor = window.Chart;
+    try {
+      if (window.__PPT_CHART_REGISTRY__ instanceof Map) {
+        window.__PPT_CHART_REGISTRY__.forEach((chart) => {
+          if (chart) charts.add(chart);
+        });
+      }
+    } catch (_err) {}
+    try {
+      if (ChartCtor?.instances) {
+        const instances = Array.isArray(ChartCtor.instances)
+          ? ChartCtor.instances
+          : Object.values(ChartCtor.instances);
+        instances.forEach((chart) => {
+          if (chart) charts.add(chart);
+        });
+      }
+    } catch (_err) {}
+    try {
+      root.querySelectorAll('canvas').forEach((canvas) => {
+        let chart = null;
+        try {
+          chart = ChartCtor?.getChart?.(canvas) || null;
+        } catch (_err) {}
+        if (chart) charts.add(chart);
+      });
+    } catch (_err) {}
+    return Array.from(charts);
+  };
+
+  const disableChartAnimations = () => {
+    const ChartCtor = window.Chart;
+    try {
+      if (ChartCtor?.defaults) {
+        ChartCtor.defaults.animation = false;
+        ChartCtor.defaults.animations = false;
+        if (ChartCtor.defaults.transitions) {
+          Object.values(ChartCtor.defaults.transitions).forEach((transition) => {
+            if (transition?.animation) transition.animation.duration = 0;
+            if (transition?.animations) {
+              Object.values(transition.animations).forEach((animation) => {
+                if (animation && typeof animation === 'object') animation.duration = 0;
+              });
+            }
+          });
+        }
+      }
+    } catch (_err) {}
+  };
+
+  const fingerprintCanvases = () => {
+    const canvases = Array.from(root.querySelectorAll('canvas'));
+    if (canvases.length === 0) return '';
+    return canvases
+      .map((canvas) => {
+        const width = canvas.width || 0;
+        const height = canvas.height || 0;
+        if (!width || !height) return 'empty';
+        let ctx = null;
+        try {
+          ctx = canvas.getContext('2d', { willReadFrequently: true }) || canvas.getContext('2d');
+        } catch (_err) {
+          return 'unreadable';
+        }
+        if (!ctx) return 'noctx';
+        const columns = Math.min(8, Math.max(2, Math.floor(width / 80)));
+        const rows = Math.min(6, Math.max(2, Math.floor(height / 60)));
+        let hash = 2166136261;
+        try {
+          for (let yIndex = 0; yIndex < rows; yIndex += 1) {
+            const y = Math.min(height - 1, Math.floor(((yIndex + 0.5) * height) / rows));
+            for (let xIndex = 0; xIndex < columns; xIndex += 1) {
+              const x = Math.min(width - 1, Math.floor(((xIndex + 0.5) * width) / columns));
+              const data = ctx.getImageData(x, y, 1, 1).data;
+              for (let i = 0; i < 4; i += 1) {
+                hash ^= data[i] || 0;
+                hash = Math.imul(hash, 16777619);
+              }
+            }
+          }
+          return String(width) + 'x' + String(height) + ':' + String(hash >>> 0);
+        } catch (_err) {
+          return 'tainted';
+        }
+      })
+      .join('|');
+  };
+
+  const waitForCanvasStability = async () => {
+    if (!root.querySelector('canvas')) return;
+    let previous = '';
+    let stableFrames = 0;
+    const deadline = Date.now() + 1200;
+    while (Date.now() < deadline) {
+      await waitFrames(2);
+      const next = fingerprintCanvases();
+      if (next && next === previous) {
+        stableFrames += 1;
+        if (stableFrames >= 2) return;
+      } else {
+        stableFrames = 0;
+        previous = next;
+      }
+    }
+  };
+
+  const stabilizeCharts = async () => {
+    disableChartAnimations();
+    const applyFinalChartState = () => {
+      collectChartInstances().forEach((chart) => {
+        try {
+          if (chart?.options) {
+            chart.options.animation = false;
+            chart.options.animations = false;
+            chart.options.responsive = false;
+            chart.options.maintainAspectRatio = false;
+          }
+        } catch (_err) {}
+        try {
+          if (typeof chart?.stop === 'function') chart.stop();
+        } catch (_err) {}
+        try {
+          if (typeof chart?.resize === 'function') chart.resize();
+        } catch (_err) {}
+        try {
+          if (typeof chart?.update === 'function') chart.update('none');
+        } catch (_err) {}
+        try {
+          if (typeof chart?.render === 'function') chart.render();
+          else if (typeof chart?.draw === 'function') chart.draw();
+        } catch (_err) {}
+      });
+    };
+
+    applyFinalChartState();
+    await waitFrames(2);
+    applyFinalChartState();
+    await waitForCanvasStability();
+  };
+
+  await stabilizeCharts();
+
+  const shouldForceVisibleForMotion = (node) => {
+    if (!node?.matches?.('.opacity-0, [data-anime], [data-animate]')) return false;
+    return Number(getComputedStyle(node).opacity || '1') <= 0.04;
+  };
+
   const motionTargets = root.querySelectorAll(
     '.opacity-0, [data-anime], [data-animate], h1, h2, h3, p, li, .card, .panel, .text-section, .diagram-section, .timeline-node, section, section > *'
   );
@@ -34,7 +197,7 @@ export const FREEZE_PAGE_FOR_EXPORT_SCRIPT = `
     const node = element;
     node.style.transition = 'none';
     node.style.animation = 'none';
-    if (Number(getComputedStyle(node).opacity || '1') < 0.98) {
+    if (shouldForceVisibleForMotion(node)) {
       node.setAttribute('data-pptx-animated', '1');
       node.style.opacity = '1';
     }
@@ -48,7 +211,7 @@ export const FREEZE_PAGE_FOR_EXPORT_SCRIPT = `
     const node = element;
     const computed = getComputedStyle(node);
     if (computed.display === 'none' || computed.visibility === 'hidden') return;
-    if (Number(computed.opacity || '1') < 0.98) {
+    if (shouldForceVisibleForMotion(node)) {
       node.setAttribute('data-pptx-animated', '1');
       node.style.opacity = '1';
     }
@@ -224,6 +387,8 @@ export const HIDE_FOR_PPTX_BACKGROUND_SCRIPT = `
     'body::before, body::after { color: transparent !important; -webkit-text-fill-color: transparent !important; -webkit-text-stroke-color: transparent !important; text-shadow: none !important; text-decoration-color: transparent !important; }',
     // Hide katex elements (captured as separate images before background capture)
     '.katex { opacity: 0 !important; visibility: hidden !important; }',
+    // Hide formula blocks (captured as block-level overlay images)
+    '[data-pptx-formula-block] { opacity: 0 !important; visibility: hidden !important; }',
     // Hide SVG text (can't extract it anyway)
     'svg text, svg tspan { fill: transparent !important; stroke: transparent !important; }',
     // Hide input/textarea text
@@ -259,16 +424,69 @@ export const HIDE_ELEMENTS_FOR_PPTX_BACKGROUND_SCRIPT = `
 })()
 `
 
-export const COLLECT_KATEX_RECTS_SCRIPT = `
+export const MARK_KATEX_BLOCKS_SCRIPT = `
+(() => {
+  const root = document.querySelector('.ppt-page-root') || document.body;
+  root.querySelectorAll('[data-pptx-formula-block]').forEach((block) => {
+    block.removeAttribute('data-pptx-formula-block');
+  });
+  const blockSelector = [
+    'p',
+    'div',
+    'section',
+    'article',
+    'main',
+    'aside',
+    'header',
+    'footer',
+    'figure',
+    'figcaption',
+    'li',
+    'ul',
+    'ol',
+    'dl',
+    'dt',
+    'dd',
+    'blockquote',
+    'pre',
+    'h1',
+    'h2',
+    'h3',
+    'h4',
+    'h5',
+    'h6',
+    'td',
+    'th'
+  ].join(',');
+  const BLOCK_TAGS = new Set(blockSelector.split(',').map((tag) => tag.toUpperCase()));
+  const allBlocks = root.querySelectorAll(blockSelector);
+  let count = 0;
+  for (const block of allBlocks) {
+    // Must contain katex
+    if (!block.querySelector('.katex')) continue;
+    // Check if any direct child block also contains katex — if so, this is a
+    // parent container and the children are the actual leaf targets.
+    let childBlockHasKatex = false;
+    for (const child of block.children) {
+      if (!BLOCK_TAGS.has(child.tagName)) continue;
+      if (child.querySelector('.katex')) { childBlockHasKatex = true; break; }
+    }
+    if (childBlockHasKatex) continue;
+    block.setAttribute('data-pptx-formula-block', '1');
+    count++;
+  }
+  return count;
+})()
+`
+
+export const COLLECT_KATEX_BLOCK_RECTS_SCRIPT = `
 (async () => {
   const root = document.querySelector('.ppt-page-root') || document.body;
   const pageRect = root.getBoundingClientRect();
-  const katexElements = root.querySelectorAll('.katex');
+  const blocks = root.querySelectorAll('[data-pptx-formula-block="1"]');
   const results = [];
-  for (const el of katexElements) {
-    // Only top-level .katex (skip nested inside another .katex)
-    if (el.parentElement?.closest('.katex')) continue;
-    const rect = el.getBoundingClientRect();
+  for (const block of blocks) {
+    const rect = block.getBoundingClientRect();
     if (rect.width < 2 || rect.height < 2) continue;
     results.push({
       x: Math.round(rect.left - pageRect.left),

@@ -41,13 +41,21 @@ export const CANVAS_CONSTRAINTS = [
   '- 禁止 vw/vh 字体单位和 text-[clamp(...)]；h1 统一 text-5xl，禁 text-6xl/7xl/8xl。',
   '- 禁止 iframe。禁止引用系统骨架类。',
   '- 整套页面复用同一背景体系/主色/字体；背景铺满画布，定义在最外层容器上。',
-  '- 内容过长时精简文字和卡片；不要预留页脚/meta 区。'
+  '- 内容过长时精简文字和卡片；不要预留页脚/meta 区。',
+  '- 全局最小字号 16px，禁止 text-xs / text-sm / text-[12px] / text-[14px] 等小于 16px 的字号，正文最小 text-base。'
 ].join('\n')
 
 export const FRONTEND_CAPABILITIES = [
   '## 前端能力（已内置）',
   '每个 /<pageId>.html 已预注入 ./assets/anime.v4.js、./assets/tailwindcss.v3.js、./assets/chart.v4.js、./assets/ppt-runtime.js 和 KaTeX。',
   '禁止重复插入上述 script/link 标签；禁止使用任何 CDN 外链。',
+  '',
+  '### 字体',
+  '装饰字体已由系统根据 design contract 自动注入（@font-face + CSS 变量），直接使用：',
+  '- 标题用 var(--ppt-title-font)',
+  '- 正文用 var(--ppt-body-font)',
+  '禁止手写 @font-face 或 <link> 引入外部字体，系统已自动处理。',
+  '所有 CDN 字体/图标库仍然禁止。',
   '',
   '### 图表 — 必须严格按此模板写',
   '正确写法（高度写在 canvas 的直接父容器上）：',
@@ -65,11 +73,22 @@ export const FRONTEND_CAPABILITIES = [
   '- 把 canvas 直接放进卡片/文本块 → 必须有专属 chart frame 父容器',
   '',
   '### 动画 — 必须严格按此写法',
-  '正确：PPT.animate(targets, params)、PPT.createTimeline(...)、PPT.stagger(...)',
-  '⛔ 错误：anime({ targets })、anime.timeline()、PPT.animate({ targets })',
+  'PPT.animate 的第一个参数是 targets（CSS 选择器字符串或 DOM 元素），第二个参数是动画参数对象：',
+  '```js',
+  '// ✅ 正确：PPT.animate(selector, params)',
+  'PPT.animate(“.card”, { opacity: [0, 1], translateY: [20, 0], duration: 500, delay: PPT.stagger(100) })',
+  '',
+  '// ❌ 错误：把 targets 放在对象里',
+  'PPT.animate({ targets: “.card”, opacity: [0, 1] })  // 会被拦截',
+  'anime({ targets: “.card” })                          // 会被拦截',
+  '```',
+  '创建时间线：PPT.createTimeline(targets, params)',
+  '错峰延迟：PPT.stagger(ms)',
   '',
   '### 其他硬校验禁区（违反即失败）',
   '- 禁止 opacity-0 / invisible / visibility:hidden（初始态必须可见）',
+  '- <style> 中禁止写 opacity:0 / visibility:hidden / display:none（系统会检测并拒绝）',
+  '- 动画初始态写在 PPT.animate 参数里（如 opacity: [0, 1]），不要写在 CSS 或 class 中',
   '- 数学公式用 \\( \\) 或 $$ $$，不用单 $',
   '- 动画仅做轻量入场增强（opacity/translate/scale，300-700ms），禁止无限循环'
 ].join('\n')
@@ -80,7 +99,9 @@ export const CONTENT_WRITING_RULES = [
   '- 禁止 <!doctype>/<html>/<head>/<body>/<meta>/<title>/<link>/<script src=...>。',
   '- 禁止系统骨架标识：.ppt-page-root / .ppt-page-fit-scope / .ppt-page-content / data-ppt-guard-root（class、CSS、script、注释里都不能出现）。',
   '- 所有标签必须成对闭合；items-center/justify-* 的父节点必须有 flex 或 grid。',
-  '- 先在脑内完成整页结构，再一次性调用工具写入。写入前自检：容器开闭一致，末尾无未闭合标签。',
+  '- ⚠️ 标签闭合是最常见的失败原因。写入前必须自检：每个 <div>/<section> 都有对应的 </div></section>，末尾无未闭合标签。',
+  '- 控制嵌套层级：div 嵌套不超过 4 层。嵌套越深越容易漏闭合标签。',
+  '- 精简 HTML 结构：用 Tailwind 类替代多层 wrapper div。能用 1 个 div 解决的不要用 3 个。',
   '- 默认禁止 emoji/贴纸装饰；单区最多 3 列；留白优先，不要塞满。'
 ].join('\n')
 
@@ -110,7 +131,7 @@ export function buildOutlinePageList(context: SessionDeckGenerationContext): str
 
 export function formatDesignContract(contract?: DesignContract): string {
   if (!contract) return 'Not provided. Keep pages visually consistent according to the style rules.'
-  return [
+  const lines = [
     '- Treat this as a flexible visual contract, not a fixed template. Preserve coherence while varying composition, density, and emphasis per slide.',
     `- Visual theme: ${contract.theme}`,
     `- Canvas background: ${contract.background}`,
@@ -120,5 +141,10 @@ export function formatDesignContract(contract?: DesignContract): string {
     '- Use the layout motif as the deck-level layout language. Keep pages varied within this motif instead of repeating one template.',
     `- Chart style: ${contract.chartStyle}`,
     `- Shape language: ${contract.shapeLanguage}`
-  ].join('\n')
+  ]
+  lines.push(
+    `- Title font: ${contract.titleFont} (use var(--ppt-title-font) for titles)`,
+    `- Body font: ${contract.bodyFont} (use var(--ppt-body-font) for body)`
+  )
+  return lines.join('\n')
 }

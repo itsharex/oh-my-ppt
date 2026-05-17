@@ -20,6 +20,7 @@ export const buildStyleImportPrompt = (virtualPath: string): string => {
     '  "description": "一句话描述风格特征，20 字以内",',
     '  "category": "分类标签（必须从给定中文枚举中选一个）",',
     '  "aliases": ["搜索别名1", "别名2"],',
+    '  "styleCase": "适用场景，列出 3-4 个典型用例，用顿号分隔，如：技术分享、开发者社区 Meetup、编程教学、黑客马拉松",',
     '  "styleSkill": "完整的 Markdown 风格技能文本"',
     '}',
     '',

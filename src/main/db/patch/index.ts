@@ -6,6 +6,8 @@ import { nanoid } from 'nanoid'
 import * as schema from '../schema'
 import type { GenerationPageStatus, GenerationRunStatus } from '../schema'
 import { defaultModelTimeoutMs } from '@shared/model-timeout'
+import { patchModelConfigMaxTokens } from './add-model-max-tokens'
+import { patchStylesColumns } from './add-styles-columns'
 
 type LibSqlClient = ReturnType<typeof createClient>
 type DrizzleDb = ReturnType<typeof drizzle>
@@ -84,6 +86,7 @@ CREATE TABLE IF NOT EXISTS model_configs (
   model TEXT NOT NULL,
   api_key TEXT NOT NULL DEFAULT '',
   base_url TEXT NOT NULL DEFAULT '',
+  max_tokens INTEGER NOT NULL DEFAULT 4096,
   active INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
@@ -173,6 +176,8 @@ CREATE TABLE IF NOT EXISTS styles (
   aliases TEXT NOT NULL DEFAULT '[]',
   source TEXT NOT NULL DEFAULT 'custom',
   style_skill TEXT NOT NULL DEFAULT '',
+  version INTEGER NOT NULL DEFAULT 1,
+  style_case TEXT NOT NULL DEFAULT '',
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
@@ -312,6 +317,7 @@ const enforceModelConfigsSchema = async (client: LibSqlClient): Promise<void> =>
       model TEXT NOT NULL,
       api_key TEXT NOT NULL DEFAULT '',
       base_url TEXT NOT NULL DEFAULT '',
+      max_tokens INTEGER NOT NULL DEFAULT 4096,
       active INTEGER NOT NULL DEFAULT 0,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
@@ -1102,10 +1108,12 @@ export const runDatabasePatches = async (args: {
   await enforceSessionPagesSchema(client)
   await enforceSessionOperationsSchema(client)
   await enforceSessionOperationPagesSchema(client)
+  await patchStylesColumns(client)
   await client.execute('PRAGMA foreign_keys = ON;')
   await ensureDefaultSettings(client)
   await patchProjectRootPaths({ client, resolveStoragePath })
   await patchGenerationRecordsFromMetadata({ client, db, resolveStoragePath })
   await patchSessionPagesFromLegacy({ client, db, resolveStoragePath })
   await patchSessionPagesFromGenerationPages({ client, db, resolveStoragePath })
+  await patchModelConfigMaxTokens(client)
 }

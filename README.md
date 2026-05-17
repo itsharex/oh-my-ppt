@@ -10,78 +10,81 @@
 ![React](https://img.shields.io/badge/React-App-61dafb)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178c6)
 
-**Oh My PPT - 纯本地 AI PPT生成与编辑工具**
+**Oh My PPT - Local-first AI Slide Deck Generator & Editor**
 
-[English](./README_EN.md) | [为什么做这个](#why) • [能做什么](#features) • [使用流程](#workflow) • [更新日志](./CHANGELOG.md) • [使用问题](#usage-notes)
+[中文](./README_ZH.md) | [Why](#why) • [Features](#features) • [Workflow](#workflow) • [Changelog](./CHANGELOG.md) • [Reference](#reference) • [Usage Notes](#usage-notes)
 
   <p>
-    Local-first AI Slide Deck Generator<br/>
-    Runs locally · AI-powered creation<br/>
-    Prompt in → Deck out 👇
+    Describe what you need — a presentation, lesson, or story —<br/>
+    and let the AI build clean, beautiful HTML slides for you.<br/>
+    Local-first · Works offline, works for you.
   </p>
 
-  <img src="https://arcsin1.github.io/ppt2.gif" alt="Oh My PPT" width="600" />
+  <img src="https://arcsin1.github.io/ohmyppt.gif" alt="Oh My PPT" width="600" />
 
-  [观看完整演示视频](https://arcsin1.github.io/ohmyppt2.mp4) | [下载安装包](https://github.com/arcsin1/oh-my-ppt/releases)
+  [Watch demo video](https://arcsin1.github.io/ohmyppt.mp4) | [Download release package](https://github.com/arcsin1/oh-my-ppt/releases/)
 </div>
 
 ---
 
-## 目录
+## Table of Contents
 
-- [为什么做这个](#why)
-- [能做什么](#features)
-- [使用流程](#workflow)
-- [内置 30+ 风格 Skill](#style-skills)
-- [动画支持](#animations)
-- [支持本地 Ollama 模型](#ollama)
-- [使用问题汇总](#usage-notes)
-  - [别忘了填写你的配置](#config)
-  - [如何添加图片到 PPT 中](#assets)
-  - [关于预览模式](#preview)
-  - [关于导出](#export)
-- [未签名应用打不开的问题(mac已损坏等问题)](#unsigned-app)
-- [需求反馈](#feedback)
-- [参考](#references)
-- [贡献者](#contributors)
+- [Why I Built This](#why)
+- [What It Can Do](#features)
+- [Workflow](#workflow)
+- [Animation Support](#animations)
+- [Font Management](#fonts)
+- [Local Ollama Support](#ollama)
+- [Usage Notes](#usage-notes)
+  - [How to add images to PPT](#assets)
+  - [About preview mode](#preview)
+  - [About export](#export)
+- [Opening Unsigned Apps](#unsigned-apps)
+- [Feedback & Requests](#feedback)
+- [Reference](#reference)
+- [Contributors](#contributors)
 - [License](#license)
 
 ---
 
 <a id="why"></a>
-## 🎯 为什么做这个
+## 🎯 Why I Built This
 
-每次要做分享/汇报/路演/答辩就头疼，纠结PPT排版占了大半时间
+**Making AI-powered HTML presentations possible.**
 
-市面上AI PPT工具虽然多，但大多生成的是固定格式文件，想微调样式或加入自己想要的动画演示都很麻烦
+Every time I needed to prepare a talk, report, pitch, or defense, most of the time went into layout tweaks.
 
-所以自己写了一个Html版的PPT生成器——初衷是给自己做个工具使用（其实发现写简历模版也可以用）
+There are many AI PPT tools, but most output fixed-format files. Fine-tuning styles or adding custom animation demos is still painful.
 
-生成的是HTML版PPT：打开即预览、无需软件、一个浏览器搞定，还能随心改样式/加动效/插代码/导出分享
+So I built my own HTML-based PPT generator, originally as a personal tool (and it turns out it also works well for resume templates).
+
+Output is pure HTML slides: instant browser preview, no extra software, easy to tweak styles, add motion, embed code, and export to PDF / PNG / editable PPTX.
 
 <a id="features"></a>
-## ✅ 能做什么
+## ✅ What It Can Do
 
-- 💬 **一句话生成** — 输入主题和需求，AI 自动规划大纲 + 配色 + 排版，直接出完整 PPT
-- 📄 **从文档创建** — 也支持上传 txt、md、csv、docx 文档，自动整理主题、页数和详细描述，生成时**继续参考原文件内容生成创意PPT**
-- 📥 **导入 PPTX 编辑** — 可把本地 PPTX 转成应用内 HTML 页面，继续预览、调整位置和对话修改（也会提取pptx风格到系统中复用）
-- 🎨️ **图片识别生成风格与大纲** — 支持上传截图/设计稿，自动识别视觉特征并生成独特风格与演示大纲(需要支持多模态模型的AI)
-- 🔒 **本地优先** — 全部跑在自己电脑上，不用注册、不用担心数据泄露
-- 🎨 **内置 30+ 风格SKILL** — 极简白、赛博霓虹、包豪斯、日式简约、小红书白… 也支持自定义风格
-- ✏️ **对话式修改** — 对着某一页说"标题换个颜色""加个数据图表"，精准修改不用重做
-- 🖱️ **可视化编辑** — 一切可见元素皆可拖拽和调整大小，一切元素皆可检选并让 AI 修改
-- 📸 **插入图片和视频** — 编辑模式下直接上传图片和视频到页面，支持从素材库或本地文件添加
-- 📋 **复制元素** — 一键复制任意元素（文字、图片、视频等），自动偏移并独立可编辑
-- ↩️ **撤销和重做** — 编辑过程中随时撤销和重做操作，最后再统一保存为版本记录
-- 🗑️ **删除元素** — 支持删除任意元素，也支持快捷键快速删除
-- 🖥️ **演示模式** — 一键进入全屏演示播放，键盘左右键或点击切换页面
-- 🎬 **动画演示** — 支持页面切换动画，也支持基于 Anime.js v4 的基础整元素动画
-- 🧮 **数学公式渲染** — 支持常见 LaTeX 公式显示，适合课堂、教学、技术分享等场景
-- 📄 **多格式导出** — 支持 PDF、批量 PNG，并提供可编辑 PPTX 导出（持续优化中）
-- 🏷️ **会话管理** — 会话列表可区分 AI 创建和 PPTX 导入，也支持修改演示稿名称
-- 🧩 **更稳的页面生成** — 生成时会按固定 16:9 画布与内容高度预算组织页面，减少内容溢出
-- 🔄 **历史版本回退** — 自动保存每次修改记录，支持任意版本一键回退，改错了也不怕，随时回到满意的状态
-- 📦 **一键打包** — 将 HTML 演示稿打包为单个可执行文件，双击即可打开预览，无需安装任何软件（有浏览器就行）
+- 💬 **One-prompt generation** — Enter topic + requirements, AI plans outline + palette + layout, then generates a complete deck  
+- 📄 **Document-based creation** — Upload txt, md, csv, or docx files to prepare topic, page count, and description automatically, then keep using the source document during generation
+- 📥 **Import PPTX for editing** — Convert local PPTX files into in-app HTML pages, then continue previewing, adjusting positions, and chat-based editing
+- 🖼️ **Image-based style and outline generation** — Upload a screenshot or design mockup, then automatically extract a distinctive visual style and generate an outline
+- 🔒 **Local-first** — Runs on your machine, no signup, no upload anxiety  
+- 🔤 **Font management** — 14 curated Google Fonts built-in (including CJK), upload local fonts, pick title and body fonts separately or let AI auto-match
+- 🎨 **30+ built-in style skills** — Minimal White, Cyber Neon, Bauhaus, Japanese Minimal, Xiaohongshu White, and more, plus custom styles
+- ✏️ **Chat-based editing** — Tell it “change title color” or “add a data chart” on a specific page, without rebuilding everything  
+- 🖱️ **Visual editing** — Every visible element can be dragged and resized, and every element can be picked and modified with AI
+- 📸 **Image and video insertion** — Upload images and videos directly in edit mode, from the asset library or local files
+- 📋 **Element duplication** — One-click copy of any element (text, images, videos, etc.), auto-offset and independently editable
+- ↩️ **Undo and redo** — Undo and redo edits freely before committing, then save as a version history entry
+- 🗑️ **Element deletion** — Delete any element with a click or keyboard shortcut
+- 🖥️ **Presentation mode** — Enter fullscreen presentation with one click, navigate slides with arrow keys or clicks
+- 🎬 **Animation support** — Page transitions plus basic Anime.js v4-powered whole-element motion
+- 🧮 **Math formula rendering** — Display common LaTeX formulas for classes, teaching decks, and technical talks
+- 📄 **Multi-format export** — Export to PDF, batch PNG, or editable PPTX with embedded fonts (still being improved)
+- 🏷️ **Session management** — Session list distinguishes AI-created decks from imported PPTX decks, and deck names can be renamed
+- 🧩 **More reliable slide layout** — Generation follows a fixed 16:9 canvas and content-height budget to reduce overflow
+- 🔄 **Version history rollback** — Every edit is automatically saved, roll back to any previous version with one click, never worry about mistakes
+- 📦 **One-click packaging** — Bundle your HTML deck into a single executable file, double-click to open and present anywhere, no installation needed (just a browser)
+
 
 <p>
 <img width="30%" alt="Oh My PPT - 9" src="./docs/images/9.png" />
@@ -89,129 +92,120 @@
 <img width="30%" alt="Oh My PPT - 11" src="https://arcsin1.github.io/drag.gif" />
 </p>
 
-
 <a id="workflow"></a>
-## 🔄 使用流程
+## 🔄 Workflow
 
-> 💡 输入你的需求或上传文档 → AI 会规划大纲 → 生成视觉风格 → 逐页渲染 → 预览 & 对话修改 → 导出 PDF / PNG / PPTX
+> 💡 Input your intent or upload a document → AI plans outline → generates visual direction → renders page by page → preview & chat edits → export PDF / PNG / PPTX
 
-也可以在首页点击「上传文档解析」，让应用先从文档中整理出主题、页数和详细描述。适合把方案文档、需求说明、会议材料、CSV 数据说明等快速变成一份可继续编辑的演示稿（**继续参考原文件内容生成PPT**）。
+On the home page, you can use “Upload Document” to let the app extract the topic, page count, and detailed description first. It works well for product plans, requirement docs, meeting materials, and CSV-based notes that you want to turn into an editable deck.
 
-文档解析会更认真地检查大纲和页数是否一致：例如大纲里写了 5 页，创建页也会尽量填成 5 页。你的文档只会保存在本地工作目录中，应用会把它整理成 AI 更容易读取的文本。
+Document parsing also checks whether the outline and page count match. For example, if the outline clearly contains five pages, the creation form will try to use five pages too. Your documents stay in the local workspace; the app only prepares them as AI-readable text.
 
-如果已经有现成的 PPTX，也可以在首页点击「导入 PPTX」，把文件转换成应用里的可编辑页面。导入链路独立于 AI 生成，不会改变文档解析或正常生成流程。
+If you already have an existing PPTX file, click “Import PPTX” on the home page to convert it into editable in-app pages. This import flow is independent from AI generation and does not affect document parsing or the normal generation workflow.
 
-如果没有文档，也可以直接填写主题和详细描述，应用会按你的需求进行 AI 创意生成。
-
-<a id="style-skills"></a>
-## 🎨 内置 30+ 风格 Skill
-<img src="./docs/images/4.png" alt="Oh My PPT" width="500" />
-
-
+If you do not have a document, you can still enter a topic and description directly, and the app will generate the deck creatively from your request.
 
 <a id="animations"></a>
-## 🎬 动画支持
+## 🎬 Animation Support
 
-Oh My PPT 的页面是 HTML 幻灯片，内置本地 **Anime.js v4** 动画运行时。生成或编辑页面时，可以让 AI 为页面里的整块元素添加基础演示动画，例如标题、数据卡片、图片、图表容器、步骤模块等。
+Oh My PPT generates HTML slides and includes a local **Anime.js v4** runtime. During generation or chat-based editing, the AI can add basic presentation motion to whole slide elements such as titles, metric cards, images, chart containers, and step blocks.
 
-更推荐使用“整个元素”的动画，而不是把文字拆成很多碎片逐字乱动。这样画面更稳、可读性更好，也更适合汇报、路演和课堂演示。
+Whole-element animation is preferred over splitting text into many tiny moving fragments. It keeps slides readable, stable, and better suited for reports, pitches, classes, and live demos.
 
-目前更适合使用这些基础整元素动画：
+The most reliable whole-element animations today are:
 
-- **淡入**：模块出现时轻量过渡。
-- **轻微位移入场**：从上、下、左、右短距离滑入，适合标题、卡片和列表。
-- **缩放强调**：关键数字或结论卡片轻微放大后回落。
-- **简单错峰**：多张卡片或多条要点按顺序依次出现。
+- **Fade in**: lightweight transitions when modules appear.
+- **Subtle slide-in motion**: short movement from top, bottom, left, or right for titles, cards, and lists.
+- **Scale emphasis**: gently enlarge key numbers or conclusion cards, then settle back.
+- **Simple stagger**: reveal cards or bullets one after another.
 
-动画主要用于引导视线和表达层级，不建议做复杂时间线、高频闪烁、无限循环或大幅抖动。页面初始状态也会尽量保持可读，避免“没有动画就看不到内容”的情况。
+Animations are meant to guide attention and show hierarchy. Avoid complex timelines, high-frequency flashing, infinite loops, or large shaking motion. Slides should remain readable even if animation is disabled.
 
 <img src="https://arcsin1.github.io/anime.gif" alt="Oh My PPT animation demo" width="600" />
 
+<a id="fonts"></a>
+## 🔤 Font Management
+
+14 curated Google Fonts are built-in (including CJK families). You can also upload local `.woff2` fonts with custom names, categories (sans-serif, serif, display, handwriting, monospace), roles (title / body), and script types (Latin / CJK).
+
+When creating a deck, pick **title** and **body** fonts separately — or let the AI auto-match the best pair based on your topic and style. Fonts used in your slides are automatically embedded when exporting to PPTX, so they display correctly on any machine.
+
 <a id="ollama"></a>
-## 🦙 支持本地 Ollama 模型（OpenAI 兼容）
+## 🦙 Local Ollama Support (OpenAI-Compatible)
 
-项目支持通过 **OpenAI 兼容协议** 接入本地 Ollama。
+This project supports local Ollama through the **OpenAI-compatible API**.
 
-在「设置」页面这样填写即可：
+Fill the Settings page like this:
 
 - `provider`: `openai`
 - `base_url`: `http://127.0.0.1:11434/v1`
-- `model`: 你本地拉取的模型名（例如 `qwen2.5-coder:14b`），建议支持 14B+（或云端强模型）
-- `api_key`: 任意非空字符串（例如 `ollama`）
+- `model`: your local model tag (for example `qwen2.5-coder:14b`), recommended 14B+ (or a strong cloud model)
+- `api_key`: any non-empty string (for example `ollama`)
 
-说明：
+Notes:
 
-- Ollama 默认不校验 API Key，但应用侧会做“非空”校验，所以不能留空。
-- 推荐使用 14B+（或云端强模型）做接入生成。
-- 项目默认不使用 thinking / reasoning 模式。配置自定义 OpenAI 兼容 `base_url` 时，应用会自动请求关闭 thinking，避免工具调用、文档解析和重试生成时出现 `reasoning_content` 兼容问题。
-
+- Ollama does not validate API keys by default, but this app enforces a non-empty check, so `api_key` cannot be blank.
+- 14B+ local models (or strong cloud models) are recommended for stable generation quality.
+- The app does not use thinking / reasoning mode by default. When a custom OpenAI-compatible `base_url` is configured, the app asks the provider to disable thinking so document parsing, tool calls, and retry generation avoid `reasoning_content` compatibility issues.
 
 <a id="usage-notes"></a>
-## 关于使用问题汇总
-
-<a id="config"></a>
-### 别忘了填写你的配置
- > 推荐：deepseek v4、kimi、doubao、qwen、glm、xiaomi-mimo、minimax等等更多国产模型、以及gpt、claude、等等国外模型
-
-  在「设置」页面填写你的模型配置，否则会报错。 
-
-  <img src="./docs/images/3.png" alt="Oh My PPT" width="500" />
-
-
+## Usage Notes
 
 <a id="assets"></a>
-### 如何添加图片到 PPT 中
+### How to add images to PPT
 
-   注：图片或者素材只会复制到你的本地创意目录，不会上传到云端
- 
-  <img src="./docs/images/5.png" alt="Oh My PPT" width="500" />
+Images and assets are copied into your local session directory. They are not uploaded to a cloud service by this app.
+
+<img src="./docs/images/5.png" alt="Oh My PPT" width="500" />
+
 
 <a id="preview"></a>
-### 关于预览模式
-   
-   支持键盘（左右键）切换，支持演示模式，全屏演示模式，ESC退出演示模式
-  
-  <img src="./docs/images/2.png" alt="Oh My PPT" width="500" />
+### About preview mode
+
+Supports keyboard navigation (Left/Right), presentation mode, fullscreen presentation mode, and `ESC` to exit presentation mode.
+
+<img src="./docs/images/2.png" alt="Oh My PPT" width="500" />
 
 <a id="export"></a>
-### 关于导出
+### About export
 
-目前支持三种导出方式：
+Oh My PPT currently supports three export modes:
 
-- **PDF**：适合直接分享、归档和打印。
-- **PNG**：一键批量导出所有页面图片，适合插入文档、Notion、公众号或社媒内容。
-- **PPTX**：导出为可在 PowerPoint / Keynote 中继续编辑的文件。当前会尽量保留文字、图片、颜色、公式和基础布局，并持续优化文字重叠、混排和复杂图表的效果。
+- **PDF**: best for sharing, archiving, and printing.
+- **PNG**: batch-export every slide as an image for docs, Notion, articles, or social posts.
+- **PPTX**: export an editable file for PowerPoint / Keynote. Text, images, colors, formulas, and basic layout are preserved where possible, while text overlap, mixed-language layout, complex HTML, animation, and some charts are still being improved.
 
+Export uses a static slide state where possible, so entrance animations are less likely to affect PDF or image output.
 
-<a id="unsigned-app"></a>
-## 📦 未签名应用打不开的问题
+<a id="unsigned-apps"></a>
+## 📦 Opening Unsigned Apps
 
-目前发布包可能还没有进行系统级代码签名，所以 macOS 或 Windows 第一次打开时可能会出现安全提示。这个提示通常不是应用损坏，而是系统对“未签名/未公证应用”的默认拦截。
+Release builds may not be code-signed yet, so macOS or Windows can show security warnings on first launch. This usually does not mean the app is broken; it is the operating system blocking unsigned or unnotarized software by default.
 
 ### macOS
 
-如果 macOS 提示“无法打开”“已损坏”“无法验证开发者”，可以按下面任意一种方式处理。
+If macOS says the app cannot be opened, is damaged, or cannot verify the developer, use either option below.
 
-**方式一：右键打开**
+**Option 1: Right-click Open**
 
-1. 打开「访达」或「应用程序」文件夹。
-2. 找到 `OhMyPPT.app`。
-3. 右键点击应用，选择「打开」。
-4. 在弹窗里再次点击「打开」。
+1. Open Finder or the Applications folder.
+2. Find `OhMyPPT.app`.
+3. Right-click the app and choose **Open**.
+4. Click **Open** again in the confirmation dialog.
 
-这种方式通常只需要做一次，之后就可以正常双击打开。
+This usually only needs to be done once.
 
-**方式二：清除隔离属性**
+**Option 2: Clear the quarantine attribute**
 
-如果右键打开仍然不行，可以在终端执行：
+If right-click Open still does not work, run:
 
 ```bash
 xattr -cr /Applications/OhMyPPT.app
 ```
 
-然后重新打开应用。
+Then open the app again.
 
-如果你把应用放在了其他目录，请把命令里的路径替换成实际路径，例如：
+If you placed the app somewhere else, replace the path with the actual location, for example:
 
 ```bash
 xattr -cr ~/Downloads/OhMyPPT.app
@@ -219,47 +213,39 @@ xattr -cr ~/Downloads/OhMyPPT.app
 
 ### Windows
 
-Windows 可能会因为安装包未签名而触发 SmartScreen 提示，例如“Windows 已保护你的电脑”。这是未签名应用常见的系统提示。
+Unsigned installers may trigger Windows SmartScreen, such as “Windows protected your PC”. This is expected for unsigned apps.
 
-处理方式：
+Steps:
 
-1. 在提示窗口点击「更多信息」。
-2. 确认应用名称是 `OhMyPPT`。
-3. 点击「仍要运行」。
+1. Click **More info**.
+2. Confirm the app name is `OhMyPPT`.
+3. Click **Run anyway**.
 
-如果下载后被浏览器或杀毒软件拦截，可以先确认安装包来自本项目的 GitHub Releases 页面，再选择保留或允许运行。
+If your browser or antivirus blocks the file, first confirm the installer came from this project’s GitHub Releases page, then choose to keep or allow the file.
 
-> 建议只从官方 Release 地址下载安装包，避免使用第三方转存文件。
+> Download builds only from the official Releases page when possible.
 
 <a id="feedback"></a>
-## 🙌 需求反馈
+## 🙌 Feedback & Requests
 
-如果你有新需求、功能建议或发现问题，欢迎在仓库提交 Issue或者国内加入反馈群。
-
+If you have new requirements, feature ideas, or bug reports, feel free to open an Issue in this repository.
 <p>
-  <a href="https://discord.gg/FSkzBgsQ"><img src="https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white" alt="Discord"></a>
-  &nbsp;&nbsp;|&nbsp;&nbsp;
-  <a href="https://arcsin1.github.io/v.png">📱 微信群</a>
-  &nbsp;&nbsp;|&nbsp;&nbsp;
-  <a href="https://arcsin1.github.io/qq.png">💬 QQ群</a>
+ <a href="https://discord.gg/FSkzBgsQ"><img src="https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white" alt="Discord"></a>
 </p>
-我会持续跟进并优化体验。
+I will keep following up and improving the experience.
 
-
-<a id="references"></a>
-## 参考
+## Reference
 
 - [ui-ux-pro-max-skill](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill)
 - [html-ppt-skill](https://github.com/lewislulu/html-ppt-skill)
 
 <a id="contributors"></a>
-## 贡献者
+## Contributors
 
 Thanks to all contributors!
 
 <a href="https://github.com/m13891290332"><img src="https://github.com/m13891290332.png" width="50" height="50" alt="m13891290332" /></a>
 
-<a id="license"></a>
 ## License
 
 This project is licensed under the [MIT License](LICENSE) © 2026 arcsin1 &lt;zy19931129@gmail.com&gt;.

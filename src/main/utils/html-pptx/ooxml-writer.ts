@@ -8,7 +8,8 @@ import type {
   HtmlToPptxShape,
   HtmlToPptxImage,
   HtmlToPptxTable,
-  HtmlToPptxTableCell
+  HtmlToPptxTableCell,
+  HtmlToPptxEmbeddedFont
 } from './types'
 
 // ─── Constants ───────────────────────────────────────────────────────
@@ -92,10 +93,33 @@ function buildTextShape(id: number, tb: HtmlToPptxTextBox): string {
     if (tb.align && tb.align !== 'left') {
       pPrParts.push(` algn="${mapAlign(tb.align)}"`)
     }
+    if (tb.bullet) {
+      const level = Math.max(0, Math.min(8, Math.floor(tb.bullet.level || 0)))
+      const marL = 342900 + level * 228600
+      const indent = -171450
+      pPrParts.push(` marL="${marL}" indent="${indent}"`)
+    }
+    if (tb.paragraphSpacingBefore && tb.paragraphSpacingBefore > 0) {
+      pPrParts.push(
+        `<a:spcBef><a:spcPts val="${Math.round(tb.paragraphSpacingBefore * 100)}"/></a:spcBef>`
+      )
+    }
+    if (tb.paragraphSpacingAfter && tb.paragraphSpacingAfter > 0) {
+      pPrParts.push(
+        `<a:spcAft><a:spcPts val="${Math.round(tb.paragraphSpacingAfter * 100)}"/></a:spcAft>`
+      )
+    }
     if (tb.lineSpacing && tb.lineSpacing > 0) {
       pPrParts.push(
         `<a:lnSpc><a:spcPts val="${Math.round(tb.lineSpacing * 100)}"/></a:lnSpc>`
       )
+    }
+    if (tb.bullet?.type === 'number') {
+      const startAt = Math.max(1, Math.min(32767, Math.floor(tb.bullet.startAt || 1)))
+      pPrParts.push(`<a:buAutoNum type="arabicPeriod" startAt="${startAt}"/>`)
+    } else if (tb.bullet?.type === 'bullet') {
+      pPrParts.push('<a:buFont typeface="Arial"/>')
+      pPrParts.push('<a:buChar char="•"/>')
     }
     const pPr = pPrParts.length > 0
       ? `<a:pPr${pPrParts.filter(p => !p.startsWith('<')).join('')}>${pPrParts.filter(p => p.startsWith('<')).join('')}</a:pPr>`
@@ -159,6 +183,8 @@ function buildTextShape(id: number, tb: HtmlToPptxTextBox): string {
   const autoFit = tb.wrap
     ? '<a:normAutofit fontScale="100000"/>'
     : '<a:noAutofit/>'
+  const anchor =
+    tb.verticalAlign === 'middle' ? 'ctr' : tb.verticalAlign === 'bottom' ? 'b' : 't'
 
   return `<p:sp>
     <p:nvSpPr>
@@ -175,7 +201,7 @@ function buildTextShape(id: number, tb: HtmlToPptxTextBox): string {
       <a:noFill/>
     </p:spPr>
     <p:txBody>
-      <a:bodyPr wrap="${wrap}" lIns="0" tIns="0" rIns="0" bIns="0" anchor="t">${autoFit}</a:bodyPr>
+      <a:bodyPr wrap="${wrap}" lIns="0" tIns="0" rIns="0" bIns="0" anchor="${anchor}">${autoFit}</a:bodyPr>
       <a:lstStyle/>
 ${paragraphs}
     </p:txBody>
@@ -184,6 +210,15 @@ ${paragraphs}
 
 function buildImagePic(id: number, rId: string, img: HtmlToPptxImage): string {
   const rot = img.rotate ? ` rot="${degToRot(img.rotate)}"` : ''
+  const opacity =
+    typeof img.opacity === 'number' && Number.isFinite(img.opacity)
+      ? Math.max(0, Math.min(1, img.opacity))
+      : 1
+  const alphaXml =
+    opacity < 0.999 ? `<a:alphaModFix amt="${Math.round(opacity * 100000)}"/>` : ''
+  const blipXml = alphaXml
+    ? `<a:blip r:embed="${rId}">${alphaXml}</a:blip>`
+    : `<a:blip r:embed="${rId}"/>`
   return `<p:pic>
     <p:nvPicPr>
       <p:cNvPr id="${id}" name="Image ${id}"/>
@@ -191,7 +226,7 @@ function buildImagePic(id: number, rId: string, img: HtmlToPptxImage): string {
       <p:nvPr/>
     </p:nvPicPr>
     <p:blipFill>
-      <a:blip r:embed="${rId}"/>
+      ${blipXml}
       <a:stretch><a:fillRect/></a:stretch>
     </p:blipFill>
     <p:spPr>
@@ -296,10 +331,17 @@ function buildTableXml(id: number, table: HtmlToPptxTable): string {
 
   // Build occupied grid for merge handling
   const totalRows = table.rows.length
-  const occupied: boolean[][] = Array.from({ length: totalRows }, () => new Array<boolean>(maxCols).fill(false))
-  const cellGrid: (HtmlToPptxTableCell | null)[][] = Array.from(
+  type TableGridEntry = {
+    cell: HtmlToPptxTableCell
+    origin: boolean
+    rowSpan: number
+    colSpan: number
+    hMerge: boolean
+    vMerge: boolean
+  }
+  const cellGrid: (TableGridEntry | null)[][] = Array.from(
     { length: totalRows },
-    () => new Array<HtmlToPptxTableCell | null>(maxCols).fill(null)
+    () => new Array<TableGridEntry | null>(maxCols).fill(null)
   )
 
   for (let r = 0; r < totalRows; r++) {
@@ -307,15 +349,23 @@ function buildTableXml(id: number, table: HtmlToPptxTable): string {
     for (const cell of table.rows[r]) {
       const rs = Math.max(1, cell.rowspan || 1)
       const cs = Math.max(1, cell.colspan || 1)
-      while (col < maxCols && occupied[r][col]) col++
+      while (col < maxCols && cellGrid[r][col]) col++
       if (col >= maxCols) break
-      cellGrid[r][col] = cell
-      for (let dr = 0; dr < rs && r + dr < totalRows; dr++) {
-        for (let dc = 0; dc < cs && col + dc < maxCols; dc++) {
-          occupied[r + dr][col + dc] = true
+      const rowSpan = Math.min(rs, totalRows - r)
+      const colSpan = Math.min(cs, maxCols - col)
+      for (let dr = 0; dr < rowSpan; dr++) {
+        for (let dc = 0; dc < colSpan; dc++) {
+          cellGrid[r + dr][col + dc] = {
+            cell,
+            origin: dr === 0 && dc === 0,
+            rowSpan,
+            colSpan,
+            hMerge: dc > 0,
+            vMerge: dr > 0
+          }
         }
       }
-      col += cs
+      col += colSpan
     }
   }
 
@@ -329,17 +379,37 @@ function buildTableXml(id: number, table: HtmlToPptxTable): string {
     .join('\n      ')
 
   // Build rows
-  const rowsXml = table.rows.map((row, rIdx) => {
+  const emptyCellXml = (attrs = ''): string => `<a:tc${attrs}>
+          <a:txBody>
+            <a:bodyPr/>
+            <a:lstStyle/>
+            <a:p><a:endParaRPr lang="zh-CN"/></a:p>
+          </a:txBody>
+          <a:tcPr/>
+        </a:tc>`
+
+  const rowsXml = table.rows.map((_row, rIdx) => {
     const rowHeight = table.rowHeights[rIdx] || (table.h / totalRows)
     const cellsXml: string[] = []
-    let colIdx = 0
 
-    for (const cell of row) {
-      while (colIdx < maxCols && cellGrid[rIdx][colIdx] !== cell) colIdx++
-      if (colIdx >= maxCols) break
+    for (let colIdx = 0; colIdx < maxCols; colIdx++) {
+      const gridEntry = cellGrid[rIdx][colIdx]
+      if (!gridEntry) {
+        cellsXml.push(emptyCellXml())
+        continue
+      }
+      if (!gridEntry.origin) {
+        const mergeAttrs = [
+          gridEntry.hMerge ? 'hMerge="1"' : '',
+          gridEntry.vMerge ? 'vMerge="1"' : ''
+        ].filter(Boolean).join(' ')
+        cellsXml.push(emptyCellXml(mergeAttrs ? ` ${mergeAttrs}` : ''))
+        continue
+      }
 
-      const cs = Math.max(1, cell.colspan || 1)
-      const rs = Math.max(1, cell.rowspan || 1)
+      const cell = gridEntry.cell
+      const cs = gridEntry.colSpan
+      const rs = gridEntry.rowSpan
 
       const gridSpanAttr = cs > 1 ? ` gridSpan="${cs}"` : ''
       const rowSpanAttr = rs > 1 ? ` rowSpan="${rs}"` : ''
@@ -374,10 +444,11 @@ function buildTableXml(id: number, table: HtmlToPptxTable): string {
 
       // Cell properties
       const tcPrParts: string[] = []
+      const tcPrAttrs: string[] = []
 
-      // Vertical alignment
-      if (cell.valign === 'middle') tcPrParts.push('<a:vAlign val="ctr"/>')
-      else if (cell.valign === 'bottom') tcPrParts.push('<a:vAlign val="b"/>')
+      // DrawingML table cells use the tcPr anchor attribute for vertical alignment.
+      if (cell.valign === 'middle') tcPrAttrs.push('anchor="ctr"')
+      else if (cell.valign === 'bottom') tcPrAttrs.push('anchor="b"')
 
       // Fill
       if (cell.fill) {
@@ -415,8 +486,8 @@ function buildTableXml(id: number, table: HtmlToPptxTable): string {
         )
       }
 
-      const tcPrXml = tcPrParts.length > 0
-        ? `<a:tcPr>${tcPrParts.join('')}</a:tcPr>`
+      const tcPrXml = tcPrParts.length > 0 || tcPrAttrs.length > 0
+        ? `<a:tcPr${tcPrAttrs.length > 0 ? ` ${tcPrAttrs.join(' ')}` : ''}>${tcPrParts.join('')}</a:tcPr>`
         : ''
 
       cellsXml.push(`<a:tc${gridSpanAttr}${rowSpanAttr}>
@@ -427,31 +498,33 @@ function buildTableXml(id: number, table: HtmlToPptxTable): string {
           </a:txBody>
           ${tcPrXml}
         </a:tc>`)
-
-      colIdx += cs
     }
 
     return `<a:tr h="${inToEmu(rowHeight)}">\n      ${cellsXml.join('\n      ')}\n    </a:tr>`
   }).join('\n    ')
 
   return `<p:graphicFrame>
-    <p:nvGrpFrPr>
+    <p:nvGraphicFramePr>
       <p:cNvPr id="${id}" name="Table ${id}"/>
-      <p:cNvGrpFrPr/>
+      <p:cNvGraphicFramePr/>
       <p:nvPr/>
-    </p:nvGrpFrPr>
+    </p:nvGraphicFramePr>
     <p:xfrm>
       <a:off x="${inToEmu(table.x)}" y="${inToEmu(table.y)}"/>
       <a:ext cx="${inToEmu(table.w)}" cy="${inToEmu(table.h)}"/>
     </p:xfrm>
-    <a:tbl>
-      <a:tblPr firstRow="0" lastRow="0" firstCol="0" lastCol="0" noBandRow="1" noBandCol="1">
-      </a:tblPr>
-      <a:tblGrid>
-      ${gridColsXml}
-      </a:tblGrid>
-    ${rowsXml}
-    </a:tbl>
+    <a:graphic>
+      <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table">
+        <a:tbl>
+          <a:tblPr firstRow="0" lastRow="0" firstCol="0" lastCol="0" noBandRow="1" noBandCol="1">
+          </a:tblPr>
+          <a:tblGrid>
+          ${gridColsXml}
+          </a:tblGrid>
+        ${rowsXml}
+        </a:tbl>
+      </a:graphicData>
+    </a:graphic>
   </p:graphicFrame>`
 }
 
@@ -461,6 +534,15 @@ interface ImageRel {
   rId: string
   mediaFile: string
 }
+
+type SlideContentItem =
+  | { kind: 'shape'; order: number; priority: number; item: HtmlToPptxShape }
+  | { kind: 'table'; order: number; priority: number; item: HtmlToPptxTable }
+  | { kind: 'image'; order: number; priority: number; item: HtmlToPptxImage }
+  | { kind: 'text'; order: number; priority: number; item: HtmlToPptxTextBox }
+
+const contentOrder = (value: number | undefined, fallback: number): number =>
+  Number.isFinite(value) ? Number(value) : fallback
 
 function buildSlideXml(
   slide: HtmlToPptxSlide,
@@ -477,7 +559,9 @@ function buildSlideXml(
     bgXml = `<p:bg><p:bgPr><a:solidFill><a:srgbClr val="${hex}"/></a:solidFill><a:effectLst/></p:bgPr></p:bg>`
   }
 
-  // Z-order: background image → images → shapes → texts
+  // Z-order: keep the extracted DOM paint order instead of placing all shapes
+  // above/below all images. This keeps background SVGs behind cards while card
+  // icons and chart canvases stay above their parent container shapes.
 
   // Background image
   if (slide.backgroundImage) {
@@ -496,32 +580,60 @@ function buildSlideXml(
     }
   }
 
-  // Images
-  for (const img of slide.images || []) {
-    nextId++
-    const rel = imageRels.get(img.dataUri)
-    if (rel) {
-      shapes.push(buildImagePic(nextId, rel.rId, img))
-    }
-  }
-
-  // Shapes
+  const contentItems: SlideContentItem[] = []
+  let fallbackOrder = 1_000_000
   for (const shape of slide.shapes || []) {
-    nextId++
-    shapes.push(buildShapeXml(nextId, shape))
+    contentItems.push({
+      kind: 'shape',
+      order: contentOrder(shape.order, fallbackOrder++),
+      priority: 10,
+      item: shape
+    })
   }
-
-  // Tables
   for (const table of slide.tables || []) {
-    nextId++
-    shapes.push(buildTableXml(nextId, table))
+    contentItems.push({
+      kind: 'table',
+      order: contentOrder(table.order, fallbackOrder++),
+      priority: 20,
+      item: table
+    })
+  }
+  for (const img of slide.images || []) {
+    contentItems.push({
+      kind: 'image',
+      order: contentOrder(img.order, fallbackOrder++),
+      priority: 30,
+      item: img
+    })
+  }
+  for (const tb of slide.texts) {
+    contentItems.push({
+      kind: 'text',
+      order: contentOrder(tb.order, fallbackOrder++),
+      priority: 40,
+      item: tb
+    })
   }
 
-  // Texts
-  for (const tb of slide.texts) {
+  contentItems.sort((a, b) => a.order - b.order || a.priority - b.priority)
+
+  for (const entry of contentItems) {
     nextId++
-    const xml = buildTextShape(nextId, tb)
-    if (xml) shapes.push(xml)
+    if (entry.kind === 'shape') {
+      shapes.push(buildShapeXml(nextId, entry.item))
+    } else if (entry.kind === 'table') {
+      shapes.push(buildTableXml(nextId, entry.item))
+    } else if (entry.kind === 'image') {
+      const rel = imageRels.get(entry.item.dataUri)
+      if (rel) {
+        shapes.push(buildImagePic(nextId, rel.rId, entry.item))
+      }
+    } else {
+      const xml = buildTextShape(nextId, entry.item)
+      if (xml) {
+        shapes.push(xml)
+      }
+    }
   }
 
   // Overlay images (rendered on top of everything, e.g. KaTeX formula screenshots)
@@ -563,7 +675,11 @@ function buildSlideXml(
 
 // ─── Package-level XML ───────────────────────────────────────────────
 
-function buildContentTypesXml(slideCount: number, mediaExtensions: Set<string>): string {
+function buildContentTypesXml(
+  slideCount: number,
+  mediaExtensions: Set<string>,
+  hasEmbeddedFonts: boolean = false
+): string {
   const overrides: string[] = [
     `<Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/>`,
     `<Override PartName="/ppt/slideMasters/slideMaster1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml"/>`,
@@ -580,8 +696,11 @@ function buildContentTypesXml(slideCount: number, mediaExtensions: Set<string>):
     `<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>`,
     `<Default Extension="xml" ContentType="application/xml"/>`
   ]
+  if (hasEmbeddedFonts) {
+    defaults.push(`<Default Extension="fntdata" ContentType="application/x-fontdata"/>`)
+  }
   for (const ext of mediaExtensions) {
-    const mime = ext === 'jpg' ? 'image/jpeg' : `image/${ext}`
+    const mime = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : ext === 'svg' ? 'image/svg+xml' : `image/${ext}`
     defaults.push(`<Default Extension="${ext}" ContentType="${mime}"/>`)
   }
 
@@ -597,32 +716,87 @@ function buildRootRelsXml(): string {
 </Relationships>`
 }
 
-function buildPresentationXml(slideCount: number): string {
+function buildPresentationXml(
+  slideCount: number,
+  embeddedFonts: HtmlToPptxEmbeddedFont[] = [],
+  fontRelIds: Map<string, string> = new Map()
+): string {
   const sldIds: string[] = []
   for (let i = 1; i <= slideCount; i++) {
     sldIds.push(`<p:sldId id="${255 + i}" r:id="rId${i}"/>`)
   }
+
+  let embeddedFontLstXml = ''
+  if (embeddedFonts.length > 0) {
+    const fontsByFace = new Map<string, HtmlToPptxEmbeddedFont[]>()
+    for (const ef of embeddedFonts) {
+      const existing = fontsByFace.get(ef.fontFace) || []
+      existing.push(ef)
+      fontsByFace.set(ef.fontFace, existing)
+    }
+    const styleOrder: HtmlToPptxEmbeddedFont['style'][] = [
+      'regular',
+      'bold',
+      'italic',
+      'boldItalic'
+    ]
+    const fontEntries: string[] = []
+    for (const [fontFace, variants] of fontsByFace) {
+      const variantXml: string[] = []
+      for (const style of styleOrder) {
+        const ef = variants.find((candidate) => candidate.style === style)
+        if (!ef) continue
+        const rId = fontRelIds.get(`${ef.fontFace}::${ef.style}`)
+        if (!rId) continue
+        variantXml.push(`    <p:${style} r:id="${rId}"/>`)
+      }
+      if (variantXml.length === 0) continue
+      const charset = /[\u3400-\u9fff]|(?:Noto Sans SC|Ma Shan Zheng|Source Han|PingFang|Microsoft YaHei)/i.test(fontFace)
+        ? '134'
+        : '0'
+      fontEntries.push(
+        `  <p:embeddedFont>
+    <p:font typeface="${escapeXml(fontFace)}" panose="0 0 0 0 0 0 0 0 0 0" pitchFamily="34" charset="${charset}"/>
+${variantXml.join('\n')}
+  </p:embeddedFont>`
+      )
+    }
+    if (fontEntries.length > 0) {
+      embeddedFontLstXml = `\n<p:embeddedFontLst>\n${fontEntries.join('\n')}\n</p:embeddedFontLst>`
+    }
+  }
+
   return `${XML_HEADER}<p:presentation xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
                 xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"
-                xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
-  <p:sldIdLst>
-    ${sldIds.join('\n    ')}
-  </p:sldIdLst>
+                xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+                embedTrueTypeFonts="1"
+                saveSubsetFonts="1">
   <p:sldMasterIdLst>
     <p:sldMasterId id="2147483648" r:id="rIdSm"/>
   </p:sldMasterIdLst>
+  <p:sldIdLst>
+    ${sldIds.join('\n    ')}
+  </p:sldIdLst>
   <p:sldSz cx="${SLIDE_WIDTH_EMU}" cy="${SLIDE_HEIGHT_EMU}" type="wide"/>
-  <p:notesSz cx="${SLIDE_HEIGHT_EMU}" cy="${SLIDE_WIDTH_EMU}"/>
+  <p:notesSz cx="${SLIDE_HEIGHT_EMU}" cy="${SLIDE_WIDTH_EMU}"/>${embeddedFontLstXml}
 </p:presentation>`
 }
 
-function buildPresentationRelsXml(slideCount: number): string {
+function buildPresentationRelsXml(
+  slideCount: number,
+  fontRelEntries: Array<{ key: string; rId: string; fontFile: string }> = []
+): string {
   const rels: string[] = [
     `<Relationship Id="rIdSm" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster" Target="slideMasters/slideMaster1.xml"/>`
   ]
   for (let i = 1; i <= slideCount; i++) {
     rels.push(
       `<Relationship Id="rId${i}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide${i}.xml"/>`
+    )
+  }
+  for (const entry of fontRelEntries) {
+    rels.push(
+      `<Relationship Id="${entry.rId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/font" Target="fonts/${entry.fontFile}"/>`
     )
   }
   return `${XML_HEADER}<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
@@ -755,7 +929,8 @@ function buildSlideRelsXml(imageRels: ImageRel[]): string {
 function dataUriToBuffer(dataUri: string): { buffer: Uint8Array; ext: string } | null {
   const match = dataUri.match(/^data:image\/(png|jpeg|jpg|gif);base64,(.+)$/i)
   if (!match) return null
-  const ext = match[1].toLowerCase() === 'jpg' ? 'jpg' : match[1].toLowerCase()
+  const rawExt = match[1].toLowerCase()
+  const ext = rawExt === 'jpg' ? 'jpg' : rawExt
   const raw = atob(match[2])
   const buffer = new Uint8Array(raw.length)
   for (let i = 0; i < raw.length; i++) {
@@ -772,6 +947,7 @@ export const writePptxDocument = async (
 ): Promise<void> => {
   const slides = document.slides.length > 0 ? document.slides : [{ texts: [] }]
   const slideCount = slides.length
+  const embeddedFonts = document.embeddedFonts || []
 
   // 1. Collect all unique images across all slides → assign media file names
   const dataUriToMedia = new Map<string, { mediaFile: string; ext: string }>()
@@ -820,14 +996,41 @@ export const writePptxDocument = async (
     mediaExtensions.add(media.ext)
   }
 
-  // 4. Build ZIP
+  // 4. Embedded font rels: assign rId and font file names
+  const fontRelIds = new Map<string, string>() // "fontFace::style" → rId
+  const fontRelEntries: Array<{ key: string; rId: string; fontFile: string }> = []
+  const fontFileMap = new Map<string, Uint8Array>() // fontFile → font buffer
+  let fontRelIndex = slideCount + 1 // rIds after slide refs
+  let fontFileIndex = 1
+
+  for (const ef of embeddedFonts) {
+    const key = `${ef.fontFace}::${ef.style}`
+    if (fontRelIds.has(key)) continue
+    const rId = `rId${fontRelIndex}`
+    const fontFile = `font${fontFileIndex}.fntdata`
+    fontRelIds.set(key, rId)
+    fontRelEntries.push({ key, rId, fontFile })
+    fontFileMap.set(fontFile, ef.ttfBuffer)
+    fontRelIndex++
+    fontFileIndex++
+  }
+
+  const hasEmbeddedFonts = fontRelEntries.length > 0
+
+  // 5. Build ZIP
   const files: Record<string, Uint8Array> = {}
 
   // Global XML
-  files['[Content_Types].xml'] = strToU8(buildContentTypesXml(slideCount, mediaExtensions))
+  files['[Content_Types].xml'] = strToU8(
+    buildContentTypesXml(slideCount, mediaExtensions, hasEmbeddedFonts)
+  )
   files['_rels/.rels'] = strToU8(buildRootRelsXml())
-  files['ppt/presentation.xml'] = strToU8(buildPresentationXml(slideCount))
-  files['ppt/_rels/presentation.xml.rels'] = strToU8(buildPresentationRelsXml(slideCount))
+  files['ppt/presentation.xml'] = strToU8(
+    buildPresentationXml(slideCount, embeddedFonts, fontRelIds)
+  )
+  files['ppt/_rels/presentation.xml.rels'] = strToU8(
+    buildPresentationRelsXml(slideCount, fontRelEntries)
+  )
 
   // Theme, slideMaster, slideLayout (required by Office)
   files['ppt/theme/theme1.xml'] = strToU8(buildThemeXml())
@@ -853,7 +1056,12 @@ export const writePptxDocument = async (
     }
   }
 
-  // 5. Generate ZIP and write
+  // Font files
+  for (const [fontFile, ttfBuffer] of fontFileMap) {
+    files[`ppt/fonts/${fontFile}`] = ttfBuffer
+  }
+
+  // 6. Generate ZIP and write
   const zipped = zipSync(files, { level: 6 })
   writeFileSync(outputPath, zipped)
 }

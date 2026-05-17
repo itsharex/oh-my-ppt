@@ -3,6 +3,7 @@ import { tool } from '@langchain/core/tools'
 import { z } from 'zod'
 import * as cheerio from 'cheerio'
 import log from 'electron-log/main.js'
+import { buildFontHeadTags } from './font-registry'
 import type { SessionDeckGenerationContext } from './types'
 import { validateHtmlContent, validatePersistedPageHtml } from './html-utils'
 import { buildSessionAssetHeadTags } from '../ipc/engine/page-assets'
@@ -60,6 +61,19 @@ export const BASE_PAGE_STYLE_TAG = `<style id="ppt-page-guard-style">
     justify-content: flex-start;
     align-items: stretch;
     overflow: hidden;
+    font-size: 16px;
+    font-family: var(--ppt-body-font);
+  }
+  .ppt-page-content h1,
+  .ppt-page-content h2,
+  .ppt-page-content [data-role="title"],
+  .ppt-page-content [data-block-id="title"] {
+    font-family: var(--ppt-title-font);
+  }
+  .ppt-page-content .text-xs,
+  .ppt-page-content .text-sm {
+    font-size: 1rem !important;
+    line-height: 1.5 !important;
   }
   .ppt-page-content > [data-page-scaffold="1"] {
     width: 100%;
@@ -622,29 +636,41 @@ function preprocessPageHtml(html: string): string {
   }
 }
 
-const normalizeAndInjectPageRuntime = (content: string, pageId: string): string => {
+const normalizeAndInjectPageRuntime = (
+  content: string,
+  pageId: string,
+  projectDir: string,
+  designFonts?: { titleFont: string; bodyFont: string }
+): Promise<string> => {
   const fragment = normalizeCreativePageFragment(preprocessPageHtml(content))
-  const output = buildScaffoldDocument({
+  return buildScaffoldDocument({
     pageId,
     innerContent: fragment,
-    includeDefaultMotion: !hasCustomPageAnimation(content)
-  })
-  return syncRootBackgroundFromScaffold(output)
+    includeDefaultMotion: !hasCustomPageAnimation(content),
+    projectDir,
+    designFonts
+  }).then(syncRootBackgroundFromScaffold)
 }
 
-function buildScaffoldDocument(args: {
+async function buildScaffoldDocument(args: {
   pageId: string
   innerContent: string
   includeDefaultMotion: boolean
-}): string {
-  const { pageId, innerContent, includeDefaultMotion } = args
+  projectDir: string
+  designFonts?: { titleFont: string; bodyFont: string }
+}): Promise<string> {
+  const { pageId, innerContent, includeDefaultMotion, projectDir, designFonts } = args
   const motionScript = includeDefaultMotion ? `\n    ${DEFAULT_MOTION_SCRIPT}` : ''
+  const fontInjection =
+    designFonts
+      ? `\n    ${await buildFontHeadTags({ ...designFonts, projectDir })}`
+      : ''
   return `<!doctype html>
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    ${buildSessionAssetHeadTags()}
+    ${buildSessionAssetHeadTags()}${fontInjection}
     ${BASE_PAGE_STYLE_TAG}
   </head>
   <body data-page-id="${pageId}">
@@ -796,7 +822,19 @@ export function createPageWriteTools(args: {
       agentName
     })
     const result = await serializedWrite(context.projectDir, async () => {
-      const normalized = normalizeAndInjectPageRuntime(content, resolvedPageId)
+      if (!context.designContract?.titleFont || !context.designContract?.bodyFont) {
+        throw new Error('design contract 缺少 titleFont/bodyFont，无法写入页面字体。')
+      }
+      const designFonts = {
+        titleFont: context.designContract.titleFont,
+        bodyFont: context.designContract.bodyFont
+      }
+      const normalized = await normalizeAndInjectPageRuntime(
+        content,
+        resolvedPageId,
+        context.projectDir,
+        designFonts
+      )
       const persistedValidation = validatePersistedPageHtml(normalized, resolvedPageId)
       if (!persistedValidation.valid) {
         emitNormalizedToolStatus(config, {

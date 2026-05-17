@@ -16,7 +16,8 @@ import { CircleAlert, FileText, FileUp, Loader2, Sparkles } from 'lucide-react'
 import { useSessionStore } from '../store'
 import { useSettingsStore } from '../store'
 import { useToastStore } from '../store'
-import { ipc, type StyleParseResult } from '@renderer/lib/ipc'
+import { ipc, type FontListItem, type StyleParseResult } from '@renderer/lib/ipc'
+import type { FontSelection } from '@shared/generation'
 import { useT } from '../i18n'
 import {
   isSupportedImageMimeType,
@@ -75,9 +76,12 @@ export function HomePage(): ReactElement {
   const [brief, setBrief] = useState('')
   const [pageCount, setPageCount] = useState(String(DEFAULT_PAGE_COUNT))
   const [selectedStyleId, setSelectedStyleId] = useState('')
+  const [selectedTitleFontId, setSelectedTitleFontId] = useState('auto')
+  const [selectedBodyFontId, setSelectedBodyFontId] = useState('auto')
   const [styleOptions, setStyleOptions] = useState<
-    Array<{ id: string; label: string; description: string }>
+    Array<{ id: string; label: string; description: string; styleCase?: string }>
   >([])
+  const [fontOptions, setFontOptions] = useState<FontListItem[]>([])
   const [parsingDocument, setParsingDocument] = useState(false)
   const [importingPptx, setImportingPptx] = useState(false)
   const [pptxImportProgress, setPptxImportProgress] = useState<string | null>(null)
@@ -137,7 +141,8 @@ export function HomePage(): ReactElement {
         const options = sorted.map((item) => ({
           id: item.id,
           label: item.label,
-          description: item.description
+          description: item.description,
+          styleCase: item.styleCase
         }))
         setStyleOptions(options)
         setSelectedStyleId((current) => {
@@ -156,9 +161,28 @@ export function HomePage(): ReactElement {
     [error, t]
   )
 
+  const loadFontOptions = useCallback(async (): Promise<void> => {
+    try {
+      const { googleFonts, userFonts } = await ipc.listFonts()
+      const options = [...userFonts, ...googleFonts]
+      setFontOptions(options)
+      const ids = new Set(options.map((font) => `${font.source}:${font.id}`))
+      setSelectedTitleFontId((current) => (current === 'auto' || ids.has(current) ? current : 'auto'))
+      setSelectedBodyFontId((current) => (current === 'auto' || ids.has(current) ? current : 'auto'))
+    } catch {
+      setFontOptions([])
+      setSelectedTitleFontId('auto')
+      setSelectedBodyFontId('auto')
+    }
+  }, [])
+
   useEffect(() => {
     void loadStyleOptions()
   }, [loadStyleOptions])
+
+  useEffect(() => {
+    void loadFontOptions()
+  }, [loadFontOptions])
 
   const handleSubmit = async (): Promise<void> => {
     const validationError = validateForm()
@@ -177,6 +201,25 @@ export function HomePage(): ReactElement {
       return
     }
     const selectedStyle = styleOptions.find((option) => option.id === selectedStyleId)!
+    const findFontBySelectId = (id: string): FontListItem | undefined =>
+      fontOptions.find((font) => `${font.source}:${font.id}` === id)
+    const selectedTitleFont = findFontBySelectId(selectedTitleFontId)
+    const selectedBodyFont = findFontBySelectId(selectedBodyFontId)
+    const fontSelection: FontSelection = selectedTitleFont && selectedBodyFont
+      ? {
+          mode: 'pair',
+          title: {
+            source: selectedTitleFont.source,
+            family: selectedTitleFont.family,
+            id: selectedTitleFont.id
+          },
+          body: {
+            source: selectedBodyFont.source,
+            family: selectedBodyFont.family,
+            id: selectedBodyFont.id
+          }
+        }
+      : { mode: 'auto' }
     const topicText = topic.trim()
     const briefText = brief.trim()
     const safePageCount = Number.parseInt(pageCount.trim(), 10)
@@ -193,7 +236,8 @@ export function HomePage(): ReactElement {
         topic: topicText,
         styleId: selectedStyleId,
         pageCount: safePageCount,
-        referenceDocumentPath: referenceDocumentPath || undefined
+        referenceDocumentPath: referenceDocumentPath || undefined,
+        fontSelection
       })
       success(t('home.sessionCreated'), {
         description: t('home.generationStarted'),
@@ -274,7 +318,8 @@ export function HomePage(): ReactElement {
       description: parsedStyle.description,
       category: parsedStyle.category,
       aliases: parsedStyle.aliases,
-      styleSkill: parsedStyle.styleSkill
+      styleSkill: parsedStyle.styleSkill,
+      styleCase: parsedStyle.styleCase || ''
     })
     await loadStyleOptions(createdStyle.id)
     return { id: createdStyle.id, label: parsedStyle.label }
@@ -435,6 +480,17 @@ export function HomePage(): ReactElement {
     })
   }, [])
 
+  const titleFontOptions = fontOptions.filter((font) => font.role.includes('title'))
+  const bodyFontOptions = fontOptions.filter((font) => font.role.includes('body'))
+  const availableTitleFonts = titleFontOptions.length > 0 ? titleFontOptions : fontOptions
+  const availableBodyFonts = bodyFontOptions.length > 0 ? bodyFontOptions : fontOptions
+  const fontSelectHint =
+    selectedTitleFontId === 'auto' && selectedBodyFontId === 'auto'
+      ? t('home.fontSchemeAutoHint')
+      : selectedTitleFontId !== 'auto' && selectedBodyFontId !== 'auto'
+        ? t('home.fontSchemeManualHint')
+        : t('home.fontSchemePartialHint')
+
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-5 p-6">
       <div>
@@ -548,9 +604,9 @@ export function HomePage(): ReactElement {
         )}
 
         <Card className="mb-4">
-          <CardContent className="space-y-4 py-5">
+          <CardContent className="space-y-3 py-4 [&_input]:h-9 [&_button]:h-9 [&_label]:mb-1.5 [&_label]:text-xs">
             <div>
-              <label className="mb-2 block text-sm font-medium">{t('home.topic')}</label>
+              <label className="block font-medium">{t('home.topic')}</label>
               <Input
                 placeholder={t('home.topicPlaceholder')}
                 value={topic}
@@ -559,9 +615,9 @@ export function HomePage(): ReactElement {
               />
             </div>
 
-            <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_160px]">
+            <div className="grid gap-3 md:grid-cols-[1fr_100px]">
               <div>
-                <label className="mb-2 block text-sm font-medium">{t('home.style')}</label>
+                <label className="block font-medium">{t('home.style')}</label>
                 <Select value={selectedStyleId} onValueChange={setSelectedStyleId}>
                   <SelectTrigger>
                     <SelectValue placeholder={t('home.stylePlaceholder')} />
@@ -569,11 +625,11 @@ export function HomePage(): ReactElement {
                   <SelectContent>
                     {styleOptions.map((option) => (
                       <SelectItem key={option.id} value={option.id}>
-                        <span className="flex items-baseline gap-1.5">
+                        <span className="flex items-center gap-1.5">
                           {option.label}
-                          {option.description && (
-                            <span className="text-xs text-muted-foreground/60">
-                              {option.description}
+                          {(option.styleCase || option.description) && (
+                            <span className="rounded-md border border-[#d6c08d]/80 bg-[#fff7e8] px-1.5 py-px text-[10px] font-medium text-[#7c6a4c]">
+                              {option.styleCase || option.description}
                             </span>
                           )}
                         </span>
@@ -584,7 +640,7 @@ export function HomePage(): ReactElement {
               </div>
 
               <div>
-                <label className="mb-2 block text-sm font-medium">{t('home.pageCount')}</label>
+                <label className="block font-medium">{t('home.pageCount')}</label>
                 <Input
                   type="text"
                   inputMode="numeric"
@@ -609,14 +665,87 @@ export function HomePage(): ReactElement {
             </div>
 
             <div>
-              <label className="mb-2 block text-sm font-medium">{t('home.brief')}</label>
+              <label className="block font-medium">{t('home.fontScheme')}</label>
+              <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                <Select value={selectedTitleFontId} onValueChange={setSelectedTitleFontId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder={t('home.fontSchemeAuto')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="auto">{t('home.fontSchemeAuto')}</SelectItem>
+                    {availableTitleFonts.map((font) => {
+                      const isUploaded = font.source === 'uploaded'
+                      const sourceLabel = isUploaded
+                        ? t('home.fontSourceUploaded')
+                        : t('home.fontSourceBuiltIn')
+                      return (
+                        <SelectItem key={`${font.source}:${font.id}`} value={`${font.source}:${font.id}`}>
+                          <span className="flex items-center gap-2">
+                            <span
+                              className={`shrink-0 rounded px-1 py-0.5 text-[10px] font-medium ${
+                                isUploaded
+                                  ? 'bg-[#eef9ec] text-[#4a7a46]'
+                                  : 'bg-[#eef6ff] text-[#3e6685]'
+                              }`}
+                            >
+                              {sourceLabel}
+                            </span>
+                            <span className="truncate">
+                              {t('home.fontPairTitle')} · {font.family}
+                            </span>
+                          </span>
+                        </SelectItem>
+                      )
+                    })}
+                  </SelectContent>
+                </Select>
+                <Select value={selectedBodyFontId} onValueChange={setSelectedBodyFontId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder={t('home.fontSchemeAuto')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="auto">{t('home.fontSchemeAuto')}</SelectItem>
+                    {availableBodyFonts.map((font) => {
+                      const isUploaded = font.source === 'uploaded'
+                      const sourceLabel = isUploaded
+                        ? t('home.fontSourceUploaded')
+                        : t('home.fontSourceBuiltIn')
+                      return (
+                        <SelectItem key={`${font.source}:${font.id}`} value={`${font.source}:${font.id}`}>
+                          <span className="flex items-center gap-2">
+                            <span
+                              className={`shrink-0 rounded px-1 py-0.5 text-[10px] font-medium ${
+                                isUploaded
+                                  ? 'bg-[#eef9ec] text-[#4a7a46]'
+                                  : 'bg-[#eef6ff] text-[#3e6685]'
+                              }`}
+                            >
+                              {sourceLabel}
+                            </span>
+                            <span className="truncate">
+                              {t('home.fontPairBody')} · {font.family}
+                            </span>
+                          </span>
+                        </SelectItem>
+                      )
+                    })}
+                  </SelectContent>
+                </Select>
+              </div>
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                {fontSelectHint}
+              </p>
+            </div>
+
+            <div>
+              <label className="block font-medium">{t('home.brief')}</label>
               <Textarea
                 placeholder={t('home.briefPlaceholder')}
-                rows={5}
+                rows={4}
                 value={brief}
                 required
                 onChange={(e) => setBrief(e.target.value)}
-                className="min-h-[132px] resize-y"
+                className="min-h-[100px] resize-y"
               />
             </div>
           </CardContent>

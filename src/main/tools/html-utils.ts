@@ -120,12 +120,12 @@ const isAllowedRuntimeAsset = (src: string): boolean => {
     clean.endsWith('/assets/tailwindcss.v3.js') ||
     clean.endsWith('./assets/tailwindcss.v3.js') ||
     clean.endsWith('assets/tailwindcss.v3.js') ||
-    clean.endsWith('/assets/katex.min.js') ||
-    clean.endsWith('./assets/katex.min.js') ||
-    clean.endsWith('assets/katex.min.js') ||
-    clean.endsWith('/assets/katex-auto-render.min.js') ||
-    clean.endsWith('./assets/katex-auto-render.min.js') ||
-    clean.endsWith('assets/katex-auto-render.min.js')
+    clean.endsWith('/assets/katex/katex.min.js') ||
+    clean.endsWith('./assets/katex/katex.min.js') ||
+    clean.endsWith('assets/katex/katex.min.js') ||
+    clean.endsWith('/assets/katex/katex-auto-render.min.js') ||
+    clean.endsWith('./assets/katex/katex-auto-render.min.js') ||
+    clean.endsWith('assets/katex/katex-auto-render.min.js')
   )
 }
 
@@ -156,8 +156,14 @@ export const validateHtmlContent = (html: string): { valid: boolean; errors: str
   if (/<title[\s>]/i.test(html) || /<\/title>/i.test(html)) {
     errors.push('检测到 <title> 标签。页面片段中禁止包含标题标签。')
   }
-  if (/<link[\s>]/i.test(html)) {
-    errors.push('检测到 <link> 标签。页面片段中禁止包含外部资源链接。')
+  if (/<link\b[^>]*>/i.test(html)) {
+    errors.push('检测到 <link> 标签。页面片段中禁止引入字体或外部资源，字体由系统统一注入。')
+  }
+  if (/@font-face\b/i.test(html)) {
+    errors.push('检测到 @font-face。页面片段中禁止声明字体，字体由系统统一注入。')
+  }
+  if (/url\(\s*["']?(?:https?:)?\/\//i.test(html)) {
+    errors.push('检测到远程 CSS URL。页面片段中禁止引入远程字体或样式资源。')
   }
   if (/data-ppt-guard-root\s*=\s*["']1["']/i.test(html)) {
     errors.push('检测到 data-ppt-guard-root。禁止传入页面骨架根节点，请仅传主体片段。')
@@ -260,11 +266,32 @@ export const validatePersistedPageHtml = (
   if (isPlaceholderPageHtml(html)) {
     errors.push('仍包含页面占位文案')
   }
-  if (REMOTE_SCRIPT_OR_LINK_RE.test(html)) {
-    errors.push('包含远程 script/link 资源')
-  }
-
   const $ = cheerio.load(html, { scriptingEnabled: false })
+  if (REMOTE_SCRIPT_OR_LINK_RE.test(html)) {
+    errors.push('包含远程资源引用（字体已改为本地加载，禁止 CDN 链接）')
+  }
+  $('style').each((_, node) => {
+    const el = $(node)
+    const css = el.text()
+    const fontMarker = el.attr('data-ppt-fonts')
+    if (/@font-face\b/i.test(css) && fontMarker !== 'user' && fontMarker !== 'google') {
+      errors.push('@font-face 只能由系统字体注入块声明')
+      return false
+    }
+    if (/url\(\s*["']?(?:https?:)?\/\//i.test(css)) {
+      errors.push('样式块中包含远程 URL')
+      return false
+    }
+    if (/url\(\s*"(?!\.\/assets\/fonts\/user-fonts\/)[^)]+/i.test(css) && fontMarker === 'user') {
+      errors.push('@font-face 只能引用 ./assets/fonts/user-fonts/ 下的字体文件')
+      return false
+    }
+    if (/url\(\s*"(?!\.\/assets\/fonts\/google-fonts\/)[^)]+/i.test(css) && fontMarker === 'google') {
+      errors.push('Google 字体只能引用 ./assets/fonts/google-fonts/ 下的字体文件')
+      return false
+    }
+    return undefined
+  })
   $('style').each((_, node) => {
     const css = $(node).text()
     if (HIDDEN_STYLE_RULE_RE.test(css)) {

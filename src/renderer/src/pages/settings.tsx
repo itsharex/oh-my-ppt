@@ -31,6 +31,7 @@ interface ModelForm {
   model: string
   apiKey: string
   baseUrl: string
+  maxTokens: number
   active: boolean
 }
 
@@ -50,6 +51,7 @@ const createEmptyModelForm = (active = false): ModelForm => ({
   model: '',
   apiKey: '',
   baseUrl: '',
+  maxTokens: 4096,
   active
 })
 
@@ -60,6 +62,7 @@ const createModelForm = (config: ModelConfig): ModelForm => ({
   model: config.model,
   apiKey: config.apiKey,
   baseUrl: config.baseUrl,
+  maxTokens: config.maxTokens || 4096,
   active: config.active
 })
 
@@ -196,6 +199,7 @@ export function SettingsPage(): React.JSX.Element {
         model: modelForm.model.trim(),
         apiKey: modelForm.apiKey.trim(),
         baseUrl: modelForm.baseUrl.trim(),
+        maxTokens: modelForm.maxTokens,
         active: modelForm.active
       })
       const saveError = useSettingsStore.getState().verificationMessage
@@ -259,6 +263,7 @@ export function SettingsPage(): React.JSX.Element {
         modelForm.apiKey,
         modelForm.model,
         modelForm.baseUrl,
+        modelForm.maxTokens,
         resolveModelTimeoutMs(undefined, 'verify')
       )
       const verifyMessage = useSettingsStore.getState().verificationMessage
@@ -537,21 +542,21 @@ export function SettingsPage(): React.JSX.Element {
               </Button>
             </div>
 
-            <div className="space-y-4 p-5">
-              <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-3 p-5">
+              <div className="grid gap-2 sm:grid-cols-2">
                 <div>
-                  <label className="mb-1.5 block text-sm font-medium">
+                  <label className="mb-1 block text-sm font-medium">
                     {t('settings.modelName')}
                   </label>
                   <Input
                     value={modelForm.name}
                     onChange={(e) => updateModelForm({ name: e.target.value })}
                     placeholder={t('settings.modelNamePlaceholder')}
-                    className="h-10"
+                    className="h-8"
                   />
                 </div>
                 <div>
-                  <label className="mb-1.5 block text-sm font-medium">
+                  <label className="mb-1 block text-sm font-medium">
                     {t('settings.providerPreset')}
                   </label>
                   <Select
@@ -560,7 +565,7 @@ export function SettingsPage(): React.JSX.Element {
                       updateModelForm({ provider: value === 'anthropic' ? 'anthropic' : 'openai' })
                     }
                   >
-                    <SelectTrigger className="h-10">
+                    <SelectTrigger className="h-8">
                       <SelectValue placeholder={t('settings.providerPlaceholder')} />
                     </SelectTrigger>
                     <SelectContent>
@@ -572,29 +577,43 @@ export function SettingsPage(): React.JSX.Element {
               </div>
 
               <div>
-                <label className="mb-1.5 block text-sm font-medium">model</label>
+                <label className="mb-1 block text-sm font-medium">model</label>
                 <Input
                   placeholder={t('settings.modelPlaceholder')}
                   value={modelForm.model}
                   onChange={(e) => updateModelForm({ model: e.target.value })}
-                  className="h-10"
+                  className="h-8"
                 />
-                <p className="mt-2 text-xs text-muted-foreground">{t('settings.modelHint')}</p>
+                <p className="mt-1 text-xs text-muted-foreground">{t('settings.modelHint')}</p>
               </div>
 
               <div>
-                <label className="mb-1.5 block text-sm font-medium">base_url</label>
+                <label className="mb-1 block text-sm font-medium">base_url</label>
                 <Input
                   placeholder={t('settings.baseUrlPlaceholder')}
                   value={modelForm.baseUrl}
                   onChange={(e) => updateModelForm({ baseUrl: e.target.value })}
-                  className="h-10"
+                  className="h-8"
                 />
-                <p className="mt-2 text-xs text-muted-foreground">{t('settings.baseUrlHint')}</p>
+                <p className="mt-1 text-xs text-muted-foreground">{t('settings.baseUrlHint')}</p>
               </div>
 
               <div>
-                <label className="mb-1.5 block text-sm font-medium">api_key</label>
+                <label className="mb-1 block text-sm font-medium">max_tokens</label>
+                <Input
+                  type="number"
+                  min={256}
+                  max={16384}
+                  step={256}
+                  value={modelForm.maxTokens}
+                  onChange={(e) => updateModelForm({ maxTokens: Math.max(256, Math.min(16384, Number(e.target.value) || 4096)) })}
+                  className="h-8"
+                />
+                <p className="mt-1 text-xs text-muted-foreground">{t('settings.maxTokensHint')}</p>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-medium">api_key</label>
                 <div className="flex gap-2">
                   <Input
                     type="password"
@@ -603,19 +622,19 @@ export function SettingsPage(): React.JSX.Element {
                     })}
                     value={modelForm.apiKey}
                     onChange={(e) => updateModelForm({ apiKey: e.target.value })}
-                    className="h-10 min-w-0 flex-1"
+                    className="h-8 min-w-0 flex-1"
                   />
                   <Button
                     variant="secondary"
                     onClick={handleVerify}
                     disabled={verifying}
-                    className="h-10 min-w-[96px] shrink-0 rounded-lg border border-[#7ea06f]/45 px-4"
+                    className="h-8 min-w-[80px] shrink-0 rounded-lg border border-[#7ea06f]/45 px-3 text-xs"
                   >
-                    <ShieldCheck className="mr-1.5 h-4 w-4" />
+                    <ShieldCheck className="mr-1 h-3.5 w-3.5" />
                     {verifying ? t('settings.verifying') : t('settings.verify')}
                   </Button>
                 </div>
-                <p className="mt-2 text-xs text-muted-foreground">{t('settings.verifyHint')}</p>
+                <p className="mt-1 text-xs text-muted-foreground">{t('settings.verifyHint')}</p>
               </div>
             </div>
 

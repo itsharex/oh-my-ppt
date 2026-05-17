@@ -61,6 +61,7 @@ export async function resolveRetryContext(
     model: common.model,
     modelTimeouts: common.modelTimeouts,
     providerBaseUrl: common.providerBaseUrl,
+    maxTokens: common.maxTokens,
     projectId: common.projectId,
     messageScope: 'main',
     messagePageId: undefined,
@@ -69,7 +70,8 @@ export async function resolveRetryContext(
     sourceDocumentPaths,
     topic: common.topic,
     deckTitle: common.deckTitle,
-    appLocale: common.appLocale
+    appLocale: common.appLocale,
+    fontSelection: common.fontSelection
   }
 }
 
@@ -91,7 +93,6 @@ export async function executeRetryFailedPages(
   }
 
   const indexPath = path.join(context.entry.projectDir, 'index.html')
-  await ensureHistoryBaselineSafe(db, context.sessionId, context.entry.projectDir)
   const emitRetryChunk = createDeckProgressEmitter(context.sessionId, context.appLocale)
   let savedDesignContract: DesignContract | undefined
   const sessionRecord = (context.session || {}) as Record<string, unknown>
@@ -99,6 +100,7 @@ export async function executeRetryFailedPages(
   if (sessionPages.length === 0) {
     throw new Error('session_pages is empty after migration; cannot retry this session')
   }
+  await ensureHistoryBaselineSafe(db, context.sessionId, context.entry.projectDir)
   const latestPageSnapshot = await db.listLatestGenerationPageSnapshot(context.sessionId)
   const failedSessionPages = sessionPages.filter((page) => page.status !== 'completed')
   const retryRecords = failedSessionPages.map((page) => {
@@ -143,12 +145,16 @@ export async function executeRetryFailedPages(
       apiKey: context.apiKey,
       model: context.model,
       baseUrl: context.providerBaseUrl,
+      maxTokens: context.maxTokens,
       modelTimeoutMs: context.modelTimeouts.design,
       temperature: DESIGN_CONTRACT_TEMPERATURE,
       styleId: context.styleId,
       styleSkillPrompt: context.styleSkill.prompt,
       appLocale: context.appLocale,
       totalPages: sessionPages.length,
+      topic: context.topic,
+      userMessage: context.userMessage,
+      fontSelection: context.fontSelection,
       emit: (chunk) => emitRetryChunk(chunk),
       runId: context.runId,
       signal: context.entry.abortController.signal
@@ -326,6 +332,7 @@ export async function executeRetryFailedPages(
     apiKey: context.apiKey,
     model: context.model,
     baseUrl: context.providerBaseUrl,
+    maxTokens: context.maxTokens,
     modelTimeoutMs: context.modelTimeouts.agent,
     temperature: PAGE_GENERATION_TEMPERATURE,
     styleId: context.styleId,

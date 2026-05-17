@@ -1,6 +1,7 @@
 import type { PPTDatabase } from '../../db/database'
 import type { AgentManager } from '../../agent'
 import type { ModelTimeoutProfile } from '@shared/model-timeout'
+import type { FontSelection } from '@shared/generation'
 import type { DesignContract } from '../../tools/types'
 import { loadStyleSkill } from '../../utils/style-skills'
 
@@ -42,6 +43,7 @@ export type GenerationContext = {
   provider: string
   apiKey: string
   model: string
+  maxTokens: number
   modelTimeouts: Record<ModelTimeoutProfile, number>
   providerBaseUrl: string
   projectId: string
@@ -53,6 +55,7 @@ export type GenerationContext = {
   topic: string
   deckTitle: string
   appLocale: 'zh' | 'en'
+  fontSelection: FontSelection
 }
 
 export type DeckContext = GenerationContext & { effectiveMode: 'generate' }

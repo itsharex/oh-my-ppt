@@ -13,6 +13,7 @@ export async function invokeVisionModelText(args: {
   apiKey: string
   model: string
   baseUrl: string
+  maxTokens?: number
   modelTimeoutMs: number
   logTag: string
 }): Promise<string> {
@@ -33,7 +34,7 @@ export async function invokeVisionModelText(args: {
     imageBytes
   })
 
-  const model = resolveModel(args.provider, args.apiKey, args.model, args.baseUrl, 0.2)
+  const model = resolveModel(args.provider, args.apiKey, args.model, args.baseUrl, 0.2, args.maxTokens)
   const imageUrl = `data:${mimeType};base64,${imageBase64}`
   const result = await model.invoke(
     [

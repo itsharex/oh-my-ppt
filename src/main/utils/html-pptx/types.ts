@@ -29,8 +29,17 @@ export interface HtmlToPptxTextBox {
   rotate?: number
   lineSpacing?: number
   charSpacing?: number
+  paragraphSpacingBefore?: number
+  paragraphSpacingAfter?: number
+  verticalAlign?: 'top' | 'middle' | 'bottom'
+  bullet?: {
+    type: 'bullet' | 'number'
+    level?: number
+    startAt?: number
+  }
   wrap?: boolean
   runs?: HtmlToPptxTextRun[]
+  order?: number
 }
 
 export type HtmlToPptxShapeType = 'rect' | 'roundRect' | 'ellipse'
@@ -53,6 +62,7 @@ export interface HtmlToPptxShape {
   border?: HtmlToPptxBorder
   shapeType?: HtmlToPptxShapeType
   rotate?: number
+  order?: number
 }
 
 export interface HtmlToPptxImage {
@@ -64,6 +74,8 @@ export interface HtmlToPptxImage {
   h: number
   alt?: string
   rotate?: number
+  opacity?: number
+  order?: number
 }
 
 export interface HtmlToPptxTableCell {
@@ -96,6 +108,7 @@ export interface HtmlToPptxTable {
   colWidths: number[]
   rowHeights: number[]
   rows: HtmlToPptxTableCell[][]
+  order?: number
 }
 
 export interface HtmlToPptxSlide {
@@ -110,10 +123,17 @@ export interface HtmlToPptxSlide {
   overlayImages?: HtmlToPptxImage[]
 }
 
+export interface HtmlToPptxEmbeddedFont {
+  fontFace: string
+  style: 'regular' | 'bold' | 'italic' | 'boldItalic'
+  ttfBuffer: Uint8Array
+}
+
 export interface HtmlToPptxDocument {
   title: string
   author?: string
   slides: HtmlToPptxSlide[]
+  embeddedFonts?: HtmlToPptxEmbeddedFont[]
 }
 
 export interface HtmlToPptxExtractOptions {

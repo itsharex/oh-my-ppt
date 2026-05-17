@@ -1,6 +1,6 @@
 (function () {
   'use strict';
-  // @ohmyppt-index-runtim:arcsin1:v2.0.7
+  // @ohmyppt-index-runtim:arcsin1:v2.0.9
 
   var pages = JSON.parse(document.getElementById('pages-data')?.textContent || '[]');
   var frameViewport = document.getElementById('frameViewport');
@@ -45,17 +45,49 @@
     return url.toString();
   }
 
-  // Load a page's iframe on first visit so animations start when visible
-  function ensureFrameLoaded(pageId) {
-    if (loadedPages.has(pageId)) return;
+  function handlePresentationKey(event) {
+    if (event.key === 'ArrowRight' || event.key === 'ArrowDown' || event.key === 'PageDown' || event.key === ' ') {
+      event.preventDefault();
+      gotoOffset(1);
+      return;
+    }
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowUp' || event.key === 'PageUp') {
+      event.preventDefault();
+      gotoOffset(-1);
+      return;
+    }
+    if (event.key === 'Escape') {
+      if (deckSwitcher) deckSwitcher.classList.remove('open');
+    }
+    if (event.key === 'Escape' && presentMode) {
+      event.preventDefault();
+      exitPresentMode();
+    }
+  }
+
+  function bindFrameKeyboard(frame) {
+    try {
+      var frameWindow = frame.contentWindow;
+      if (!frameWindow || frame.__ohmypptKeyboardWindow === frameWindow) return;
+      frameWindow.addEventListener('keydown', handlePresentationKey);
+      frame.__ohmypptKeyboardWindow = frameWindow;
+    } catch (_) {}
+  }
+
+  // Load or reload a page iframe so slide-level animations replay on revisit.
+  function ensureFrameLoaded(pageId, forceReload) {
     var page = pages.find(function (p) { return getPageKey(p) === pageId; });
     var frame = framePool.get(pageId);
     if (!page || !frame) return;
+    if (loadedPages.has(pageId) && !forceReload) return;
     loadedPages.add(pageId);
-    frame.src = buildPageUrl(page);
+    var pageUrl = new URL(buildPageUrl(page));
+    if (forceReload) pageUrl.searchParams.set('_pptReplay', String(Date.now()));
+    frame.src = pageUrl.toString();
     frame.addEventListener('load', function () {
+      bindFrameKeyboard(frame);
       if (pageId === currentPageId) scheduleFitFrame();
-    });
+    }, { once: true });
   }
 
   if (embedMode) document.body.classList.add('embed');
@@ -65,6 +97,9 @@
     document.body.classList.toggle('present', presentMode);
     if (presentBtn) {
       presentBtn.textContent = presentMode ? '退出演示' : '演示模式（ESC退出）';
+    }
+    if (fullscreenBtn) {
+      fullscreenBtn.style.display = 'none';
     }
     if (syncQuery) {
       try {
@@ -155,12 +190,13 @@
     if (!page) return;
 
     // Hide previous frame
-    var prevFrame = currentPageId ? framePool.get(currentPageId) : null;
+    var previousPageId = currentPageId;
+    var prevFrame = previousPageId ? framePool.get(previousPageId) : null;
     if (prevFrame) prevFrame.classList.remove('active');
 
     // Show target frame
     currentPageId = getPageKey(page);
-    ensureFrameLoaded(currentPageId);
+    ensureFrameLoaded(currentPageId, loadedPages.has(currentPageId) && previousPageId !== currentPageId);
     var nextFrame = framePool.get(currentPageId);
     if (nextFrame) nextFrame.classList.add('active');
 
@@ -189,6 +225,11 @@
 
   function togglePresentMode() {
     applyPresentMode(!presentMode, true);
+    if (presentMode && !document.fullscreenElement) {
+      try { document.documentElement.requestFullscreen(); } catch (_) {}
+    } else if (!presentMode && document.fullscreenElement) {
+      try { document.exitFullscreen(); } catch (_) {}
+    }
   }
 
   function exitPresentMode() {
@@ -200,11 +241,7 @@
   }
 
   function toggleFullscreen() {
-    if (!document.fullscreenElement) {
-      try { document.documentElement.requestFullscreen(); } catch (_) {}
-      return;
-    }
-    try { document.exitFullscreen(); } catch (_) {}
+    togglePresentMode();
   }
 
   bindThumbEvents();
@@ -215,17 +252,7 @@
   if (fullscreenBtn) fullscreenBtn.addEventListener('click', function () { toggleFullscreen(); });
   window.addEventListener('resize', function () { scheduleFitFrame(); });
   window.addEventListener('hashchange', onHashChange);
-  window.addEventListener('keydown', function (event) {
-    if (event.key === 'ArrowRight' || event.key === 'ArrowDown' || event.key === 'PageDown') gotoOffset(1);
-    if (event.key === 'ArrowLeft' || event.key === 'ArrowUp' || event.key === 'PageUp') gotoOffset(-1);
-    if (event.key === 'Escape') {
-      if (deckSwitcher) deckSwitcher.classList.remove('open');
-    }
-    if (event.key === 'Escape' && presentMode) {
-      event.preventDefault();
-      exitPresentMode();
-    }
-  });
+  window.addEventListener('keydown', handlePresentationKey);
   document.addEventListener('fullscreenchange', function () {
     if (!document.fullscreenElement && presentMode) {
       exitPresentMode();

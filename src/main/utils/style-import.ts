@@ -14,6 +14,7 @@ export interface StyleParseResult {
   category: string
   aliases: string[]
   styleSkill: string
+  styleCase: string
 }
 
 const ALLOWED_EXTENSIONS = new Set(['.md', '.txt', '.html', '.htm'])
@@ -32,6 +33,7 @@ export async function parseStyleFile(args: {
   apiKey: string
   model: string
   baseUrl: string
+  maxTokens?: number
   modelTimeoutMs: number
   workspaceDir: string
 }): Promise<StyleParseResult> {
@@ -42,6 +44,7 @@ export async function parseStyleFile(args: {
     apiKey: args.apiKey,
     model: args.model,
     baseUrl: args.baseUrl,
+    maxTokens: args.maxTokens,
     modelTimeoutMs: args.modelTimeoutMs,
     workspaceDir: args.workspaceDir,
     file: sourceFile
@@ -89,11 +92,12 @@ async function runStyleImportAgent(args: {
   apiKey: string
   model: string
   baseUrl: string
+  maxTokens?: number
   modelTimeoutMs: number
   workspaceDir: string
   file: PreparedStyleSourceFile
 }): Promise<string> {
-  const model = resolveModel(args.provider, args.apiKey, args.model, args.baseUrl, 0.2)
+  const model = resolveModel(args.provider, args.apiKey, args.model, args.baseUrl, 0.2, args.maxTokens)
   const prompt = buildStyleImportPrompt(args.file.virtualPath)
   log.info('[styles:parseFile] agent read_file requested', {
     virtualPath: args.file.virtualPath,
@@ -107,7 +111,7 @@ async function runStyleImportAgent(args: {
       virtualMode: true
     }),
     systemPrompt:
-      'You are a style-import parsing agent. You must use read_file to read the uploaded file before generating the result. Return strict JSON only: label, description, category, aliases, styleSkill.'
+      'You are a style-import parsing agent. You must use read_file to read the uploaded file before generating the result. Return strict JSON only: label, description, category, aliases, styleCase, styleSkill.'
   })
 
   const stream = await agent.stream(
@@ -183,7 +187,8 @@ function parseStyleImportResponse(response: unknown): StyleParseResult {
     aliases: Array.isArray(parsed.aliases)
       ? parsed.aliases.map((item) => String(item || '').trim()).filter((item) => item.length > 0)
       : [],
-    styleSkill
+    styleSkill,
+    styleCase: String(parsed.styleCase || '').trim()
   }
 }
 

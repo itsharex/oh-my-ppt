@@ -52,6 +52,47 @@ export interface PptxImportResult {
   warnings: string[]
 }
 
+export interface FontRef {
+  source: 'google' | 'uploaded'
+  family: string
+  id?: string
+}
+
+export type FontSelection =
+  | { mode: 'auto' }
+  | {
+      mode: 'pair'
+      title: FontRef
+      body: FontRef
+    }
+
+export const normalizeFontSelection = (value: unknown): FontSelection => {
+  const record = value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
+  if (record.mode !== 'pair') return { mode: 'auto' }
+  const title =
+    record.title && typeof record.title === 'object' ? (record.title as Record<string, unknown>) : {}
+  const body =
+    record.body && typeof record.body === 'object' ? (record.body as Record<string, unknown>) : {}
+  const titleFamily = typeof title.family === 'string' ? title.family.trim() : ''
+  const bodyFamily = typeof body.family === 'string' ? body.family.trim() : ''
+  if (!titleFamily || !bodyFamily) return { mode: 'auto' }
+  const titleSource = title.source === 'uploaded' ? 'uploaded' : 'google'
+  const bodySource = body.source === 'uploaded' ? 'uploaded' : 'google'
+  return {
+    mode: 'pair',
+    title: {
+      source: titleSource,
+      family: titleFamily,
+      id: typeof title.id === 'string' ? title.id : undefined
+    },
+    body: {
+      source: bodySource,
+      family: bodyFamily,
+      id: typeof body.id === 'string' ? body.id : undefined
+    }
+  }
+}
+
 export interface GenerateStartPayload {
   sessionId: string
   userMessage: string

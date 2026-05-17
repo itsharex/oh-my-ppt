@@ -649,6 +649,10 @@ export function SessionGeneratingPage(): React.JSX.Element {
   const failedPages = extractFailedPages(error)
   const fullyGenerated = isSessionFullyGenerated(editorGate)
   const hasGeneratedPages = editorGate.generatedCount > 0
+  const canEnterEditor = getEditorGate(
+    { page_count: editorGate.totalCount, generatedCount: editorGate.generatedCount },
+    0.68
+  ).canEdit
 
   return (
     <div className="relative flex h-full flex-col overflow-hidden bg-[linear-gradient(165deg,#d8edf8_0%,#cce6ee_38%,#e9e3d1_100%)]">
@@ -840,16 +844,27 @@ export function SessionGeneratingPage(): React.JSX.Element {
             </div>
             <div className="flex items-center gap-2">
               {status === 'running' && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (!id) return
-                    void ipc.cancelGenerate(id)
-                  }}
-                  className="inline-flex h-6 cursor-pointer items-center rounded-md border border-[#d7b5ae]/80 bg-[#fbf1ee]/80 px-2 text-[10px] font-semibold text-[#93564f] transition-colors hover:bg-[#f5e0db] hover:text-[#7a3e38]"
-                >
-                  {t('generating.cancelGeneration')}
-                </button>
+                <>
+                  {canEnterEditor && (
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/sessions/${id}`)}
+                      className="inline-flex h-6 cursor-pointer items-center rounded-md border border-[#b5c9a8]/80 bg-[#eef5e8]/80 px-2 text-[10px] font-semibold text-[#4f7b3f] transition-colors hover:bg-[#e2edd8] hover:text-[#3e5a30]"
+                    >
+                      {t('generating.enterEditor')}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!id) return
+                      void ipc.cancelGenerate(id)
+                    }}
+                    className="inline-flex h-6 cursor-pointer items-center rounded-md border border-[#d7b5ae]/80 bg-[#fbf1ee]/80 px-2 text-[10px] font-semibold text-[#93564f] transition-colors hover:bg-[#f5e0db] hover:text-[#7a3e38]"
+                  >
+                    {t('generating.cancelGeneration')}
+                  </button>
+                </>
               )}
               <span className="font-semibold">{displayProgress}%</span>
             </div>
@@ -880,6 +895,14 @@ export function SessionGeneratingPage(): React.JSX.Element {
                 </div>
               )}
               <div className="mt-3 flex items-center gap-2">
+                {canEnterEditor && (
+                  <Button
+                    size="sm"
+                    onClick={() => navigate(`/sessions/${id}`)}
+                  >
+                    {t('generating.enterEditor')}
+                  </Button>
+                )}
                 {!fullyGenerated && hasGeneratedPages && (
                   <Button
                     size="sm"

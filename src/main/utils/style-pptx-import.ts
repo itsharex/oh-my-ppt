@@ -21,6 +21,7 @@ export async function parseStylePptx(args: {
   apiKey: string
   model: string
   baseUrl: string
+  maxTokens?: number
   modelTimeoutMs: number
   tmpRootDir: string
 }): Promise<StyleParseResult> {
@@ -54,6 +55,7 @@ export async function parseStylePptx(args: {
       apiKey: args.apiKey,
       model: args.model,
       baseUrl: args.baseUrl,
+      maxTokens: args.maxTokens,
       modelTimeoutMs: args.modelTimeoutMs,
       workspaceDir: taskDir,
       prompt: buildStylePptxImportPrompt({
@@ -74,6 +76,7 @@ export async function parseStylePptx(args: {
         apiKey: args.apiKey,
         model: args.model,
         baseUrl: args.baseUrl,
+        maxTokens: args.maxTokens,
         modelTimeoutMs: args.modelTimeoutMs,
         brokenResponse: response,
         parseError: reason
@@ -126,11 +129,12 @@ async function runStylePptxImportAgent(args: {
   apiKey: string
   model: string
   baseUrl: string
+  maxTokens?: number
   modelTimeoutMs: number
   workspaceDir: string
   prompt: string
 }): Promise<string> {
-  const model = resolveModel(args.provider, args.apiKey, args.model, args.baseUrl, 0.2)
+  const model = resolveModel(args.provider, args.apiKey, args.model, args.baseUrl, 0.2, args.maxTokens)
   const agent = createDeepAgent({
     model,
     backend: new FilesystemBackend({
@@ -138,7 +142,7 @@ async function runStylePptxImportAgent(args: {
       virtualMode: true
     }),
     systemPrompt:
-      'You are a style-import parsing agent for PPTX-derived HTML files. You must use grep and read_file tools before generating the result. Return strict JSON only: label, description, category, aliases, styleSkill.'
+      'You are a style-import parsing agent for PPTX-derived HTML files. You must use grep and read_file tools before generating the result. Return strict JSON only: label, description, category, aliases, styleCase, styleSkill.'
   })
 
   const stream = await agent.stream(
@@ -214,7 +218,8 @@ export function parseStyleImportResponse(response: unknown): StyleParseResult {
     aliases: Array.isArray(parsed.aliases)
       ? parsed.aliases.map((item) => String(item || '').trim()).filter((item) => item.length > 0)
       : [],
-    styleSkill
+    styleSkill,
+    styleCase: String(parsed.styleCase || '').trim()
   }
 }
 
@@ -223,11 +228,12 @@ export async function retryFixJson(args: {
   apiKey: string
   model: string
   baseUrl: string
+  maxTokens?: number
   modelTimeoutMs: number
   brokenResponse: string
   parseError: string
 }): Promise<string> {
-  const model = resolveModel(args.provider, args.apiKey, args.model, args.baseUrl, 0.2)
+  const model = resolveModel(args.provider, args.apiKey, args.model, args.baseUrl, 0.2, args.maxTokens)
   const result = await model.invoke([
     {
       role: 'user',
@@ -252,6 +258,7 @@ export async function extractStyleFromExistingHtml(args: {
   apiKey: string
   model: string
   baseUrl: string
+  maxTokens?: number
   modelTimeoutMs: number
 }): Promise<StyleParseResult> {
   const samplePages = selectSamplePagePaths(
@@ -264,6 +271,7 @@ export async function extractStyleFromExistingHtml(args: {
     apiKey: args.apiKey,
     model: args.model,
     baseUrl: args.baseUrl,
+    maxTokens: args.maxTokens,
     modelTimeoutMs: args.modelTimeoutMs,
     workspaceDir: args.projectDir,
     prompt: buildStylePptxImportPrompt({
@@ -284,6 +292,7 @@ export async function extractStyleFromExistingHtml(args: {
       apiKey: args.apiKey,
       model: args.model,
       baseUrl: args.baseUrl,
+      maxTokens: args.maxTokens,
       modelTimeoutMs: args.modelTimeoutMs,
       brokenResponse: response,
       parseError: reason

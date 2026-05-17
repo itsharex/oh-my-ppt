@@ -1,7 +1,9 @@
+import { is } from '@electron-toolkit/utils'
 import { BrowserWindow, dialog, ipcMain, protocol } from 'electron'
 import fs from 'fs'
 import path from 'path'
 import type { IpcContext } from '../context'
+import { getUserFontsRoot } from '../../tools/font-registry'
 
 const ASSET_MIME_MAP: Record<string, string> = {
   png: 'image/png',
@@ -13,12 +15,50 @@ const ASSET_MIME_MAP: Record<string, string> = {
   mp4: 'video/mp4',
   webm: 'video/webm',
   ogg: 'video/ogg',
-  ogv: 'video/ogg'
+  ogv: 'video/ogg',
+  woff2: 'font/woff2',
+  html: 'text/html'
+}
+
+const dynamicAllowedRoots = new Set<string>()
+
+const getResourcesRoot = (): string =>
+  is.dev ? path.join(process.cwd(), 'resources') : path.join(process.resourcesPath, 'app.asar.unpacked', 'resources')
+
+const normalizeExistingPath = (filePath: string): string => {
+  const resolved = path.resolve(filePath)
+  try {
+    return fs.realpathSync(resolved)
+  } catch {
+    return resolved
+  }
+}
+
+const isPathInside = (candidate: string, root: string): boolean => {
+  const relative = path.relative(root, candidate)
+  return relative === '' || (!!relative && !relative.startsWith('..') && !path.isAbsolute(relative))
+}
+
+const getStaticAllowedRoots = (): string[] => [getResourcesRoot(), getUserFontsRoot()]
+
+const assertLocalAssetAllowed = (filePath: string): string | null => {
+  const normalizedFile = normalizeExistingPath(filePath)
+  const roots = [...getStaticAllowedRoots(), ...dynamicAllowedRoots]
+    .map(normalizeExistingPath)
+    .filter((root) => root.length > 0)
+  return roots.some((root) => isPathInside(normalizedFile, root)) ? normalizedFile : null
+}
+
+export function allowLocalAssetRoot(rootPath: string): void {
+  if (!rootPath.trim()) return
+  dynamicAllowedRoots.add(normalizeExistingPath(rootPath))
 }
 
 export function registerLocalAssetProtocol(): void {
   protocol.handle('local-asset', (request) => {
-    const filePath = decodeURIComponent(request.url.replace('local-asset://', ''))
+    const requestedPath = decodeURIComponent(request.url.replace('local-asset://', ''))
+    const filePath = assertLocalAssetAllowed(requestedPath)
+    if (!filePath) return new Response('Forbidden', { status: 403 })
     try {
       const stat = fs.statSync(filePath)
       if (!stat.isFile()) return new Response('Not found', { status: 404 })
@@ -116,9 +156,10 @@ export function registerAssetHandlers(ctx: IpcContext): void {
       record.assetType === 'video' ? 'video' : record.assetType === 'image' ? 'image' : 'image'
     if (!sessionId) throw new Error('sessionId 不能为空')
 
-    const projectDir = await resolveSessionProjectDir(sessionId)
     const dirName = assetType === 'video' ? 'videos' : 'images'
+    const projectDir = await resolveSessionProjectDir(sessionId)
     const targetDir = path.join(projectDir, dirName)
+    allowLocalAssetRoot(targetDir)
     if (!fs.existsSync(targetDir)) return { assets: [] }
 
     const files = await fs.promises.readdir(targetDir)

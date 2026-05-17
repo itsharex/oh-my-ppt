@@ -1,5 +1,39 @@
 # 更新日志 / Changelog
 
+## 2026-05-17 · v2.0.9
+
+### 中文
+
+- 新增字体管理：内置 14 款精选 Google 字体（含中文），支持上传本地 .woff2 字体，可自定义字体名称、分类、用途和语言类型。
+- 新增字体选择：创建演示稿时可分别指定标题字体和正文字体，也可交给 AI 根据主题和风格自动匹配。
+- 新增字体嵌渲染实质化：导出 PPTX 时自动嵌入已使用的字体文件，确保在 PowerPoint 中打开后字体不丢失、不回退。
+- 新增风格缩略图：风格列表展示可视化预览缩略图，挑选风格更直观。
+- 新增模型 Max Tokens 设置：可在设置中自定义模型最大输出长度，适配不同模型的响应上限。
+- 新增 Windows 系统托盘：关闭窗口后应用最小化到系统托盘，后台运行不干扰桌面。
+- 优化风格管理：整体风格编辑和展示体验更流畅，显示风格的适用场景。
+- 优化内置风格： 重写内置风格的提示词和style_skill。
+- 优化 PPTX 导出：导出流程和效果持续改进（暂不支持视频导出以及动画导出，html的复杂度导致导出无法完全一样）。
+- 优化文字大小：优化生成默认最小文字为16px，更适合ppt风格的预览和演示。
+- 修复：演示模式和本地预览的键盘鼠标bug
+- 修复：Windows 11 下批量导出图片失败的问题。
+- 修复：修复默认导出目录不正确的问题。
+
+### English
+
+- Added font management: 14 curated Google Fonts built-in (including CJK), with support for uploading local .woff2 fonts and customizing name, category, role, and script.
+- Added font selection: choose title and body fonts separately before generation, or let AI auto-match based on topic and style.
+- Added font embedding in PPTX export: used fonts are automatically embedded in the exported file so they display correctly in PowerPoint without fallback.
+- Added style thumbnails: the style list now shows visual preview thumbnails for easier selection.
+- Added Max Tokens setting: customize the model's maximum output length in Settings to match different model limits.
+- Added Windows system tray: closing the window minimizes the app to the system tray instead of quitting.
+- Improved style management: smoother editing and browsing experience, with applicable scenarios shown for each style.
+- Improved built-in styles: rewrote prompts and style skills for all built-in styles.
+- Improved PPTX export: further refinements to the export pipeline and output quality.
+- Improved minimum font size: default minimum text size is now 16px for better readability in previews and presentations.
+- Fixed keyboard and mouse issues in presentation mode and local preview.
+- Fixed batch PNG export failing on Windows 11.
+- Fixed incorrect default export directory.
+
 ## 2026-05-15 · v2.0.8
 
 ### 中文

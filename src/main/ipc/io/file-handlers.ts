@@ -3,8 +3,7 @@ import fs from 'fs'
 import path from 'path'
 import { pathToFileURL } from 'url'
 import type { IpcContext } from '../context'
-
-const INDEX_RUNTIME_MARKER = '@ohmyppt-index-runtim:arcsin1:v2.0.7'
+import { ensureSessionRuntimeCompatible } from '../session/runtime-assets'
 
 export function registerFileHandlers(ctx: IpcContext): void {
   const { parsePathPayload, normalizeSessionId, assertPathInAllowedRoots } = ctx
@@ -48,11 +47,7 @@ export function registerFileHandlers(ctx: IpcContext): void {
       // Ensure index-runtime.js is up-to-date before opening in browser
       try {
         const projectDir = path.dirname(safePath)
-        const runtimePath = path.join(projectDir, 'assets', 'index-runtime.js')
-        const content = await fs.promises.readFile(runtimePath, 'utf-8')
-        if (!content.includes(INDEX_RUNTIME_MARKER)) {
-          await ctx.ensureSessionAssets(projectDir)
-        }
+        await ensureSessionRuntimeCompatible(ctx, projectDir)
       } catch {
         // ignore
       }

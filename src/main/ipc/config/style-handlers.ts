@@ -3,6 +3,7 @@ import fs from 'fs'
 import path from 'path'
 import log from 'electron-log/main.js'
 import { customAlphabet } from 'nanoid'
+import { is } from '@electron-toolkit/utils'
 import {
   listStyleCatalog,
   getStyleDetail,
@@ -21,12 +22,24 @@ import { isSupportedImageMimeType, normalizeImageMimeType } from '@shared/image-
 const nanoidLower = customAlphabet('abcdefghijklmnopqrstuvwxyz0123456789', 12)
 const MAX_STYLE_IMAGE_SIZE_BYTES = 5 * 1024 * 1024
 
+function resolvePreviewHtmlPath(styleKey: string): string {
+  return is.dev
+    ? path.join(process.cwd(), 'resources', 'styleHtml', `${styleKey}.html`)
+    : path.join(process.resourcesPath, 'app.asar.unpacked', 'resources', 'styleHtml', `${styleKey}.html`)
+}
+
+function resolvePreviewPath(styleKey: string): string | null {
+  const htmlPath = resolvePreviewHtmlPath(styleKey)
+  return fs.existsSync(htmlPath) ? htmlPath : null
+}
+
 type StyleBasePayload = {
   label: string
   description: string
   category: string
   aliases: string[]
   prompt: string
+  styleCase: string
 }
 
 type StylePayload = StyleBasePayload & {
@@ -47,6 +60,7 @@ export function registerStyleHandlers(ctx: IpcContext): void {
         description: string
         source?: 'builtin' | 'custom' | 'override'
         editable?: boolean
+        styleCase?: string
       }>
     > = {}
     for (const style of styles) {
@@ -57,7 +71,8 @@ export function registerStyleHandlers(ctx: IpcContext): void {
         label: style.label,
         description: style.description,
         source: style.source,
-        editable: style.editable
+        editable: style.editable,
+        styleCase: style.styleCase
       })
     }
     const defaultStyle =
@@ -80,6 +95,9 @@ export function registerStyleHandlers(ctx: IpcContext): void {
         category: row.category || (row.source === 'builtin' ? '内置' : '自定义'),
         source: row.source,
         editable: row.source !== 'builtin',
+        version: row.version,
+        styleCase: row.styleCase,
+        previewPath: resolvePreviewPath(row.style),
         createdAt: row.createdAt,
         updatedAt: row.updatedAt
       }))
@@ -109,7 +127,8 @@ export function registerStyleHandlers(ctx: IpcContext): void {
       description,
       category,
       aliases,
-      prompt: styleSkill
+      prompt: styleSkill,
+      styleCase: String(record.styleCase || '').trim()
     }
   }
 
@@ -145,6 +164,7 @@ export function registerStyleHandlers(ctx: IpcContext): void {
       apiKey: activeModel.apiKey,
       model: activeModel.model,
       baseUrl: activeModel.baseUrl,
+      maxTokens: activeModel.maxTokens,
       modelTimeoutMs: modelTimeouts.document,
       workspaceDir: styleImportDir
     })
@@ -163,6 +183,7 @@ export function registerStyleHandlers(ctx: IpcContext): void {
       apiKey: activeModel.apiKey,
       model: activeModel.model,
       baseUrl: activeModel.baseUrl,
+      maxTokens: activeModel.maxTokens,
       modelTimeoutMs: modelTimeouts.document,
       tmpRootDir
     })
@@ -200,6 +221,7 @@ export function registerStyleHandlers(ctx: IpcContext): void {
       apiKey: activeModel.apiKey,
       model: activeModel.model,
       baseUrl: activeModel.baseUrl,
+      maxTokens: activeModel.maxTokens,
       modelTimeoutMs: modelTimeouts.document
     })
   })

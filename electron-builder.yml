@@ -3,21 +3,46 @@ productName: OhMyPPT
 directories:
   buildResources: build
 files:
+  - '!**/.DS_Store'
+  - '!**/._*'
   - '!**/.vscode/*'
-  - '!src/*'
+  - '!**/.idea/**'
+  - '!**/.git/**'
+  - '!src/**'
+  - '!tools/**'
+  - '!scripts/**'
+  - '!assets/**'
+  - '!docs/**'
+  - '!doc/**'
+  - '!logs/**'
+  - '!patch/**'
+  - '!tpack/**'
+  - '!dist/**'
+  - '!.claude/**'
+  - '!.pnpm-store/**'
   - '!electron.vite.config.{js,ts,mjs,cjs}'
   - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
+  - '!README_*'
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
   - '!**/*.map'
   - '!**/*.tsbuildinfo'
-  - '!{docs,logs,ohmyppt.dev.db,doc}'
+  - '!*.db'
+  - '!*.db-*'
+  - '!{ohmyppt.dev.db,ohmyppt.db}'
   - '!thumb.png'
   - '!node_modules/tiktoken'
   - '!node_modules/web-streams-polyfill'
 asarUnpack:
   - resources/**
   - node_modules/@node-rs/**/*.node
+extraResources:
+  - from: build/icons/icon.ico
+    to: icons/icon.ico
+  - from: build/icons/32x32.png
+    to: icons/32x32.png
+  - from: build/icons/16x16.png
+    to: icons/16x16.png
 forceCodeSigning: false
 win:
   target:

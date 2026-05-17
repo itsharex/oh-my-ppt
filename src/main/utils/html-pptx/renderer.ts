@@ -12,7 +12,8 @@ import {
   HIDE_FOR_PPTX_BACKGROUND_SCRIPT,
   RESET_SCALE_FOR_PPTX_CAPTURE_SCRIPT,
   WAIT_FOR_PPTX_CAPTURE_FRAME_SCRIPT,
-  COLLECT_KATEX_RECTS_SCRIPT
+  MARK_KATEX_BLOCKS_SCRIPT,
+  COLLECT_KATEX_BLOCK_RECTS_SCRIPT
 } from './browser-scripts'
 
 export interface HtmlPageForPptx {
@@ -351,6 +352,9 @@ export const extractHtmlPageToPptxSlide = async ({
       waitForPrintReadySignal
     )
 
+    // Mark formula blocks before extraction so text extraction can skip them
+    await win.webContents.executeJavaScript(MARK_KATEX_BLOCKS_SCRIPT, true)
+
     const extracted = await win.webContents.executeJavaScript(
       buildHtmlToPptxExtractScript({
         pageWidthPx: PPTX_CAPTURE_WIDTH,
@@ -367,16 +371,16 @@ export const extractHtmlPageToPptxSlide = async ({
     // but AFTER extraction (which used the scaled coordinates for correct positions).
     await win.webContents.executeJavaScript(RESET_SCALE_FOR_PPTX_CAPTURE_SCRIPT, true)
 
-    // Capture KaTeX formulas as individual images (they can't be extracted as text)
-    const katexRects: Array<{ x: number; y: number; w: number; h: number }> =
-      await win.webContents.executeJavaScript(COLLECT_KATEX_RECTS_SCRIPT, true)
-    for (const rect of katexRects) {
-      const pad = 4
+    // Capture formula blocks as overlay images (whole blocks containing katex)
+    const blockRects: Array<{ x: number; y: number; w: number; h: number }> =
+      await win.webContents.executeJavaScript(COLLECT_KATEX_BLOCK_RECTS_SCRIPT, true)
+    for (const rect of blockRects) {
+      const pad = 2
       const captureRect = {
         x: Math.max(0, rect.x - pad),
         y: Math.max(0, rect.y - pad),
-        width: rect.w + pad * 2,
-        height: rect.h + pad * 2
+        width: Math.min(PPTX_CAPTURE_WIDTH, rect.w + pad * 2),
+        height: Math.min(PPTX_CAPTURE_HEIGHT, rect.h + pad * 2)
       }
       const img = await win.webContents.capturePage(captureRect)
       const png = img.toPNG()

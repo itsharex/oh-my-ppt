@@ -79,10 +79,11 @@ export function createSessionEditAgent(args: {
   model: string;
   baseUrl?: string;
   temperature?: number;
+  maxTokens?: number;
   styleId?: string | null;
   context: SessionDeckGenerationContext;
 }): DeepAgentStreamResult {
-  const model = resolveModel(args.provider, args.apiKey, args.model, args.baseUrl, args.temperature);
+  const model = resolveModel(args.provider, args.apiKey, args.model, args.baseUrl, args.temperature, args.maxTokens);
   const disableNativeEditFile = shouldBlockNativeEditFile(args.context);
   const backend = new GuardedFilesystemBackend({
     rootDir: args.context.projectDir,
@@ -125,10 +126,11 @@ export function createSessionDeckAgent(args: {
   model: string;
   baseUrl?: string;
   temperature?: number;
+  maxTokens?: number;
   styleId?: string | null;
   context: SessionDeckGenerationContext;
 }): DeepAgentStreamResult {
-  const model = resolveModel(args.provider, args.apiKey, args.model, args.baseUrl, args.temperature);
+  const model = resolveModel(args.provider, args.apiKey, args.model, args.baseUrl, args.temperature, args.maxTokens);
   const backend = new GuardedFilesystemBackend({
     rootDir: args.context.projectDir,
     virtualMode: true,
@@ -191,7 +193,8 @@ export function resolveModel(
   apiKey: string,
   model: string,
   baseUrl?: string,
-  temperature?: number
+  temperature?: number,
+  maxTokens?: number
 ): BaseLanguageModel {
   const resolvedModel = model.trim();
   if (!resolvedModel) {
@@ -202,6 +205,7 @@ export function resolveModel(
       ? Math.max(0, Math.min(2, temperature))
       : DEFAULT_MODEL_TEMPERATURE;
   const resolvedBaseUrl = typeof baseUrl === "string" ? baseUrl.trim() : "";
+  const resolvedMaxTokens = maxTokens && maxTokens > 0 ? maxTokens : 4096;
   const { modelKwargs, compatibilityFlags } = resolveOpenAICompatibilityModelKwargs(resolvedBaseUrl);
 
   log.info("[llm] resolveModel", {
@@ -209,6 +213,7 @@ export function resolveModel(
     model: resolvedModel,
     baseUrl: resolvedBaseUrl,
     temperature: resolvedTemperature ?? null,
+    maxTokens: resolvedMaxTokens,
     openAICompatibility: compatibilityFlags,
   });
 
@@ -218,6 +223,7 @@ export function resolveModel(
         model: resolvedModel,
         apiKey,
         temperature: resolvedTemperature,
+        maxTokens: resolvedMaxTokens,
         configuration: resolvedBaseUrl ? { baseURL: resolvedBaseUrl } : undefined,
         modelKwargs,
       });
@@ -226,6 +232,7 @@ export function resolveModel(
         model: resolvedModel,
         apiKey,
         temperature: resolvedTemperature,
+        maxTokens: resolvedMaxTokens,
         anthropicApiUrl: resolvedBaseUrl || undefined,
       });
     default:

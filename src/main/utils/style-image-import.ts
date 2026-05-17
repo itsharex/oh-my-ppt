@@ -11,6 +11,7 @@ export async function parseStyleImage(args: {
   apiKey: string
   model: string
   baseUrl: string
+  maxTokens?: number
   modelTimeoutMs: number
 }): Promise<StyleParseResult> {
   const mimeType = normalizeImageMimeType(args.mimeType)
@@ -52,6 +53,7 @@ async function parseStyleImageResponseWithRepairs(
     apiKey: string
     model: string
     baseUrl: string
+    maxTokens?: number
     modelTimeoutMs: number
   }
 ): Promise<StyleParseResult> {

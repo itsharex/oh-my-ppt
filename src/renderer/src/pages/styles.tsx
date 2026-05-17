@@ -2,9 +2,14 @@ import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Button } from '../components/ui/Button'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger
+} from '../components/ui/Popover'
 import { ipc } from '@renderer/lib/ipc'
 import { useToastStore } from '../store'
-import { Plus, PencilLine } from 'lucide-react'
+import { Plus, PencilLine, Eye } from 'lucide-react'
 import { useT } from '../i18n'
 
 type StyleSummary = {
@@ -14,9 +19,13 @@ type StyleSummary = {
   source?: 'builtin' | 'custom' | 'override'
   editable?: boolean
   category: string
+  styleCase?: string
+  previewPath?: string | null
   createdAt?: number
   updatedAt?: number
 }
+
+const localAssetUrl = (filePath: string): string => `local-asset://${encodeURI(filePath)}`
 
 export function StylesPage(): React.JSX.Element {
   const navigate = useNavigate()
@@ -63,33 +72,67 @@ export function StylesPage(): React.JSX.Element {
 
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
         {styles.map((style) => (
-          <Card
-            key={style.id}
-            className="group !rounded-lg transition-all duration-200 ease-out hover:-translate-y-0.5 hover:shadow-[0_16px_30px_rgba(88,75,56,0.18)]"
-          >
-            <CardHeader className="pb-2">
-              <CardTitle className="flex items-center justify-between text-base">
-                <span className="truncate transition-colors duration-200 group-hover:text-foreground">{style.label}</span>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="transition-all duration-200 group-hover:-translate-y-0.5"
-                  onClick={() => navigate(`/styles/${style.id}`)}
-                >
-                  <PencilLine className="mr-1.5 h-3.5 w-3.5" />
-                  {t('common.edit')}
-                </Button>
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="line-clamp-2 text-sm text-muted-foreground transition-colors duration-200 group-hover:text-foreground/85">
-                {style.description || style.id}
-              </p>
-              <p className="mt-2 text-xs text-muted-foreground transition-colors duration-200 group-hover:text-foreground/70">
-                {style.category} · {style.source || t('styles.sourceBuiltin')}
-              </p>
-            </CardContent>
-          </Card>
+          <Popover key={style.id}>
+            <Card className="group !rounded-lg transition-all duration-200 ease-out hover:-translate-y-0.5 hover:shadow-[0_16px_30px_rgba(88,75,56,0.18)]">
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center justify-between text-base">
+                  <span className="truncate transition-colors duration-200 group-hover:text-foreground">{style.label}</span>
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    {style.previewPath && (
+                      <PopoverTrigger asChild>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="transition-all duration-200 group-hover:-translate-y-0.5"
+                        >
+                          <Eye className="mr-1.5 h-3.5 w-3.5" />
+                          预览
+                        </Button>
+                      </PopoverTrigger>
+                    )}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="transition-all duration-200 group-hover:-translate-y-0.5"
+                      onClick={() => navigate(`/styles/${style.id}`)}
+                    >
+                      <PencilLine className="mr-1.5 h-3.5 w-3.5" />
+                      {t('common.edit')}
+                    </Button>
+                  </div>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {style.styleCase && (
+                  <span className="mb-2 inline-block rounded-md border border-[#d6c08d]/80 bg-[#fff7e8] px-1.5 py-0.5 text-xs font-medium text-[#7c6a4c]">
+                    {style.styleCase}
+                  </span>
+                )}
+                <p className="line-clamp-2 text-[11px] text-muted-foreground/60 transition-colors duration-200 group-hover:text-foreground/50">
+                  {style.description || style.id}
+                </p>
+                <p className="mt-2 text-xs text-muted-foreground/60 transition-colors duration-200 group-hover:text-foreground/50">
+                  {style.category} · {style.source || t('styles.sourceBuiltin')}
+                </p>
+              </CardContent>
+            </Card>
+            {style.previewPath && (
+              <PopoverContent
+                side="right"
+                align="start"
+                sideOffset={12}
+                className="overflow-hidden rounded-lg p-0"
+              >
+                <div className="aspect-video w-[520px] max-w-[72vw] bg-black">
+                  <iframe
+                    src={localAssetUrl(style.previewPath)}
+                    className="block h-full w-full border-0"
+                    title={`${style.label} preview`}
+                  />
+                </div>
+              </PopoverContent>
+            )}
+          </Popover>
         ))}
       </div>
     </div>

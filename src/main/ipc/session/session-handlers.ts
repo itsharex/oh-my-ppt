@@ -8,6 +8,9 @@ import { getStyleDetail, hasStyleSkill } from '../../utils/style-skills'
 import type { IpcContext } from '../context'
 import { resolveActiveModelConfig } from '../config/model-config-utils'
 import { readAppLocale, uiText } from '../config/locale-utils'
+import { normalizeFontSelection } from '@shared/generation'
+import { ensureSessionRuntimeCompatible } from './runtime-assets'
+import { GitHistoryService } from '../../history/git-history-service'
 
 export function registerSessionHandlers(ctx: IpcContext): void {
   const {
@@ -39,6 +42,7 @@ export function registerSessionHandlers(ctx: IpcContext): void {
 
   ipcMain.handle('session:create', async (_event, payload) => {
     const { topic, styleId, pageCount } = payload
+    const fontSelection = normalizeFontSelection(payload?.fontSelection)
     const referenceDocumentPath =
       typeof payload?.referenceDocumentPath === 'string' ? payload.referenceDocumentPath.trim() : ''
     const locale = await readAppLocale(ctx)
@@ -131,6 +135,7 @@ export function registerSessionHandlers(ctx: IpcContext): void {
       pageCount,
       referenceDocumentPath: sessionReferenceDocumentPath
     })
+    await db.updateSessionMetadata(sessionId, { fontSelection })
 
     await db.createProject({
       session_id: sessionId,
@@ -214,6 +219,15 @@ export function registerSessionHandlers(ctx: IpcContext): void {
       throw new Error('session_pages is empty after migration; please re-run migration patch')
     }
     const projectDir = await resolveSessionProjectDir(sessionId)
+    await ensureSessionRuntimeCompatible(ctx, projectDir)
+    if (!(await db.hasAnyOperationPageSnapshots(sessionId))) {
+      await new GitHistoryService(db).ensureBaseline(sessionId, projectDir).catch((error) => {
+        log.warn('[session:get] ensure history baseline failed', {
+          sessionId,
+          message: error instanceof Error ? error.message : String(error)
+        })
+      })
+    }
     for (const sp of sessionPages) {
       const htmlPath = resolvePageHtmlPath(projectDir, sp.file_slug, sp.html_path)
       let html = ''

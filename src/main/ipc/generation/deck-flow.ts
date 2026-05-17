@@ -76,6 +76,7 @@ export async function resolveDeckContext(
     model: common.model,
     modelTimeouts: common.modelTimeouts,
     providerBaseUrl: common.providerBaseUrl,
+    maxTokens: common.maxTokens,
     projectId: common.projectId,
     messageScope: 'main',
     messagePageId: undefined,
@@ -84,7 +85,8 @@ export async function resolveDeckContext(
     sourceDocumentPaths,
     topic: common.topic,
     deckTitle: common.deckTitle,
-    appLocale: common.appLocale
+    appLocale: common.appLocale,
+    fontSelection: common.fontSelection
   }
 }
 
@@ -194,6 +196,7 @@ export async function executeDeckGeneration(
     apiKey: context.apiKey,
     model: context.model,
     baseUrl: context.providerBaseUrl,
+    maxTokens: context.maxTokens,
     modelTimeoutMs: context.modelTimeouts.planning,
     temperature: PLANNER_TEMPERATURE,
     styleId: context.styleId,
@@ -211,12 +214,16 @@ export async function executeDeckGeneration(
       apiKey: context.apiKey,
       model: context.model,
       baseUrl: context.providerBaseUrl,
+      maxTokens: context.maxTokens,
       modelTimeoutMs: context.modelTimeouts.design,
       temperature: DESIGN_CONTRACT_TEMPERATURE,
       styleId: context.styleId,
       styleSkillPrompt: context.styleSkill.prompt,
       appLocale: context.appLocale,
       totalPages: context.totalPages,
+      topic: context.topic,
+      userMessage: context.userMessage,
+      fontSelection: context.fontSelection,
       emit: (chunk) => emitDeckChunk(chunk),
       runId: context.runId,
       signal: context.entry.abortController.signal
@@ -402,6 +409,7 @@ export async function executeDeckGeneration(
     apiKey: context.apiKey,
     model: context.model,
     baseUrl: context.providerBaseUrl,
+    maxTokens: context.maxTokens,
     modelTimeoutMs: context.modelTimeouts.agent,
     temperature: PAGE_GENERATION_TEMPERATURE,
     styleId: context.styleId,

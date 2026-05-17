@@ -120,6 +120,7 @@ export const modelConfigs = sqliteTable('model_configs', {
   model: text('model').notNull(),
   apiKey: text('api_key').notNull().default(''),
   baseUrl: text('base_url').notNull().default(''),
+  maxTokens: integer('max_tokens').notNull().default(4096),
   active: integer('active').notNull().default(0),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull()
@@ -154,6 +155,8 @@ export const styles = sqliteTable('styles', {
   aliases: text('aliases').notNull().default('[]'),
   source: text('source').notNull().default('custom'),
   styleSkill: text('style_skill').notNull().default(''),
+  version: integer('version').notNull().default(1),
+  styleCase: text('style_case').notNull().default(''),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull()
 })

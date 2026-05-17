@@ -1,4 +1,5 @@
 import type {
+  FontSelection,
   GenerateAddPagePayload,
   GenerateChunkEvent,
   GenerateRetryFailedPayload,
@@ -33,6 +34,7 @@ export interface StyleCategory {
     description: string
     source?: 'builtin' | 'custom' | 'override'
     editable?: boolean
+    styleCase?: string
   }>
 }
 
@@ -46,6 +48,7 @@ export interface StyleDetail {
   source?: 'builtin' | 'custom' | 'override'
   editable?: boolean
   category?: string
+  styleCase?: string
 }
 
 export interface StyleListItem {
@@ -55,6 +58,8 @@ export interface StyleListItem {
   category: string
   source?: 'builtin' | 'custom' | 'override'
   editable?: boolean
+  styleCase?: string
+  previewPath?: string | null
   createdAt?: number
   updatedAt?: number
 }
@@ -65,6 +70,7 @@ export interface StyleParseResult {
   category: string
   aliases: string[]
   styleSkill: string
+  styleCase?: string
 }
 
 export interface GenerateRunStateSnapshot {
@@ -150,6 +156,7 @@ export interface CreateSessionPayload {
   styleId: string
   pageCount?: number
   referenceDocumentPath?: string
+  fontSelection?: FontSelection
 }
 
 export interface ModelConfig {
@@ -159,6 +166,7 @@ export interface ModelConfig {
   model: string
   apiKey: string
   baseUrl: string
+  maxTokens: number
   active: boolean
   createdAt: number
   updatedAt: number
@@ -168,6 +176,46 @@ export interface UploadPrerequisitesResult {
   ready: boolean
   missing: Array<'storagePath' | 'activeModel' | 'apiKey' | 'model'>
   message?: string
+}
+
+export type FontRole = 'title' | 'body'
+export type FontScript = 'latin' | 'cjk'
+
+export interface FontFileEntry {
+  file: string
+  weight: number
+  style: 'normal' | 'italic'
+  size?: number
+  sha256?: string
+}
+
+export interface FontListItem {
+  id: string
+  family: string
+  source: 'google' | 'uploaded'
+  category: string
+  role: FontRole[]
+  scripts: FontScript[]
+  files?: FontFileEntry[]
+  createdAt?: number
+  updatedAt?: number
+}
+
+export interface FontRegistryResponse {
+  googleFonts: FontListItem[]
+  userFonts: FontListItem[]
+}
+
+export interface UploadFontPayload {
+  files: Array<{
+    path: string
+    weight?: number
+    style?: 'normal' | 'italic'
+  }>
+  family: string
+  category?: string
+  role?: FontRole[]
+  scripts?: FontScript[]
 }
 
 export const ipc = {
@@ -266,8 +314,6 @@ export const ipc = {
     getIpc().invoke('generate:cancel', sessionId) as Promise<{ success: boolean }>,
   listHistoryVersions: (payload: { sessionId: string; limit?: number }) =>
     getIpc().invoke('history:listVersions', payload) as Promise<HistoryVersion[]>,
-  ensureHistoryBaseline: (sessionId: string) =>
-    getIpc().invoke('history:ensureBaseline', { sessionId }) as Promise<{ ok: boolean }>,
   rollbackToHistoryVersion: (payload: { sessionId: string; versionId: string }) =>
     getIpc().invoke('history:rollbackToVersion', payload) as Promise<RollbackHistoryResult>,
   recordHistorySnapshot: (payload: {
@@ -296,7 +342,10 @@ export const ipc = {
     getIpc().invoke('export:pdf', { sessionId }) as Promise<ExportDeckResult>,
   exportPng: (sessionId: string) =>
     getIpc().invoke('export:png', { sessionId }) as Promise<ExportDeckResult>,
-  exportPptx: (sessionId: string, options?: { imageOnly?: boolean }) =>
+  exportPptx: (
+    sessionId: string,
+    options?: { imageOnly?: boolean; embedFonts?: boolean | 'auto' | 'always' | 'never' }
+  ) =>
     getIpc().invoke('export:pptx', { sessionId, ...options }) as Promise<ExportDeckResult>,
   exportSlidePack: (sessionId: string) =>
     getIpc().invoke('export:slidePack', { sessionId }) as Promise<ExportDeckResult>,
@@ -304,6 +353,22 @@ export const ipc = {
   listModelConfigs: () => getIpc().invoke('settings:listModelConfigs') as Promise<ModelConfig[]>,
   validateUploadPrerequisites: () =>
     getIpc().invoke('settings:validateUploadPrerequisites') as Promise<UploadPrerequisitesResult>,
+  listFonts: () => getIpc().invoke('fonts:list') as Promise<FontRegistryResponse>,
+  uploadFont: (payload: UploadFontPayload) =>
+    getIpc().invoke('fonts:upload', payload) as Promise<{ success: true; font: FontListItem }>,
+  updateFont: (payload: {
+    id: string
+    family?: string
+    category?: string
+    role?: FontRole[]
+    scripts?: FontScript[]
+  }) => getIpc().invoke('fonts:update', payload) as Promise<{ success: true; font: FontListItem }>,
+  deleteFont: (fontId: string) =>
+    getIpc().invoke('fonts:delete', fontId) as Promise<{ success: true }>,
+  revealFontsFolder: () => getIpc().invoke('fonts:revealFolder') as Promise<{ success: true }>,
+  chooseFontFiles: () =>
+    getIpc().invoke('fonts:chooseFiles') as Promise<{ canceled: boolean; filePaths: string[] }>,
+  loadFontPreviewCss: () => getIpc().invoke('fonts:previewCss') as Promise<string>,
   saveSettings: (settings: Record<string, unknown>) =>
     getIpc().invoke('settings:save', settings) as Promise<{ success: boolean }>,
   upsertModelConfig: (payload: {
@@ -313,6 +378,7 @@ export const ipc = {
     model: string
     apiKey: string
     baseUrl: string
+    maxTokens?: number
     active?: boolean
   }) =>
     getIpc().invoke('settings:upsertModelConfig', payload) as Promise<{
@@ -328,6 +394,7 @@ export const ipc = {
     apiKey: string
     model: string
     baseUrl: string
+    maxTokens?: number
     timeoutMs: number
   }) =>
     getIpc().invoke('settings:verifyApiKey', payload) as Promise<{
@@ -349,6 +416,7 @@ export const ipc = {
           description: string
           source?: 'builtin' | 'custom' | 'override'
           editable?: boolean
+          styleCase?: string
         }>
       >
       defaultStyle: string
@@ -368,6 +436,7 @@ export const ipc = {
     category?: string
     aliases?: string[]
     styleSkill: string
+    styleCase?: string
   }) =>
     getIpc().invoke('styles:create', payload) as Promise<{
       success: boolean
@@ -381,6 +450,7 @@ export const ipc = {
     category?: string
     aliases?: string[]
     styleSkill: string
+    styleCase?: string
   }) =>
     getIpc().invoke('styles:update', payload) as Promise<{
       success: boolean

@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { ipc } from '@renderer/lib/ipc'
+import type { FontSelection } from '@shared/generation'
 
 export interface Session {
   id: string
@@ -63,6 +64,7 @@ interface SessionStore {
     styleId: string
     pageCount?: number
     referenceDocumentPath?: string
+    fontSelection?: FontSelection
   }) => Promise<string>
   loadSession: (sessionId: string) => Promise<void>
   loadMessages: (payload: { sessionId: string; chatType: 'main' | 'page'; pageId?: string }) => Promise<void>

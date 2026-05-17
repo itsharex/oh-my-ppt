@@ -62,7 +62,7 @@ export function SessionsPage(): React.JSX.Element {
     status: string
     metadata: string | null
     page_count: number | null
-  }): boolean => getEditorGate(session, 0.8).canEdit
+  }): boolean => getEditorGate(session, 0.68).canEdit
 
   const getSessionRoute = (session: { id: string; status: string; metadata: string | null; page_count: number | null }): string =>
     canEnterEditor(session) ? `/sessions/${session.id}` : `/sessions/${session.id}/generating`
@@ -154,16 +154,19 @@ export function SessionsPage(): React.JSX.Element {
       ) : (
         <div className="grid gap-3">
           {sortedSessions.map((session) => {
-            const isComplete = canEnterEditor(session)
             const editorGate = getEditorGate(session)
             const hasCompletedPages = editorGate.generatedCount > 0
-            const isContinuable = !isComplete && hasCompletedPages
-            const statusText = isComplete
+            const isFullyComplete = canEnterEditor(session) && editorGate.generatedCount >= editorGate.totalCount && editorGate.failedCount === 0
+            const isPartialComplete = !isFullyComplete && canEnterEditor(session)
+            const isContinuable = !isFullyComplete && !isPartialComplete && hasCompletedPages
+            const statusText = isFullyComplete
               ? t('sessions.statusComplete')
-              : isContinuable
-                ? t('sessions.statusContinuable')
-                : t('sessions.statusRegenerate')
-            const actionText = isComplete
+              : isPartialComplete
+                ? t('sessions.statusPartialComplete')
+                : isContinuable
+                  ? t('sessions.statusContinuable')
+                  : t('sessions.statusRegenerate')
+            const actionText = isFullyComplete || isPartialComplete
               ? t('sessions.actionEnter')
               : isContinuable
                 ? t('sessions.actionContinue')
@@ -174,15 +177,18 @@ export function SessionsPage(): React.JSX.Element {
               ai: t('sessions.sourceAi')
             })
             const SourceIcon = sourceTag.Icon
-            const statusClassName = isComplete
+            const statusClassName = isFullyComplete
               ? 'border-[#bad8b7]/80 bg-[#eef9ec] text-[#4a7a46]'
-              : isContinuable
-                ? 'border-[#d6c08d]/80 bg-[#fff3cf] text-[#7a5a19] shadow-[0_0_0_1px_rgba(214,192,141,0.14)]'
-                : 'border-[#d7b5ae]/70 bg-[#fbf1ee] text-[#93564f]'
+              : isPartialComplete
+                ? 'border-[#b5c9a8]/80 bg-[#eef5e8] text-[#4f7b3f]'
+                : isContinuable
+                  ? 'border-[#d6c08d]/80 bg-[#fff3cf] text-[#7a5a19] shadow-[0_0_0_1px_rgba(214,192,141,0.14)]'
+                  : 'border-[#d7b5ae]/70 bg-[#fbf1ee] text-[#93564f]'
             return (
               <Card
                 key={session.id}
                 className="cursor-pointer transition-all hover:translate-y-[-1px] hover:shadow-[0_14px_28px_rgba(90,72,52,0.16)]"
+                title={isPartialComplete ? t('sessions.statusPartialCompleteTip') : undefined}
                 onClick={() => navigate(getSessionRoute(session))}
               >
               <CardHeader className="pb-2">
@@ -242,7 +248,7 @@ export function SessionsPage(): React.JSX.Element {
                   <span className="rounded-lg border border-[#d5cfc5]/60 bg-[#f9f6f1] px-2 py-1 text-[#6b6560]">
                     {dayjs.unix(session.updated_at).format('YYYY/MM/DD HH:mm')}
                   </span>
-                  {!isComplete && editorGate.failedCount > 0 && (
+                  {!isFullyComplete && editorGate.failedCount > 0 && (
                     <span className="rounded-lg border border-[#d7b5ae]/70 bg-[#fff7f2]/80 px-2 py-1 text-[#93564f]">
                       {t('sessions.failedCount', { count: editorGate.failedCount })}
                     </span>

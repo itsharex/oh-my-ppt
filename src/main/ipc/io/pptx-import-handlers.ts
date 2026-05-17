@@ -180,6 +180,7 @@ export function registerPptxImportHandlers(ctx: IpcContext): void {
           apiKey: activeModel.apiKey,
           model: activeModel.model,
           baseUrl: activeModel.baseUrl,
+          maxTokens: activeModel.maxTokens,
           modelTimeoutMs: modelTimeouts.document
         })
 
@@ -190,7 +191,8 @@ export function registerPptxImportHandlers(ctx: IpcContext): void {
           description: styleResult.description,
           category: styleResult.category,
           aliases: styleResult.aliases,
-          prompt: styleResult.styleSkill
+          prompt: styleResult.styleSkill,
+          styleCase: styleResult.styleCase
         })
         await db.updateSessionStyleId(sessionId, styleId)
         log.info('[pptx:import] auto style extracted', { sessionId, styleId })
@@ -201,10 +203,12 @@ export function registerPptxImportHandlers(ctx: IpcContext): void {
           apiKey: activeModel.apiKey,
           model: activeModel.model,
           baseUrl: activeModel.baseUrl,
+          maxTokens: activeModel.maxTokens,
           styleId,
           styleSkillPrompt: styleResult.styleSkill,
           modelTimeoutMs: modelTimeouts.document,
-          totalPages: imported.pageCount
+          totalPages: imported.pageCount,
+          topic: title
         })
         await db.updateSessionDesignContract(sessionId, designContract)
         log.info('[pptx:import] design contract generated', { sessionId })

@@ -108,7 +108,9 @@ export class GitHistoryService {
     let parentOperationId =
       typeof session?.currentOperationId === 'string' ? session.currentOperationId : null
 
-    if (!beforeCommit && args.type !== 'generate' && args.type !== 'import') {
+    const canStartHistoryFromCurrentOperation =
+      args.type === 'generate' || args.type === 'import' || args.type === 'retry'
+    if (!beforeCommit && !canStartHistoryFromCurrentOperation) {
       await this.createLegacyImport(args.sessionId, projectDir)
       beforeCommit = await this.resolveHead(projectDir)
       session = await this.db.getSession(args.sessionId)

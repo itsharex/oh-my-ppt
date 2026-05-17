@@ -7,6 +7,7 @@ import { registerAssetHandlers, registerLocalAssetProtocol } from './io/assets-h
 import { registerGenerationHandlers } from './engine/generation-handlers'
 import { registerExportHandlers } from './io/export-handlers'
 import { registerStyleHandlers } from './config/style-handlers'
+import { registerFontHandlers } from './config/font-handlers'
 import { registerSettingsHandlers } from './config/settings-handlers'
 import { registerPreviewHandlers } from './session/preview-handlers'
 import { registerPageManagementHandlers } from './session/page-management-handlers'
@@ -32,6 +33,7 @@ export function setupIPC(
   registerGenerationHandlers(context)
   registerExportHandlers(context)
   registerStyleHandlers(context)
+  registerFontHandlers(context)
   registerSettingsHandlers(context)
   registerPreviewHandlers(context)
   registerFileHandlers(context)
@@ -39,5 +41,5 @@ export function setupIPC(
   registerDocumentParseHandlers(context)
   registerPptxImportHandlers(context)
   registerHistoryHandlers(context)
-  registerPresentationHandlers()
+  registerPresentationHandlers(context)
 }

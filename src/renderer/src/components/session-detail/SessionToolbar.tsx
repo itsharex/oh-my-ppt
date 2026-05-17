@@ -47,7 +47,9 @@ export function SessionToolbar({
   canRevealFile: boolean
   onExportPdf: () => void
   onExportPng: () => void
-  onExportPptx: (options?: { imageOnly?: boolean }) => void
+  onExportPptx: (
+    options?: { imageOnly?: boolean; embedFonts?: boolean | 'auto' | 'always' | 'never' }
+  ) => void
   onExportSlidePack: () => void
   onOpenHistory: () => void
   onOpenPreview: () => void

@@ -266,14 +266,6 @@ export function SessionDetailPage(): React.JSX.Element {
     }
   }, [id, loadSession, resetForSessionChange, setMessages])
 
-  // Ensure git history baseline exists for old sessions (runs once per session)
-  const baselineDoneRef = useRef<string | null>(null)
-  useEffect(() => {
-    if (!id || !currentSession || baselineDoneRef.current === id) return
-    baselineDoneRef.current = id
-    void ipc.ensureHistoryBaseline(id)
-  }, [id, currentSession])
-
   useEffect(() => {
     useGenerateStore.getState().setPages(currentGeneratedPages)
   }, [currentGeneratedPages])
@@ -835,7 +827,9 @@ export function SessionDetailPage(): React.JSX.Element {
     }
   }
 
-  const handleExportPptx = async (options?: { imageOnly?: boolean }): Promise<void> => {
+  const handleExportPptx = async (
+    options?: { imageOnly?: boolean; embedFonts?: boolean | 'auto' | 'always' | 'never' }
+  ): Promise<void> => {
     const detailState = useSessionDetailUiStore.getState()
     if (!id || detailState.isExportingPptx) return
     const imageOnly = options?.imageOnly === true

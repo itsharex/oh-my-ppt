@@ -2,30 +2,26 @@ export const SESSION_ASSET_FILES = {
   anime: "anime.v4.js",
   chart: "chart.v4.js",
   tailwind: "tailwindcss.v3.js",
-  katexStyle: "katex.min.css",
-  katex: "katex.min.js",
-  katexAutoRender: "katex-auto-render.min.js",
+  katexStyle: "katex/katex.min.css",
+  katex: "katex/katex.min.js",
+  katexAutoRender: "katex/katex-auto-render.min.js",
   runtime: "ppt-runtime.js",
   indexRuntime: "index-runtime.js",
 } as const;
 
 export const SESSION_ASSET_FILE_NAMES = Object.values(SESSION_ASSET_FILES);
 
-export const SESSION_ASSET_DIR_NAMES = [
-  "fonts",
-] as const;
-
 export const SESSION_ASSET_SCRIPT_SRCS = {
-  anime: `./assets/${SESSION_ASSET_FILES.anime}`,
-  chart: `./assets/${SESSION_ASSET_FILES.chart}`,
-  tailwind: `./assets/${SESSION_ASSET_FILES.tailwind}`,
-  katex: `./assets/${SESSION_ASSET_FILES.katex}`,
-  katexAutoRender: `./assets/${SESSION_ASSET_FILES.katexAutoRender}`,
-  runtime: `./assets/${SESSION_ASSET_FILES.runtime}`,
+  anime: `./assets/anime.v4.js`,
+  chart: `./assets/chart.v4.js`,
+  tailwind: `./assets/tailwindcss.v3.js`,
+  katex: `./assets/katex/katex.min.js`,
+  katexAutoRender: `./assets/katex/katex-auto-render.min.js`,
+  runtime: `./assets/ppt-runtime.js`,
 } as const;
 
 export const SESSION_ASSET_STYLE_HREFS = {
-  katex: `./assets/${SESSION_ASSET_FILES.katexStyle}`,
+  katex: `./assets/katex/katex.min.css`,
 } as const;
 
 export const buildSessionAssetHeadTags = (): string =>

@@ -25,6 +25,7 @@ export interface StyleCatalogItem {
   category: string;
   source: StyleSource;
   editable: boolean;
+  styleCase: string;
 }
 
 // ── Module-level DB injection ──
@@ -49,6 +50,8 @@ interface BuiltinStyleSeedItem {
   aliases?: string[];
   source?: string;
   styleSkill?: string;
+  version?: number;
+  styleCase?: string;
 }
 
 function getBuiltinSeedPath(): string {
@@ -154,6 +157,7 @@ export function listStyleCatalog(): StyleCatalogItem[] {
     category: row.category || (row.source === "builtin" ? "内置" : "自定义"),
     source: row.source as StyleSource,
     editable: row.source !== "builtin",
+    styleCase: row.styleCase,
   }));
 }
 
@@ -167,6 +171,8 @@ export function getStyleDetail(styleId: string): {
   source: StyleSource;
   editable: boolean;
   category: string;
+  version: number;
+  styleCase: string;
 } {
   const db = getDb();
   const normalizedId = normalizeStyleId(styleId);
@@ -182,6 +188,8 @@ export function getStyleDetail(styleId: string): {
       source: row.source as StyleSource,
       editable: row.source !== "builtin",
       category: row.category || (row.source === "builtin" ? "内置" : "自定义"),
+      version: row.version,
+      styleCase: row.styleCase,
     };
   }
   throw new Error(`风格不存在：${styleId}`);
@@ -202,6 +210,7 @@ export async function upsertStyleSkill(input: {
   category?: string;
   aliases?: string[];
   prompt: string;
+  styleCase?: string;
 }): Promise<{ id: string; source: StyleSource }> {
   const db = getDb();
   const id = normalizeStyleId(input.id);
@@ -223,6 +232,7 @@ export async function upsertStyleSkill(input: {
         .filter((alias) => alias.length > 0 && alias !== id),
       source: nextSource,
       styleSkill: input.prompt.trim(),
+      styleCase: (input.styleCase || "").trim(),
     });
   } else {
     await db.createStyleRow({
@@ -236,6 +246,7 @@ export async function upsertStyleSkill(input: {
         .filter((alias) => alias.length > 0 && alias !== id),
       source: nextSource,
       styleSkill: input.prompt.trim(),
+      styleCase: (input.styleCase || "").trim(),
     });
   }
   return { id, source: nextSource };
@@ -248,6 +259,7 @@ export async function createStyleSkill(input: {
   category?: string;
   aliases?: string[];
   prompt: string;
+  styleCase?: string;
 }): Promise<{ id: string; source: StyleSource }> {
   const id = normalizeStyleId(input.id);
   if (hasStyleSkill(id)) {
@@ -263,6 +275,7 @@ export async function updateStyleSkill(input: {
   category?: string;
   aliases?: string[];
   prompt: string;
+  styleCase?: string;
 }): Promise<{ id: string; source: StyleSource }> {
   const id = normalizeStyleId(input.id);
   if (!hasStyleSkill(id)) {
@@ -287,6 +300,8 @@ export async function deleteStyleSkill(styleId: string): Promise<{ deleted: bool
         aliases: builtin.aliases || [],
         source: "builtin",
         styleSkill: builtin.styleSkill || "",
+        version: builtin.version || 1,
+        styleCase: builtin.styleCase || "",
       });
       return { deleted: true };
     }

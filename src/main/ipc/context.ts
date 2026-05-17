@@ -15,7 +15,6 @@ import { nanoid } from 'nanoid'
 import {
   buildPageScaffoldHtml,
   buildProjectIndexHtml,
-  SESSION_ASSET_DIR_NAMES,
   SESSION_ASSET_FILE_NAMES,
   type DeckPageFile
 } from './engine/template'
@@ -911,20 +910,26 @@ export function createIpcContext(
     await fs.promises.mkdir(imagesDir, { recursive: true })
     await fs.promises.mkdir(videosDir, { recursive: true })
     await fs.promises.mkdir(docsDir, { recursive: true })
+    // Copy runtime assets, preserving subdirectories such as katex/.
     await Promise.all(
-      SESSION_ASSET_FILE_NAMES.map(async (fileName) => {
-        const sourcePath = resolveSessionAssetSourcePath(fileName)
-        const targetPath = path.join(assetsDir, fileName)
+      SESSION_ASSET_FILE_NAMES.map(async (sourceRelPath) => {
+        const sourcePath = resolveSessionAssetSourcePath(sourceRelPath)
+        const targetPath = path.join(assetsDir, sourceRelPath)
+        await fs.promises.mkdir(path.dirname(targetPath), { recursive: true })
         await fs.promises.copyFile(sourcePath, targetPath)
       })
     )
+    // Copy KaTeX woff2 fonts next to katex.min.css so its relative fonts/... URLs stay contained.
+    const katexFontsSource = resolveSessionAssetSourcePath('katex/fonts')
+    const katexFontsTarget = path.join(assetsDir, 'katex', 'fonts')
+    await fs.promises.mkdir(katexFontsTarget, { recursive: true })
+    const katexFontFiles = await fs.promises.readdir(katexFontsSource)
     await Promise.all(
-      SESSION_ASSET_DIR_NAMES.map(async (dirName) => {
-        const sourcePath = resolveSessionAssetSourcePath(dirName)
-        const targetPath = path.join(assetsDir, dirName)
-        await fs.promises.rm(targetPath, { recursive: true, force: true })
-        await fs.promises.cp(sourcePath, targetPath, { recursive: true })
-      })
+      katexFontFiles
+        .filter((f) => f.endsWith('.woff2'))
+        .map(async (f) =>
+          fs.promises.copyFile(path.join(katexFontsSource, f), path.join(katexFontsTarget, f))
+        )
     )
     log.info('[assets] session assets ready', {
       projectDir,
@@ -932,7 +937,6 @@ export function createIpcContext(
       imagesDir,
       videosDir,
       docsDir,
-      count: SESSION_ASSET_FILE_NAMES.length + SESSION_ASSET_DIR_NAMES.length,
       env: is.dev ? 'dev' : 'prod'
     })
   }

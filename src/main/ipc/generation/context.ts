@@ -1,7 +1,8 @@
 import crypto from 'crypto'
 import fs from 'fs'
 import path from 'path'
-import type { GenerateStartPayload } from '@shared/generation'
+import type { FontSelection, GenerateStartPayload } from '@shared/generation'
+import { normalizeFontSelection } from '@shared/generation'
 import type { ModelTimeoutProfile } from '@shared/model-timeout'
 import type { IpcContext } from '../context'
 import type { GenerateChatType, GenerateMode } from './types'
@@ -18,6 +19,7 @@ export type CommonGenerationContext = {
   apiKey: string
   model: string
   providerBaseUrl: string
+  maxTokens: number
   modelTimeouts: Record<ModelTimeoutProfile, number>
   projectDir: string
   abortSignal: AbortSignal
@@ -27,6 +29,7 @@ export type CommonGenerationContext = {
   topic: string
   deckTitle: string
   appLocale: 'zh' | 'en'
+  fontSelection: FontSelection
   projectId: string
   entry: NonNullable<ReturnType<IpcContext['agentManager']['beginRun']>>
 }
@@ -194,6 +197,22 @@ export function buildOutlineTitles(rawUserMessage: string): string[] {
   return extractOutlineTitles(rawUserMessage)
 }
 
+const parseJsonObject = (value: unknown): Record<string, unknown> => {
+  if (!value) return {}
+  if (typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>
+  if (typeof value !== 'string') return {}
+  try {
+    const parsed = JSON.parse(value) as unknown
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {}
+  } catch {
+    return {}
+  }
+}
+
+
+
 export async function resolveCommonContext(
   ctx: IpcContext,
   sessionId: string
@@ -203,6 +222,7 @@ export async function resolveCommonContext(
   const session = await db.getSession(sessionId)
   if (!session) throw new Error('Session not found')
   const sessionRecord = session as unknown as Record<string, unknown>
+  const sessionMetadata = parseJsonObject(sessionRecord.metadata ?? sessionRecord.metadata_json)
   const previousSessionStatus = String(sessionRecord.status || 'active')
 
   const activeModel = await resolveActiveModelConfig(ctx)
@@ -264,6 +284,7 @@ export async function resolveCommonContext(
     apiKey: activeModel.apiKey,
     model: activeModel.model,
     providerBaseUrl: activeModel.baseUrl,
+    maxTokens: activeModel.maxTokens,
     modelTimeouts,
     projectDir: entry.projectDir,
     abortSignal: entry.abortController.signal,
@@ -274,6 +295,7 @@ export async function resolveCommonContext(
     topic: String(sessionRecord.topic || '当前主题'),
     deckTitle: String(sessionRecord.title || 'OhMyPPT Preview'),
     appLocale,
+    fontSelection: normalizeFontSelection(sessionMetadata.fontSelection),
     projectId
   }
 }

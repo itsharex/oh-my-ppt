@@ -1,5 +1,6 @@
 (function initPptRuntime(global) {
   if (!global || typeof global !== "object") return;
+  // @ohmyppt-ppt-runtime:arcsin1:v1.2.1
 
   var ppt = global.PPT && typeof global.PPT === "object" ? global.PPT : (global.PPT = {});
   if (ppt.__runtimeVersion === "1.2.0") return;
