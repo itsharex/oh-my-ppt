@@ -84,30 +84,35 @@ export function createSessionEditAgent(args: {
   context: SessionDeckGenerationContext;
 }): DeepAgentStreamResult {
   const model = resolveModel(args.provider, args.apiKey, args.model, args.baseUrl, args.temperature, args.maxTokens);
-  const disableNativeEditFile = shouldBlockNativeEditFile(args.context);
+  const context: SessionDeckGenerationContext = {
+    ...args.context,
+    provider: args.provider,
+    model: args.model,
+  };
+  const disableNativeEditFile = shouldBlockNativeEditFile(context);
   const backend = new GuardedFilesystemBackend({
-    rootDir: args.context.projectDir,
+    rootDir: context.projectDir,
     virtualMode: true,
     disableEditFile: disableNativeEditFile,
     editBlockedReason: disableNativeEditFile
       ? "当前编辑任务禁止使用 edit_file。请改用 update_single_page_file(pageId, content) 或 update_page_file(pageId, content)。"
       : undefined,
   });
-  const tools = createSessionBoundDeckTools(args.context);
-  const systemPrompt = buildEditAgentSystemPrompt(args.styleId, args.context);
-  const hasSelector = Boolean(args.context.selectedSelector?.trim());
-  const isDeckEdit = args.context.mode === 'edit' && args.context.editScope === 'deck';
-  const isContainerEdit = args.context.mode === 'edit' && args.context.editScope === 'presentation-container';
+  const tools = createSessionBoundDeckTools(context);
+  const systemPrompt = buildEditAgentSystemPrompt(args.styleId, context);
+  const hasSelector = Boolean(context.selectedSelector?.trim());
+  const isDeckEdit = context.mode === 'edit' && context.editScope === 'deck';
+  const isContainerEdit = context.mode === 'edit' && context.editScope === 'presentation-container';
   const promptMode = isContainerEdit ? 'container' : hasSelector ? 'selector' : isDeckEdit ? 'deck' : 'single-page';
 
   log.info("[deepagent] create session edit agent", {
-    sessionId: args.context.sessionId,
+    sessionId: context.sessionId,
     provider: args.provider,
     model: args.model,
     styleId: args.styleId || "",
-    projectDir: args.context.projectDir,
-    indexPath: args.context.indexPath,
-    selectedPageId: args.context.selectedPageId,
+    projectDir: context.projectDir,
+    indexPath: context.indexPath,
+    selectedPageId: context.selectedPageId,
     disableNativeEditFile,
     promptMode,
   });
@@ -131,8 +136,13 @@ export function createSessionDeckAgent(args: {
   context: SessionDeckGenerationContext;
 }): DeepAgentStreamResult {
   const model = resolveModel(args.provider, args.apiKey, args.model, args.baseUrl, args.temperature, args.maxTokens);
+  const context: SessionDeckGenerationContext = {
+    ...args.context,
+    provider: args.provider,
+    model: args.model,
+  };
   const backend = new GuardedFilesystemBackend({
-    rootDir: args.context.projectDir,
+    rootDir: context.projectDir,
     virtualMode: true,
     disableEditFile: true,
     editBlockedReason:
@@ -144,22 +154,22 @@ export function createSessionDeckAgent(args: {
     if (typeof maybe.lc_kwargs?.name === "string") return maybe.lc_kwargs.name;
     return "";
   };
-  const tools = createSessionBoundDeckTools(args.context);
-  const systemPrompt = buildDeckAgentSystemPrompt(args.styleId, args.context);
+  const tools = createSessionBoundDeckTools(context);
+  const systemPrompt = buildDeckAgentSystemPrompt(args.styleId, context);
 
   log.info("[deepagent] create session deck agent", {
-    sessionId: args.context.sessionId,
+    sessionId: context.sessionId,
     provider: args.provider,
     model: args.model,
     styleId: args.styleId || "",
-    projectDir: args.context.projectDir,
-    indexPath: args.context.indexPath,
-    selectedPageId: args.context.selectedPageId,
+    projectDir: context.projectDir,
+    indexPath: context.indexPath,
+    selectedPageId: context.selectedPageId,
     selectedPagePath:
-      args.context.selectedPageId && args.context.pageFileMap[args.context.selectedPageId]
-        ? args.context.pageFileMap[args.context.selectedPageId]
+      context.selectedPageId && context.pageFileMap[context.selectedPageId]
+        ? context.pageFileMap[context.selectedPageId]
         : "",
-    totalPages: args.context.outlineTitles.length,
+    totalPages: context.outlineTitles.length,
     toolNames: tools.map((tool) => getToolName(tool)).filter((name) => name.length > 0),
   });
 

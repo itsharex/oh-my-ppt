@@ -34,6 +34,18 @@ export const CONTENT_LANGUAGE_RULES = [
   '- Preserve proper nouns, brand names, technical terms, quoted source text, and metrics when appropriate.'
 ].join('\n')
 
+export const STABLE_HTML_FRAGMENT_PROTOCOL = [
+  '## Stable HTML fragment protocol',
+  '- Submit only the creative body fragment. The tool will add section[data-page-scaffold], main[data-role="content"], data-block-id attributes, and the runtime page frame.',
+  '- Do not include <!doctype>, <html>, <head>, <body>, section[data-page-scaffold], main[data-role="content"], .ppt-page-root, .ppt-page-content, .ppt-page-fit-scope, or data-ppt-guard-root.',
+  '- Use one outer <div> as the fragment root.',
+  '- Prefer a shallow grid/flex structure with direct module children.',
+  '- Avoid nested cards and wrapper chains. Aim for 3 levels of nesting and avoid exceeding 4.',
+  '- If the page needs many ideas, reduce the number of modules before adding more containers.',
+  '- Decorative blocks should stay flat: a single absolute-positioned div, a few sibling decorative divs, or one SVG are all acceptable; avoid nested wrapper chains inside decoration.',
+  '- Before calling the write tool, check that every opened div/span/ul/li/p/table-related tag is closed and the fragment ends with a complete closing tag.'
+].join('\n')
+
 export const CANVAS_CONSTRAINTS = [
   '## 画布约束',
   '- 16:9（1600×900），系统自动缩放。可用内容区约 1584×884（外层有 p-2）。',
@@ -58,9 +70,9 @@ export const FRONTEND_CAPABILITIES = [
   '所有 CDN 字体/图标库仍然禁止。',
   '',
   '### 图表 — 必须严格按此模板写',
-  '正确写法（高度写在 canvas 的直接父容器上）：',
+  '正确写法（高度写在 canvas 的直接父容器上；父容器用固定 h-[...]，不要混用 h-full/flex-1）：',
   '```html',
-  '<div class=”relative h-[260px] w-full”>',
+  '<div class=”ppt-chart-frame relative h-[260px] w-full”>',
   '  <canvas class=”h-full w-full”></canvas>',
   '</div>',
   '```',
@@ -70,6 +82,7 @@ export const FRONTEND_CAPABILITIES = [
   '⛔ 错误写法（全部会被验证拦截，导致该页生成失败）：',
   '- new Chart(ctx, config) → 必须用 PPT.createChart(el, config)',
   '- canvas 上直接写 h-32 / h-full / flex-1 → 高度必须写在父容器',
+  '- canvas 父容器写 h-full / flex-1 / 只有 min-h-* → 父容器必须有明确 h-[...]',
   '- 把 canvas 直接放进卡片/文本块 → 必须有专属 chart frame 父容器',
   '',
   '### 动画 — 必须严格按此写法',
@@ -100,8 +113,10 @@ export const CONTENT_WRITING_RULES = [
   '- 禁止系统骨架标识：.ppt-page-root / .ppt-page-fit-scope / .ppt-page-content / data-ppt-guard-root（class、CSS、script、注释里都不能出现）。',
   '- 所有标签必须成对闭合；items-center/justify-* 的父节点必须有 flex 或 grid。',
   '- ⚠️ 标签闭合是最常见的失败原因。写入前必须自检：每个 <div>/<section> 都有对应的 </div></section>，末尾无未闭合标签。',
-  '- 控制嵌套层级：div 嵌套不超过 4 层。嵌套越深越容易漏闭合标签。',
+  '- 控制嵌套层级：目标 3 层左右，避免超过 4 层。嵌套越深越容易漏闭合标签。',
+  '- 片段最外层优先只用一个 <div> 根节点；不要主动输出 section[data-page-scaffold] 或 main[data-role="content"]，工具会自动包裹。',
   '- 精简 HTML 结构：用 Tailwind 类替代多层 wrapper div。能用 1 个 div 解决的不要用 3 个。',
+  '- 装饰块保持扁平：单个绝对定位 div、少量并列装饰 div、或单个 SVG 都可以；避免装饰块内部继续套多层 wrapper。',
   '- 默认禁止 emoji/贴纸装饰；单区最多 3 列；留白优先，不要塞满。'
 ].join('\n')
 

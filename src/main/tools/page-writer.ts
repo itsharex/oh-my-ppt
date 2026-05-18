@@ -487,16 +487,26 @@ function isMarginUtilityClass(cls: string): boolean {
   return /^-?m[trblxy]?-[^\s]+$/.test(classBaseName(cls))
 }
 
-function hasConcreteChartHeightClass(classes: Iterable<string>): boolean {
+function hasFixedChartHeightClass(classes: Iterable<string>): boolean {
   return Array.from(classes).some((cls) => {
     const base = classBaseName(cls)
-    if (/^(?:h|min-h)-(?:full|screen|dvh|svh|lvh|auto)$/.test(base)) return false
-    return /^(?:h|min-h)-(?:\[[^\]]+\]|(?!0\b)\d+)/.test(base)
+    if (/^h-(?:full|screen|dvh|svh|lvh|auto)$/.test(base)) return false
+    return /^h-(?:\[[^\]]+\]|(?!0\b)\d+)/.test(base)
   })
 }
 
-function hasConcreteChartHeightStyle(styleRaw: string): boolean {
-  return /(?:^|;)\s*(?:height|min-height)\s*:\s*(?!\s*(?:auto|0(?:px|rem|em|%)?|100%|inherit|initial|unset)\b)[^;]+/i.test(
+function isUnstableChartFrameLayoutClass(cls: string): boolean {
+  const base = classBaseName(cls)
+  return (
+    base === 'flex-1' ||
+    /^h-(?:full|screen|dvh|svh|lvh|auto)$/.test(base) ||
+    /^min-h-(?:full|screen|dvh|svh|lvh|auto)$/.test(base) ||
+    /^max-h-/.test(base)
+  )
+}
+
+function hasFixedChartHeightStyle(styleRaw: string): boolean {
+  return /(?:^|;)\s*height\s*:\s*(?!\s*(?:auto|0(?:px|rem|em|%)?|100%|inherit|initial|unset)\b)[^;]+/i.test(
     styleRaw
   )
 }
@@ -557,14 +567,19 @@ function preprocessPageHtml(html: string): string {
       if (!parent.length) return
 
       const parentClassRaw = (parent.attr('class') || '').trim()
-      const parentClassSet = new Set(parentClassRaw.split(/\s+/).filter(Boolean))
+      const originalParentClasses = splitClassNames(parentClassRaw)
       const parentStyle = parent.attr('style') || ''
-      const hasHeightClass = hasConcreteChartHeightClass(parentClassSet)
+      const hasFixedHeightStyle = hasFixedChartHeightStyle(parentStyle)
+      const hasFixedHeightClass = hasFixedChartHeightClass(originalParentClasses)
+      const parentClassSet = new Set(
+        originalParentClasses.filter((cls) => !isUnstableChartFrameLayoutClass(cls))
+      )
 
-      if (!hasHeightClass && !hasConcreteChartHeightStyle(parentStyle)) {
+      if (!hasFixedHeightClass && !hasFixedHeightStyle) {
         parentClassSet.add(CHART_FRAME_DEFAULT_HEIGHT_CLASS)
       }
 
+      if (!parentClassSet.has('ppt-chart-frame')) parentClassSet.add('ppt-chart-frame')
       if (!parentClassSet.has('relative')) parentClassSet.add('relative')
       if (!parentClassSet.has('overflow-hidden')) parentClassSet.add('overflow-hidden')
       if (wrapperClasses.length > 0) {
@@ -672,6 +687,17 @@ function repairMalformedCreativeFragment(content: string): string | null {
     return repaired && repaired !== content.trim() ? repaired : null
   } catch {
     return null
+  }
+}
+
+function countHtmlTag(content: string, tagName: string): { open: number; close: number } {
+  const withoutNonStructuralBlocks = content
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+  return {
+    open: (withoutNonStructuralBlocks.match(new RegExp(`<${tagName}[\\s>]`, 'gi')) || []).length,
+    close: (withoutNonStructuralBlocks.match(new RegExp(`</${tagName}>`, 'gi')) || []).length
   }
 }
 
@@ -868,9 +894,19 @@ export function createPageWriteTools(args: {
       )
     }
     if (preparedContent.repaired) {
+      const divCount = countHtmlTag(content, 'div')
       log.info('[deepagent] repaired malformed page fragment before write', {
         sessionId: context.sessionId,
         pageId: resolvedPageId,
+        mode: context.mode || 'generate',
+        editScope: context.editScope ?? null,
+        provider: context.provider || '',
+        model: context.model || '',
+        selectedPageId: context.selectedPageId ?? null,
+        contentLength: content.length,
+        repairedContentLength: preparedContent.content.length,
+        divOpenCount: divCount.open,
+        divCloseCount: divCount.close,
         originalErrors: preparedContent.originalErrors || []
       })
     }

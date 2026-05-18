@@ -6,6 +6,7 @@ import {
   CONTENT_WRITING_RULES,
   FRONTEND_CAPABILITIES,
   PAGE_SEMANTIC_STRUCTURE,
+  STABLE_HTML_FRAGMENT_PROTOCOL,
   buildOutlinePageList,
   formatDesignContract,
   resolveStylePrompt
@@ -236,6 +237,13 @@ function buildSinglePageEditPrompt(
     '',
     CONTENT_WRITING_RULES,
     '',
+    STABLE_HTML_FRAGMENT_PROTOCOL,
+    '',
+    '## 编辑策略',
+    '- 如果用户只要求小范围修改（加插画、改标题颜色、删除某个模块、调整局部文案），保留当前布局意图，只改必要的局部内容。',
+    '- 如果用户要求重新布局、整体重做、换版式、简化、重构或明确说当前布局不合理，可以重写整页 fragment。',
+    '- 整页重写时也必须遵守 Stable HTML fragment protocol：一个根 div、浅层 grid/flex、不要重建 page shell、不要用深层 wrapper chain。',
+    '',
     '## 风格与视觉',
     `风格预设：${presetLabel} (${presetId})`,
     '风格规则：',
@@ -306,6 +314,12 @@ function buildDeckEditPrompt(
     '',
     CONTENT_WRITING_RULES,
     '',
+    STABLE_HTML_FRAGMENT_PROTOCOL,
+    '',
+    '## 编辑策略',
+    '- 对每个相关页面判断用户意图：小范围修改时保留页面原有结构；要求重新布局/重构/整体重做时才重写整页 fragment。',
+    '- 整页重写必须使用稳定、扁平的 fragment：一个根 div、浅层 grid/flex、无 section/main/page shell、无深层装饰 wrapper。',
+    '',
     '## 风格与视觉',
     `风格预设：${presetLabel} (${presetId})`,
     '风格规则：',
@@ -337,4 +351,3 @@ function buildDeckEditPrompt(
     pageList
   ].join('\n')
 }
-

@@ -6,6 +6,7 @@ import type { PPTDatabase } from '../../db/database'
 import { validatePersistedPageHtml } from '../../tools/html-utils'
 import { runDeepAgentDeckGeneration } from '../engine/generate'
 import type { AnyFlowContext, EmitAssistantFn } from './types'
+import { STABLE_HTML_FRAGMENT_PROTOCOL } from '../../prompt/shared'
 
 export const uiText = (locale: 'zh' | 'en', zh: string, en: string): string =>
   locale === 'en' ? en : zh
@@ -35,22 +36,34 @@ export const isEditValidationRetryableError = (error: unknown): boolean => {
   return /HTML 验证失败|HTML 落盘校验失败|页面编辑结果验证失败/i.test(message)
 }
 
+export const isStructuralFragmentValidationError = (detail: string): boolean =>
+  /HTML 末尾存在未闭合标签|开闭标签数量不一致|闭标签多于开标签|缺少结尾|缺少 <\/body>/i.test(
+    detail
+  )
+
 export const isEditToolSchemaRetryableError = (error: unknown): boolean => {
   const message = error instanceof Error ? error.message : String(error || '')
   if (!/Received tool input did not match expected schema/i.test(message)) return false
   return /Error invoking tool '(update_single_page_file|update_page_file|edit_file)'/i.test(message)
 }
 
-export const buildEditValidationRetryMessage = (originalMessage: string, detail: string): string =>
-  [
+export const buildEditValidationRetryMessage = (originalMessage: string, detail: string): string => {
+  const structuralRetry = isStructuralFragmentValidationError(detail)
+  return [
     originalMessage,
     '',
     'Retry requirement:',
     `- The previous edit failed validation: ${detail}`,
-    '- Retry once and fix the validation error directly.',
-    '- Only modify the affected page HTML. Keep the page scaffold, runtime scripts, and balanced tags valid.',
+    structuralRetry
+      ? '- The previous fragment had unbalanced or unfinished tags. Do not patch that broken fragment; rewrite a simpler, shallower fragment from scratch.'
+      : '- Retry once and fix the validation error directly.',
+    structuralRetry
+      ? '- Use one root div, no page shell (section[data-page-scaffold], main[data-role="content"], or runtime frame), grid/flex direct children, aim for 3 nesting levels and avoid exceeding 4, fewer wrappers, and fewer modules.'
+      : '- Only modify the affected page HTML. Keep the page scaffold, runtime scripts, and balanced tags valid.',
+    structuralRetry ? STABLE_HTML_FRAGMENT_PROTOCOL : '',
     '- Do not modify index.html.'
-  ].join('\n')
+  ].filter(Boolean).join('\n')
+}
 
 export const buildEditToolSchemaRetryMessage = (args: {
   originalMessage: string

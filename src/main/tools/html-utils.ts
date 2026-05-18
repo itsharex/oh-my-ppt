@@ -95,12 +95,12 @@ const hasConcreteChartHeightClass = (classRaw: string): boolean =>
     .filter(Boolean)
     .some((cls) => {
       const base = classBaseName(cls)
-      if (/^(?:h|min-h)-(?:full|screen|dvh|svh|lvh|auto)$/.test(base)) return false
-      return /^(?:h|min-h)-(?:\[[^\]]+\]|(?!0\b)\d+)/.test(base)
+      if (/^h-(?:full|screen|dvh|svh|lvh|auto)$/.test(base)) return false
+      return /^h-(?:\[[^\]]+\]|(?!0\b)\d+)/.test(base)
     })
 
 const hasConcreteChartHeightStyle = (styleRaw: string): boolean =>
-  /(?:^|;)\s*(?:height|min-height)\s*:\s*(?!\s*(?:auto|0(?:px|rem|em|%)?|100%|inherit|initial|unset)\b)[^;]+/i.test(
+  /(?:^|;)\s*height\s*:\s*(?!\s*(?:auto|0(?:px|rem|em|%)?|100%|inherit|initial|unset)\b)[^;]+/i.test(
     styleRaw
   )
 

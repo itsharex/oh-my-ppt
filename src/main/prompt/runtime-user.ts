@@ -1,4 +1,4 @@
-import { CONTENT_LANGUAGE_RULES } from "./shared";
+import { CONTENT_LANGUAGE_RULES, STABLE_HTML_FRAGMENT_PROTOCOL } from "./shared";
 import type { DeckEditScope } from "../tools/types";
 
 export function buildPlanningUserPrompt(args: {
@@ -108,6 +108,19 @@ export function buildEditUserPrompt(args: {
     selector || elementDesc
       ? "- Do not rewrite the whole page, drift unrelated styles, or perform broad global replacements."
       : "",
+    !selector && !elementDesc
+      ? "Edit strategy:"
+      : "",
+    !selector && !elementDesc
+      ? "- If this is a local change, preserve the existing layout and update only the necessary local part."
+      : "",
+    !selector && !elementDesc
+      ? "- If the user asks for relayout/redesign/restructure, you may rewrite the whole page fragment."
+      : "",
+    !selector && !elementDesc
+      ? "- For full-page rewrites, follow the Stable HTML fragment protocol strictly. Do not rebuild the page shell."
+      : "",
+    !selector && !elementDesc ? STABLE_HTML_FRAGMENT_PROTOCOL : "",
     args.existingPageIds?.length ? `Existing pages: ${args.existingPageIds.join(", ")}` : "",
   ].join("\n");
 }

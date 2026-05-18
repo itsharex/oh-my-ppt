@@ -5,6 +5,7 @@ import {
   CONTENT_WRITING_RULES,
   FRONTEND_CAPABILITIES,
   PAGE_SEMANTIC_STRUCTURE,
+  STABLE_HTML_FRAGMENT_PROTOCOL,
   buildOutlinePageList,
   formatDesignContract,
   resolveStylePrompt
@@ -91,9 +92,11 @@ export function buildDeckAgentSystemPrompt(
     '',
     CONTENT_WRITING_RULES,
     '',
+    STABLE_HTML_FRAGMENT_PROTOCOL,
+    '',
     '## Hard failure avoidance',
     '- Page write tools reject truncated fragments. Before every write call, ensure your main layout containers are closed and the HTML does not end inside an unfinished tag.',
-    '- If a tool reports HTML validation failure, simplify the fragment and retry only that page with balanced tags.',
+    '- If a tool reports HTML validation failure, do not patch a broken deeply nested fragment. Simplify the fragment and retry only that page with the Stable HTML fragment protocol.',
     '- 动画逻辑如需添加，直接写在页面内容中（<script> 标签），写入工具会自动去重和注入运行时。',
     '- 不要在回复中贴大段 HTML；你的任务是通过工具把文件改好',
     isSinglePageTask

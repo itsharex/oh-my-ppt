@@ -38,6 +38,8 @@ export type DeckEditScope = "page" | "deck" | "presentation-container";
 export interface SessionDeckGenerationContext {
   mode?: "generate" | "edit" | "retry";
   editScope?: DeckEditScope;
+  provider?: string;
+  model?: string;
   sessionId: string;
   projectDir: string;
   indexPath: string;

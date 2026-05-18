@@ -4,6 +4,7 @@ import {
   CONTENT_LANGUAGE_RULES,
   FRONTEND_CAPABILITIES,
   PAGE_SEMANTIC_STRUCTURE,
+  STABLE_HTML_FRAGMENT_PROTOCOL,
   buildOutlinePageList,
   formatDesignContract
 } from './shared'
@@ -67,7 +68,7 @@ export function buildSinglePageGenerationPrompt(args: {
           ? `- The previous attempt did not write the target page. You must call update_single_page_file(pageId="${args.pageId}", content=...) before any final response; do not only describe the HTML in the final response.`
           : '',
         '- Before calling the write tool, mentally validate that the main containers are closed and that no tag is left unfinished at the end.',
-        '- If the previous issue was unclosed tags, simplify the structure and ensure every section/div/p/span/li tag is paired.',
+        '- If the previous issue was unclosed tags, do not patch the broken fragment. Rewrite a simpler, shallower fragment from scratch: one root div, no page shell (section[data-page-scaffold], main[data-role="content"], or runtime frame), grid/flex direct children, aim for 3 nesting levels and avoid exceeding 4, fewer wrappers, fewer modules.',
         '- If the previous issue was page shell structure, do not include .ppt-page-root, .ppt-page-content, .ppt-page-fit-scope, or data-ppt-guard-root anywhere, including CSS selectors, class names, scripts, and comments.',
         shouldMentionChartOrAnimationFix
           ? '- The previous issue involved animation/chart API usage. Use PPT.animate, PPT.createTimeline, PPT.stagger, and PPT.createChart.'
@@ -115,6 +116,8 @@ export function buildSinglePageGenerationPrompt(args: {
     ...sourceDocumentInstructions,
     '',
     CONTENT_LANGUAGE_RULES,
+    '',
+    STABLE_HTML_FRAGMENT_PROTOCOL,
     '',
     'Deck-wide design contract. Follow it to keep pages visually consistent:',
     formatDesignContract(args.designContract),
