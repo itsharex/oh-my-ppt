@@ -1,5 +1,33 @@
 # 更新日志 / Changelog
 
+## 2026-05-18 · v2.0.10
+
+### 中文
+
+- 新增元素属性面板：选中元素后可独立调整文字样式（字号、粗细、颜色）、外观（背景色、边框、圆角、阴影）、布局（尺寸、位置）、图层（层级、可见性）和媒体属性，编辑更精细。
+- 新增取色器：颜色选择支持自定义取色板和透明度调节，编辑颜色更灵活直观。
+- 新增导出会话文件：编辑页面一键导出会话生成的创意 PPT，另一台电脑导入后可继续二次编辑，跨设备协作无缝衔接。
+- 新增导入会话文件：会话列表支持导入slide-pack 打包的文件或标准会话 ZIP，导入后可继续二次编辑。
+- 新增编辑页面历史记录：编辑模式下自动记录操作历史，支持在保存版本前浏览和回退到任意编辑步骤。
+- 新增字体数据回填：升级后自动为已有会话补充字体信息，兼容历史数据。
+- 优化生成成功率：大幅提升页面生成的稳定性和成功率，减少生成失败和格式异常，增加兜底策略，减少token消耗。
+- 优化生成引擎：改进大纲规划与页面写入逻辑，生成结果更完整、布局更合理。
+- 优化编辑交互：元素选中和拖拽体验更流畅，编辑模式整体更稳定。
+- 修复风格预览bug： 兼容win下的风格预览问题，展示更直观。
+
+### English
+
+- Added element inspector panel: select any element to independently adjust text styles (size, weight, color), appearance (background, border, radius, shadow), layout (size, position), layers (z-index, visibility), and media properties for more precise editing.
+- Added color picker: custom color palette with transparency control for more flexible and intuitive color editing.
+- Added session file export: one-click export of your AI-generated creative deck from the editing page — import it on another computer to continue editing, making cross-device collaboration seamless.
+- Added session file import: import slide-pack files or standard session ZIPs from the session list and continue editing.
+- Added edit history: edit mode automatically tracks changes, allowing you to browse and revert to any step before saving a version.
+- Added font data backfill: automatically supplements font info for existing sessions after upgrade for backward compatibility.
+- Improved generation success rate: significantly more stable page generation with fewer failures and format issues, added fallback strategies, and reduced token consumption.
+- Improved generation engine: better outline planning and page writing logic for more complete results and layouts.
+- Improved editing interaction: smoother element selection and dragging, with a more stable edit mode overall.
+- Fixed style preview: resolved Windows compatibility issues for a more intuitive preview experience.
+
 ## 2026-05-17 · v2.0.9
 
 ### 中文
