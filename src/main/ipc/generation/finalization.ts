@@ -5,8 +5,15 @@ import type { IpcContext } from '../context'
 import type { FinalizeContext, FinalizeGenerationArgs } from './types'
 import { recordHistoryOperationStrict } from '../../history/git-history-service'
 import type { SessionPageRecord } from '../../db/database'
+import type { SessionStatus } from '../../db/schema'
 
 const pageSlugId = customAlphabet('abcdefghijklmnopqrstuvwxyz0123456789', 10)
+
+const normalizeRestoredSessionStatus = (status: unknown): SessionStatus =>
+  status === 'completed' || status === 'failed' || status === 'archived' ? status : 'active'
+
+const isCancellationMessage = (message: string): boolean =>
+  /^(生成已取消|Generation cancelled|Generation canceled)$/i.test(message.trim())
 
 const syncGeneratedPagesToSessionPages = async (
   ctx: IpcContext,
@@ -119,10 +126,15 @@ export async function finalizeGenerationFailure(
   }
   await db.updateSessionStatus(
     context.sessionId,
-    (context.effectiveMode === 'edit' || context.effectiveMode === 'retry' || context.effectiveMode === 'addPage' || context.effectiveMode === 'retrySinglePage') &&
-      context.previousSessionStatus !== 'active'
-      ? (context.previousSessionStatus as 'completed' | 'failed' | 'archived')
-      : 'failed'
+    isCancellationMessage(message)
+      ? normalizeRestoredSessionStatus(context.previousSessionStatus)
+      : (context.effectiveMode === 'edit' ||
+            context.effectiveMode === 'retry' ||
+            context.effectiveMode === 'addPage' ||
+            context.effectiveMode === 'retrySinglePage') &&
+          context.previousSessionStatus !== 'active'
+        ? (context.previousSessionStatus as 'completed' | 'failed' | 'archived')
+        : 'failed'
   )
   await db.addMessage(context.sessionId, {
     role: 'system',

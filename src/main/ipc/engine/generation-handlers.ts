@@ -16,6 +16,12 @@ function normalizeRestoredSessionStatus(status: unknown): SessionStatus {
   return status === 'completed' || status === 'failed' || status === 'archived' ? status : 'active'
 }
 
+type StartingSessionRun = {
+  controller: AbortController
+  operation: string
+  startedAt: number
+}
+
 export function registerGenerationHandlers(ctx: IpcContext): void {
   const {
     db,
@@ -25,8 +31,63 @@ export function registerGenerationHandlers(ctx: IpcContext): void {
     beginSessionRunState,
     emitGenerateChunk
   } = ctx
-  const startingSessionIds = new Set<string>()
+  const startingSessionRuns = new Map<string, StartingSessionRun>()
   const emitAssistant = createEmitAssistantMessage(db, emitGenerateChunk)
+
+  const reserveStartingSessionRun = (
+    operation: string,
+    sessionId: string
+  ):
+    | { alreadyRunning: true; runId?: string }
+    | { alreadyRunning: false; startingRun: StartingSessionRun } => {
+    const runningState = sessionRunStates.get(sessionId)
+    if (runningState?.status === 'running') {
+      log.info(`[${operation}] attach to existing run`, {
+        sessionId,
+        runId: runningState.runId
+      })
+      return { alreadyRunning: true, runId: runningState.runId }
+    }
+    const existingStartingRun = startingSessionRuns.get(sessionId)
+    if (existingStartingRun) {
+      log.info(`[${operation}] attach to starting run`, {
+        sessionId,
+        operation: existingStartingRun.operation,
+        startedAt: existingStartingRun.startedAt
+      })
+      return { alreadyRunning: true }
+    }
+    const startingRun = {
+      controller: new AbortController(),
+      operation,
+      startedAt: Date.now()
+    }
+    startingSessionRuns.set(sessionId, startingRun)
+    return { alreadyRunning: false, startingRun }
+  }
+
+  const releaseStartingSessionRun = (
+    sessionId: string,
+    startingRun: StartingSessionRun | null
+  ): void => {
+    if (!startingRun) return
+    if (startingSessionRuns.get(sessionId) === startingRun) {
+      startingSessionRuns.delete(sessionId)
+    }
+  }
+
+  const assertStartingRunNotCanceled = (startingRun: StartingSessionRun | null): void => {
+    if (startingRun?.controller.signal.aborted) {
+      throw new Error('生成已取消')
+    }
+  }
+
+  const logPreContextFailure = (operation: string, sessionId: string, error: unknown): void => {
+    log.error(`[${operation}] failed before context`, {
+      sessionId,
+      message: error instanceof Error ? error.message : String(error)
+    })
+  }
 
   ipcMain.handle('generate:state', async (_event, rawSessionId: unknown) => {
     pruneFinishedSessionRunStates()
@@ -79,23 +140,14 @@ export function registerGenerationHandlers(ctx: IpcContext): void {
       typeof (payload as { sessionId?: unknown }).sessionId === 'string'
         ? String((payload as { sessionId?: string }).sessionId).trim()
         : ''
-    if (requestedSessionId) {
-      const runningState = sessionRunStates.get(requestedSessionId)
-      if (runningState?.status === 'running') {
-        log.info('[generate:start] attach to existing run', {
-          sessionId: requestedSessionId,
-          runId: runningState.runId
-        })
-        return { success: true, runId: runningState.runId, alreadyRunning: true }
-      }
-      if (startingSessionIds.has(requestedSessionId)) {
-        log.info('[generate:start] attach to starting run', {
-          sessionId: requestedSessionId
-        })
-        return { success: true, alreadyRunning: true }
-      }
-      startingSessionIds.add(requestedSessionId)
+    const startingReservation = requestedSessionId
+      ? reserveStartingSessionRun('generate:start', requestedSessionId)
+      : null
+    if (startingReservation?.alreadyRunning) {
+      return { success: true, runId: startingReservation.runId, alreadyRunning: true }
     }
+    const startingRun =
+      startingReservation?.alreadyRunning === false ? startingReservation.startingRun : null
 
     let context: DeckContext | EditContext | null = null
     try {
@@ -116,6 +168,7 @@ export function registerGenerationHandlers(ctx: IpcContext): void {
         requestedType === 'page'
           ? await resolveEditContext(ctx, event, payload)
           : await resolveDeckContext(ctx, event, payload)
+      assertStartingRunNotCanceled(startingRun)
       beginSessionRunState({
         sessionId: context.sessionId,
         runId: context.runId,
@@ -134,11 +187,13 @@ export function registerGenerationHandlers(ctx: IpcContext): void {
     } catch (error) {
       if (context) {
         await finalizeGenerationFailure(ctx, context, error)
+      } else {
+        logPreContextFailure('generate:start', requestedSessionId, error)
       }
       throw error
     } finally {
       if (requestedSessionId) {
-        startingSessionIds.delete(requestedSessionId)
+        releaseStartingSessionRun(requestedSessionId, startingRun)
       }
       if (context) {
         agentManager.removeSession(context.sessionId)
@@ -154,40 +209,46 @@ export function registerGenerationHandlers(ctx: IpcContext): void {
       typeof (payload as { sessionId?: unknown }).sessionId === 'string'
         ? String((payload as { sessionId?: string }).sessionId).trim()
         : ''
-    if (requestedSessionId) {
-      const runningState = sessionRunStates.get(requestedSessionId)
-      if (runningState?.status === 'running') {
-        log.info('[generate:retryFailedPages] attach to existing run', {
-          sessionId: requestedSessionId,
-          runId: runningState.runId
-        })
-        return { success: true, runId: runningState.runId, alreadyRunning: true }
-      }
+    const startingReservation = requestedSessionId
+      ? reserveStartingSessionRun('generate:retryFailedPages', requestedSessionId)
+      : null
+    if (startingReservation?.alreadyRunning) {
+      return { success: true, runId: startingReservation.runId, alreadyRunning: true }
     }
 
+    const startingRun =
+      startingReservation?.alreadyRunning === false ? startingReservation.startingRun : null
     let context: RetryContext | null = null
     try {
       context = await resolveRetryContext(ctx, event, payload)
+      assertStartingRunNotCanceled(startingRun)
+      const retryTotalPages = Math.max(
+        1,
+        (await db.listLatestGenerationPageSnapshot(context.sessionId)).filter(
+          (page) => page.status !== 'completed'
+        ).length || context.totalPages
+      )
+      assertStartingRunNotCanceled(startingRun)
       beginSessionRunState({
         sessionId: context.sessionId,
         runId: context.runId,
         mode: 'retry',
         previousSessionStatus: context.previousSessionStatus,
-        totalPages: Math.max(
-          1,
-          (await db.listLatestGenerationPageSnapshot(context.sessionId)).filter(
-            (page) => page.status !== 'completed'
-          ).length || context.totalPages
-        )
+        totalPages: retryTotalPages
       })
       await executeRetryFailedPages(ctx, emitAssistant, context)
       return { success: true, runId: context.runId }
     } catch (error) {
       if (context) {
         await finalizeGenerationFailure(ctx, context, error)
+      } else {
+        logPreContextFailure('generate:retryFailedPages', requestedSessionId, error)
       }
       throw error
     } finally {
+      if (requestedSessionId) {
+        releaseStartingSessionRun(requestedSessionId, startingRun)
+      }
       if (context) {
         agentManager.removeSession(context.sessionId)
       }
@@ -208,30 +269,19 @@ export function registerGenerationHandlers(ctx: IpcContext): void {
       throw new Error('userMessage is required for addPage')
     }
 
-    {
-      const runningState = sessionRunStates.get(requestedSessionId)
-      if (runningState?.status === 'running') {
-        log.info('[generate:addPage] attach to existing run', {
-          sessionId: requestedSessionId,
-          runId: runningState.runId
-        })
-        return { success: true, runId: runningState.runId, alreadyRunning: true }
-      }
-      if (startingSessionIds.has(requestedSessionId)) {
-        log.info('[generate:addPage] attach to starting run', {
-          sessionId: requestedSessionId
-        })
-        return { success: true, alreadyRunning: true }
-      }
-      startingSessionIds.add(requestedSessionId)
+    const startingReservation = reserveStartingSessionRun('generate:addPage', requestedSessionId)
+    if (startingReservation.alreadyRunning) {
+      return { success: true, runId: startingReservation.runId, alreadyRunning: true }
     }
 
+    const startingRun = startingReservation.startingRun
     let addPageCtx: AddPageContext | null = null
     try {
       const insertAfter = Number(addPagePayload.insertAfterPageNumber) || 0
 
       // Resolve context independently — no shared resolveGenerationContext
       addPageCtx = await resolveAddPageContext(ctx, requestedSessionId, userMsg, insertAfter)
+      assertStartingRunNotCanceled(startingRun)
 
       // Persist user message
       await db.addMessage(addPageCtx.sessionId, {
@@ -240,6 +290,7 @@ export function registerGenerationHandlers(ctx: IpcContext): void {
         type: 'text',
         chat_scope: 'main' as const
       })
+      assertStartingRunNotCanceled(startingRun)
 
       beginSessionRunState({
         sessionId: addPageCtx.sessionId,
@@ -254,11 +305,13 @@ export function registerGenerationHandlers(ctx: IpcContext): void {
     } catch (error) {
       if (addPageCtx) {
         await finalizeGenerationFailure(ctx, addPageCtx, error)
+      } else {
+        logPreContextFailure('generate:addPage', requestedSessionId, error)
       }
       throw error
     } finally {
       if (requestedSessionId) {
-        startingSessionIds.delete(requestedSessionId)
+        releaseStartingSessionRun(requestedSessionId, startingRun)
       }
       if (addPageCtx) {
         agentManager.removeSession(addPageCtx.sessionId)
@@ -281,20 +334,19 @@ export function registerGenerationHandlers(ctx: IpcContext): void {
       throw new Error('pageId 不能为空')
     }
 
-    {
-      const runningState = sessionRunStates.get(requestedSessionId)
-      if (runningState?.status === 'running') {
-        log.info('[generate:retrySinglePage] attach to existing run', {
-          sessionId: requestedSessionId,
-          runId: runningState.runId
-        })
-        return { success: true, runId: runningState.runId, alreadyRunning: true }
-      }
+    const startingReservation = reserveStartingSessionRun(
+      'generate:retrySinglePage',
+      requestedSessionId
+    )
+    if (startingReservation.alreadyRunning) {
+      return { success: true, runId: startingReservation.runId, alreadyRunning: true }
     }
 
+    const startingRun = startingReservation.startingRun
     let retryCtx: RetrySinglePageContext | null = null
     try {
       retryCtx = await resolveRetrySinglePageContext(ctx, requestedSessionId, requestedPageId)
+      assertStartingRunNotCanceled(startingRun)
 
       beginSessionRunState({
         sessionId: retryCtx.sessionId,
@@ -309,9 +361,14 @@ export function registerGenerationHandlers(ctx: IpcContext): void {
     } catch (error) {
       if (retryCtx) {
         await finalizeGenerationFailure(ctx, retryCtx, error)
+      } else {
+        logPreContextFailure('generate:retrySinglePage', requestedSessionId, error)
       }
       throw error
     } finally {
+      if (requestedSessionId) {
+        releaseStartingSessionRun(requestedSessionId, startingRun)
+      }
       if (retryCtx) {
         agentManager.removeSession(retryCtx.sessionId)
       }
@@ -319,10 +376,21 @@ export function registerGenerationHandlers(ctx: IpcContext): void {
   })
 
   ipcMain.handle('generate:cancel', async (_event, sessionId) => {
-    agentManager.cancelSession(sessionId)
-    const activeState = sessionRunStates.get(sessionId)
+    const normalizedSessionId = typeof sessionId === 'string' ? sessionId.trim() : ''
+    const cancelSessionId = normalizedSessionId || String(sessionId || '')
+    if (!cancelSessionId) return { success: true }
+    const startingRun = normalizedSessionId ? startingSessionRuns.get(normalizedSessionId) : null
+    if (startingRun && !startingRun.controller.signal.aborted) {
+      startingRun.controller.abort()
+      log.info('[generate:cancel] cancel starting run', {
+        sessionId: cancelSessionId,
+        operation: startingRun.operation
+      })
+    }
+    agentManager.cancelSession(cancelSessionId)
+    const activeState = sessionRunStates.get(cancelSessionId)
     if (activeState?.status === 'running') {
-      emitGenerateChunk(sessionId, {
+      emitGenerateChunk(cancelSessionId, {
         type: 'run_error',
         payload: {
           runId: activeState.runId,
@@ -330,7 +398,7 @@ export function registerGenerationHandlers(ctx: IpcContext): void {
         }
       })
       await db.updateSessionStatus(
-        sessionId,
+        cancelSessionId,
         normalizeRestoredSessionStatus(activeState.previousSessionStatus)
       )
     }

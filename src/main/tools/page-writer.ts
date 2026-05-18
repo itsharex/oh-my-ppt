@@ -652,6 +652,65 @@ const normalizeAndInjectPageRuntime = (
   }).then(syncRootBackgroundFromScaffold)
 }
 
+type HtmlContentValidation = ReturnType<typeof validateHtmlContent>
+
+const STRUCTURAL_FRAGMENT_ERROR_RE =
+  /HTML 末尾存在未闭合标签|开闭标签数量不一致|闭标签多于开标签|缺少结尾|缺少 <\/body>/i
+
+function trimTrailingPartialTag(content: string): string {
+  const trimmed = content.trim()
+  if (!/<[^>]*$/.test(trimmed)) return trimmed
+  return trimmed.replace(/<[^>]*$/, '').trim()
+}
+
+function repairMalformedCreativeFragment(content: string): string | null {
+  const repairInput = trimTrailingPartialTag(content)
+  if (!repairInput) return null
+  try {
+    const $ = cheerio.load(repairInput, { scriptingEnabled: false }, false)
+    const repaired = ($.root().html() || repairInput).trim()
+    return repaired && repaired !== content.trim() ? repaired : null
+  } catch {
+    return null
+  }
+}
+
+function validateOrRepairHtmlContent(content: string): {
+  content: string
+  validation: HtmlContentValidation
+  repaired: boolean
+  originalErrors?: string[]
+} {
+  const validation = validateHtmlContent(content)
+  if (validation.valid) {
+    return { content, validation, repaired: false }
+  }
+
+  const onlyStructuralErrors = validation.errors.every((error) =>
+    STRUCTURAL_FRAGMENT_ERROR_RE.test(error)
+  )
+  if (!onlyStructuralErrors) {
+    return { content, validation, repaired: false }
+  }
+
+  const repairedContent = repairMalformedCreativeFragment(content)
+  if (!repairedContent) {
+    return { content, validation, repaired: false }
+  }
+
+  const repairedValidation = validateHtmlContent(repairedContent)
+  if (!repairedValidation.valid) {
+    return { content, validation: repairedValidation, repaired: false }
+  }
+
+  return {
+    content: repairedContent,
+    validation: repairedValidation,
+    repaired: true,
+    originalErrors: validation.errors
+  }
+}
+
 async function buildScaffoldDocument(args: {
   pageId: string
   innerContent: string
@@ -795,7 +854,8 @@ export function createPageWriteTools(args: {
         ].join('\n')
       )
     }
-    const validation = validateHtmlContent(content)
+    const preparedContent = validateOrRepairHtmlContent(content)
+    const { validation } = preparedContent
     if (!validation.valid) {
       emitNormalizedToolStatus(config, {
         label: `验证失败 ${resolvedPageId}`,
@@ -806,6 +866,13 @@ export function createPageWriteTools(args: {
       throw new Error(
         `HTML 验证失败 (${resolvedPageId}): ${validation.errors.join('; ')}。请修正后重试。`
       )
+    }
+    if (preparedContent.repaired) {
+      log.info('[deepagent] repaired malformed page fragment before write', {
+        sessionId: context.sessionId,
+        pageId: resolvedPageId,
+        originalErrors: preparedContent.originalErrors || []
+      })
     }
     const targetPath = context.pageFileMap[resolvedPageId]
     if (!targetPath) {
@@ -830,7 +897,7 @@ export function createPageWriteTools(args: {
         bodyFont: context.designContract.bodyFont
       }
       const normalized = await normalizeAndInjectPageRuntime(
-        content,
+        preparedContent.content,
         resolvedPageId,
         context.projectDir,
         designFonts
