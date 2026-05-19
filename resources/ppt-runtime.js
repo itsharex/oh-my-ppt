@@ -559,9 +559,7 @@
     if (elements.length === 0) return null;
 
     var animConfigs = [];
-    // Track per-trigger-group stagger counters so stagger(N) computes
-    // numeric delays correctly when executeDataAnimConfig calls
-    // ppt.animate() once per element (targets array length = 1).
+    // Per-trigger-group counters for stagger(N) → numeric delay
     var staggerCounters = {};
 
     elements.forEach(function (el, index) {
@@ -577,8 +575,6 @@
       if (delayRaw.indexOf("stagger") === 0) {
         var match = delayRaw.match(/stagger\s*\(\s*(\d+)\s*\)/);
         var gap = match ? Number(match[1]) : 50;
-        // Compute numeric delay from per-group counter so stagger works
-        // with per-element ppt.animate() calls (no batch targets list).
         var groupKey = trigger;
         if (staggerCounters[groupKey] === undefined) staggerCounters[groupKey] = 0;
         delay = staggerCounters[groupKey] * gap;
@@ -678,16 +674,12 @@
           params.translateY = [20, 0];
       }
 
-      // Route through PPT.animate() so declarative and imperative
-      // animations share print-mode resolution, print-task tracking,
-      // and active-animation registration for stopAnimations().
+      // Unified path: print-mode, task tracking, stopAnimations()
       ppt.animate(animDef.targets, params);
     });
   }
 
-  // Lottie placeholder — no-op until lottie-web/bodymovin runtime is injected.
-  // Contract: called with (element, animDef) where animDef contains
-  // lottieSrc, lottieLoop, lottieAutoplay from data-anim-* attributes.
+  // no-op until lottie-web injected
   ppt.playLottie = function (_el, _animDef) {};
 
   ppt.scanDataAnim = function (root) {

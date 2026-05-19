@@ -134,7 +134,6 @@ describe('PPT.clicks state machine', () => {
 
   it('advance increments current and returns true when step consumed', () => {
     const c = getClicks(PPT)
-    // total=0 means auto/unbounded mode
     expect(c.advance()).toBe(true)
     expect(c.current).toBe(1)
     expect(c.advance()).toBe(true)
@@ -151,17 +150,8 @@ describe('PPT.clicks state machine', () => {
   })
 
   it('advance returns false when total=0 before any click (no steps defined)', () => {
-    // Fresh PPT with no data-anim-trigger="click" elements scanned:
-    // total stays 0, advance should return false because 0>0 && 0>=0 fails
-    // but wait — advance checks `if (this.total > 0 && this.current >= this.total) return false`
-    // When total=0 and current=0: this.total > 0 is false, so we skip that guard.
-    // This means advance() succeeds (current becomes 1, returns true).
-    // This is intentional for auto/unbounded mode where total hasn't been set.
-    // The parent frame checks `clicks.total > 0` before forwarding, so this path
-    // is only reached when scanDataAnim explicitly set total=0.
     const c = getClicks(PPT)
     expect(c.total).toBe(0)
-    // In auto mode, advance always succeeds
     expect(c.advance()).toBe(true)
     expect(c.current).toBe(1)
   })
@@ -249,9 +239,7 @@ describe('PPT.scanDataAnim', () => {
     const root = document.querySelector('.ppt-page-root')!
     ;(PPT.scanDataAnim as Function)(root)
 
-    // click-triggered elements should be hidden
     expect(el4.style.opacity).toBe('0')
-    // el5: fade-left → opacity 0 + translateX(20px)
     expect(el5.style.opacity).toBe('0')
   })
 
@@ -259,7 +247,6 @@ describe('PPT.scanDataAnim', () => {
     const el1 = document.getElementById('el1')!
     const root = document.querySelector('.ppt-page-root')!
     ;(PPT.scanDataAnim as Function)(root)
-    // load-triggered: no inline style applied by scan
     expect(el1.style.opacity).toBe('')
   })
 
@@ -306,7 +293,6 @@ describe('PPT.executeDataAnim (routed through PPT.animate)', () => {
     ;(PPT.executeDataAnim as Function)(config)
     expect(animateSpy).toHaveBeenCalled()
     const callArgs = animateSpy.mock.calls[0]
-    // First arg is targets (el), second arg is params
     const params = callArgs[1] as Record<string, unknown>
     expect(params.opacity).toEqual([0, 1])
     expect(params.translateY).toEqual([40, 0])
@@ -348,7 +334,6 @@ describe('PPT.playLottie placeholder', () => {
   it('exists as a no-op function', () => {
     const PPT = setupRuntime().PPT
     expect(typeof PPT.playLottie).toBe('function')
-    // Should not throw when called with valid args
     expect(() => (PPT.playLottie as Function)(document.body, {})).not.toThrow()
   })
 })

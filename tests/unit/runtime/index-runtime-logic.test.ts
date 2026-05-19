@@ -60,7 +60,6 @@ describe('tryForwardClickToFrame (total > 0 guard)', () => {
   it('returns false when total is 0 (no click-triggered elements)', () => {
     const clicks = makeClicks(0)
     expect(tryForwardClickToFrame(clicks)).toBe(false)
-    // Navigation should proceed — this is the key fix
   })
 
   it('returns true when step consumed', () => {
