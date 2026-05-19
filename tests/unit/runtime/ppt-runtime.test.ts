@@ -66,7 +66,7 @@ function setupRuntime() {
   if (existingPPT) existingPPT.__runtimeVersion = null
   ;(globalThis as Record<string, unknown>).anime = anime
 
-  try { new Function(runtimeSrc)() } catch (e) { console.error('Runtime init error:', e) }
+  new Function(runtimeSrc)()
 
   const PPT = (globalThis as Record<string, unknown>).PPT as Record<string, unknown>
   return { PPT, anime, animations }

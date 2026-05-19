@@ -361,11 +361,14 @@
 
   injectTransitionStyles();
 
-  // Mouse click on viewport: forward click to iframe for in-slide animations
+  // Mouse click on viewport: forward to iframe for in-slide animations;
+  // when no in-slide step is consumed, advance to the next slide.
   if (frameViewport) {
     frameViewport.addEventListener('click', function (event) {
-      if (event.target !== frameViewport) return; // Only direct viewport clicks
-      tryForwardClickToFrame();
+      if (event.target !== frameViewport) return;
+      if (!tryForwardClickToFrame()) {
+        gotoOffset(1);
+      }
     });
   }
 

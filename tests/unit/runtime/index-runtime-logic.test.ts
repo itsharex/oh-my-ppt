@@ -40,7 +40,7 @@ function clampTransitionDuration(value: number | undefined): number {
 }
 
 describe('tryForwardClickToFrame (total > 0 guard)', () => {
-  function makeClicks(total: number, exhausted: boolean) {
+  function makeClicks(total: number) {
     let current = 0
     return {
       total,
@@ -58,13 +58,13 @@ describe('tryForwardClickToFrame (total > 0 guard)', () => {
   })
 
   it('returns false when total is 0 (no click-triggered elements)', () => {
-    const clicks = makeClicks(0, false)
+    const clicks = makeClicks(0)
     expect(tryForwardClickToFrame(clicks)).toBe(false)
     // Navigation should proceed — this is the key fix
   })
 
   it('returns true when step consumed', () => {
-    const clicks = makeClicks(3, false)
+    const clicks = makeClicks(3)
     expect(tryForwardClickToFrame(clicks)).toBe(true)
   })
 

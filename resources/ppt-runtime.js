@@ -539,15 +539,30 @@
     "fade-left":  { opacity: "0", transform: "translateX(20px)" },
     "fade-right": { opacity: "0", transform: "translateX(-20px)" },
     "scale-in":   { opacity: "0", transform: "scale(0.85)" },
-    "slide-up":   { transform: "translateY(40px)" },
-    "slide-left": { transform: "translateX(40px)" }
+    "slide-up":   { opacity: "0", transform: "translateY(40px)" },
+    "slide-left": { opacity: "0", transform: "translateX(40px)" }
   };
+
+  function applyInitialHiddenState(el, type) {
+    var initial = DATA_ANIM_INITIAL_STYLES[type] || DATA_ANIM_INITIAL_STYLES["fade-up"];
+    // Always set opacity to 0 for click-triggered elements
+    el.style.opacity = "0";
+    // Compose transform: prepend existing so it survives the hidden state
+    if (initial.transform) {
+      var existing = (el.style.transform || "").trim();
+      el.style.transform = existing ? existing + " " + initial.transform : initial.transform;
+    }
+  }
 
   function scanDataAnimElements(root) {
     var elements = Array.from((root || document).querySelectorAll("[data-anim]"));
     if (elements.length === 0) return null;
 
     var animConfigs = [];
+    // Track per-trigger-group stagger counters so stagger(N) computes
+    // numeric delays correctly when executeDataAnimConfig calls
+    // ppt.animate() once per element (targets array length = 1).
+    var staggerCounters = {};
 
     elements.forEach(function (el, index) {
       var type = (el.getAttribute("data-anim") || "fade-up").trim();
@@ -562,21 +577,19 @@
       if (delayRaw.indexOf("stagger") === 0) {
         var match = delayRaw.match(/stagger\s*\(\s*(\d+)\s*\)/);
         var gap = match ? Number(match[1]) : 50;
-        delay = ppt.stagger ? ppt.stagger(gap) : (function (start) {
-          return function (_el, i) { return start + i * gap; };
-        })(0);
+        // Compute numeric delay from per-group counter so stagger works
+        // with per-element ppt.animate() calls (no batch targets list).
+        var groupKey = trigger;
+        if (staggerCounters[groupKey] === undefined) staggerCounters[groupKey] = 0;
+        delay = staggerCounters[groupKey] * gap;
+        staggerCounters[groupKey] += 1;
       } else {
         delay = Number(delayRaw) || 0;
       }
 
-      // Apply initial hidden state for click-triggered elements so they
-      // are invisible until their click step fires.  Load-triggered
-      // elements rely on PPT.animate() to set the initial state.
+      // Apply initial hidden state for click-triggered elements.
       if (trigger === "click" && type !== "lottie") {
-        var initial = DATA_ANIM_INITIAL_STYLES[type] || DATA_ANIM_INITIAL_STYLES["fade-up"];
-        Object.keys(initial).forEach(function (prop) {
-          el.style[prop] = initial[prop];
-        });
+        applyInitialHiddenState(el, type);
       }
 
       var animDef = {
@@ -590,7 +603,6 @@
       };
 
       // Lottie hook — parse additional attributes, store in config.
-      // When lottie runtime is injected, PPT.playLottie() will consume these.
       if (type === "lottie") {
         animDef.lottieSrc = (el.getAttribute("data-anim-lottie-src") || "").trim();
         animDef.lottieLoop = el.getAttribute("data-anim-lottie-loop") !== "false";
