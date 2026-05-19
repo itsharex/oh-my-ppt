@@ -32,7 +32,7 @@ interface SessionDetailUiStore {
   assetPickerOpen: boolean
   assetPickerType: 'image' | 'video'
   isGeneratingSpeechScript: boolean
-  speechScript: string | null
+  speechProgress: { current: number; total: number } | null
   speechScriptDialogOpen: boolean
   speechConfig: { length: 'short' | 'medium' | 'long'; style: 'formal' | 'conversational' | 'storytelling' }
 
@@ -67,7 +67,7 @@ interface SessionDetailUiStore {
   toggleSidebarCollapsed: () => void
   setAssetPickerOpen: (open: boolean, type?: 'image' | 'video') => void
   setIsGeneratingSpeechScript: (v: boolean) => void
-  setSpeechScript: (script: string | null) => void
+  setSpeechProgress: (progress: { current: number; total: number } | null) => void
   setSpeechScriptDialogOpen: (v: boolean) => void
   setSpeechConfig: (config: { length: 'short' | 'medium' | 'long'; style: 'formal' | 'conversational' | 'storytelling' }) => void
   finishAddPage: (selectedPageId?: string | null) => void
@@ -103,7 +103,7 @@ export const useSessionDetailUiStore = create<SessionDetailUiStore>((set) => ({
   assetPickerOpen: false,
   assetPickerType: 'image' as const,
   isGeneratingSpeechScript: false,
-  speechScript: null,
+  speechProgress: null,
   speechScriptDialogOpen: false,
   speechConfig: { length: 'medium' as const, style: 'conversational' as const },
 
@@ -168,7 +168,7 @@ export const useSessionDetailUiStore = create<SessionDetailUiStore>((set) => ({
       ...(type ? { assetPickerType: type } : { assetPickerType: state.assetPickerType })
     })),
   setIsGeneratingSpeechScript: (isGeneratingSpeechScript) => set({ isGeneratingSpeechScript }),
-  setSpeechScript: (speechScript) => set({ speechScript }),
+  setSpeechProgress: (speechProgress) => set({ speechProgress }),
   setSpeechScriptDialogOpen: (speechScriptDialogOpen) => set({ speechScriptDialogOpen }),
   setSpeechConfig: (speechConfig) => set({ speechConfig }),
   finishAddPage: (selectedPageId) =>
@@ -203,6 +203,9 @@ export const useSessionDetailUiStore = create<SessionDetailUiStore>((set) => ({
       isRetryingSinglePage: false,
       isManagingPages: false,
       sidebarCollapsed: false,
-      assetPickerOpen: false
+      assetPickerOpen: false,
+      isGeneratingSpeechScript: false,
+      speechProgress: null,
+      speechScriptDialogOpen: false
     })
 }))

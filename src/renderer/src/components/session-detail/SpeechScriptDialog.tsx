@@ -4,6 +4,7 @@ import { cn } from '@renderer/lib/utils'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/Dialog'
 import { Button } from '../ui/Button'
 import { useT } from '@renderer/i18n'
+import { ipc } from '@renderer/lib/ipc'
 
 type SpeechLength = 'short' | 'medium' | 'long'
 type SpeechStyle = 'formal' | 'conversational' | 'storytelling'
@@ -16,8 +17,9 @@ export interface SpeechConfig {
 interface SpeechScriptDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  script: string | null
+  sessionId: string
   isGenerating: boolean
+  speechProgress: { current: number; total: number } | null
   speechConfig: SpeechConfig
   onConfigChange: (config: SpeechConfig) => void
   onGenerate: (config: SpeechConfig) => void
@@ -55,31 +57,44 @@ function OptionButton({
 export function SpeechScriptDialog({
   open,
   onOpenChange,
-  script,
+  sessionId,
   isGenerating,
+  speechProgress,
   speechConfig,
   onConfigChange,
   onGenerate,
   sessionTitle
 }: SpeechScriptDialogProps): React.JSX.Element {
   const t = useT()
+  const [script, setScript] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
-  // 'config' when no script yet; 'result' when script exists
-  const [phase, setPhase] = useState<'config' | 'result'>(script ? 'result' : 'config')
+  const [phase, setPhase] = useState<'config' | 'result'>('config')
 
-  // Sync phase when dialog opens or script arrives
+  // Load script from file when dialog opens
   useEffect(() => {
-    if (open) {
-      setPhase(script ? 'result' : 'config')
-    }
-  }, [open, script])
+    if (!open) return
+    void ipc.getSpeechScript(sessionId).then((result) => {
+      if (result.script) {
+        setScript(result.script)
+        setPhase('result')
+      } else {
+        setScript(null)
+        setPhase('config')
+      }
+    })
+  }, [open, sessionId])
 
-  // When generating finishes and script arrives, move to result
+  // When generation finishes, reload script from file
   useEffect(() => {
-    if (!isGenerating && script) {
-      setPhase('result')
+    if (!isGenerating && open) {
+      void ipc.getSpeechScript(sessionId).then((result) => {
+        if (result.script) {
+          setScript(result.script)
+          setPhase('result')
+        }
+      })
     }
-  }, [isGenerating, script])
+  }, [isGenerating, open, sessionId])
 
   const handleCopy = async (): Promise<void> => {
     if (!script) return
@@ -90,7 +105,8 @@ export function SpeechScriptDialog({
 
   const handleDownload = (): void => {
     if (!script) return
-    const fileName = sessionTitle ? `${sessionTitle}-演讲稿.md` : 'speech-script.md'
+    const suffix = t('sessionDetail.speechScriptDownloadSuffix')
+    const fileName = sessionTitle ? `${sessionTitle}${suffix}.md` : 'speech-script.md'
     const blob = new Blob([script], { type: 'text/markdown;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -105,12 +121,13 @@ export function SpeechScriptDialog({
   }
 
   const handleRegenerate = (): void => {
+    setScript(null)
     setPhase('config')
   }
 
   const showConfig = phase === 'config' && !isGenerating
   const showLoading = isGenerating
-  const showResult = phase === 'result' && !isGenerating && script
+  const showResult = phase === 'result' && !isGenerating && script !== null
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -163,7 +180,14 @@ export function SpeechScriptDialog({
         {showLoading && (
           <div className="flex flex-1 flex-col items-center justify-center gap-3 py-16">
             <Loader2 className="h-7 w-7 animate-spin text-[#6f8159]" />
-            <p className="text-sm text-[#6b7c5a]">正在生成演讲稿...</p>
+            <p className="text-sm text-[#6b7c5a]">
+              {speechProgress
+                ? t('sessionDetail.speechScriptGenerating', {
+                    current: speechProgress.current,
+                    total: speechProgress.total
+                  })
+                : t('sessionDetail.speechScriptGeneratingInit')}
+            </p>
           </div>
         )}
 

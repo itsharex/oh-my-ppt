@@ -71,7 +71,6 @@ export function SessionToolbar({
   const isExportingSlidePack = useSessionDetailUiStore((state) => state.isExportingSlidePack)
   const isExportingSessionZip = useSessionDetailUiStore((state) => state.isExportingSessionZip)
   const isGeneratingSpeechScript = useSessionDetailUiStore((state) => state.isGeneratingSpeechScript)
-  const hasSpeechScript = useSessionDetailUiStore((state) => state.speechScript !== null)
   const isExportingPackage = isExportingSlidePack || isExportingSessionZip
   const isExporting =
     isExportingPdf ||
@@ -220,12 +219,7 @@ export function SessionToolbar({
               type="button"
               variant="outline"
               size="sm"
-              className={cn(
-                toolbarButtonClass,
-                hasSpeechScript && !isGeneratingSpeechScript
-                  ? 'border-[#6f8159]/40 bg-[#6f8159]/12 text-[#4a6035] hover:bg-[#6f8159]/20'
-                  : ''
-              )}
+              className={toolbarButtonClass}
               onClick={onGenerateSpeechScript}
               disabled={isGeneratingSpeechScript}
             >
@@ -234,16 +228,10 @@ export function SessionToolbar({
               ) : (
                 <ScrollText className={toolbarIconClass} />
               )}
-              {hasSpeechScript && !isGeneratingSpeechScript
-                ? t('sessionDetail.speechScriptView')
-                : t('sessionDetail.speechScript')}
+              {t('sessionDetail.speechScript')}
             </Button>
           </TooltipTrigger>
-          <TooltipContent>
-            {hasSpeechScript
-              ? t('sessionDetail.speechScriptViewTooltip')
-              : t('sessionDetail.speechScriptTooltip')}
-          </TooltipContent>
+          <TooltipContent>{t('sessionDetail.speechScriptTooltip')}</TooltipContent>
         </Tooltip>
       )}
       {canPreview && (

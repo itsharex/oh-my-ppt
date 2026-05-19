@@ -564,8 +564,21 @@ export const ipc = {
     sessionId: string,
     config: { length: 'short' | 'medium' | 'long'; style: 'formal' | 'conversational' | 'storytelling' }
   ) =>
-    getIpc().invoke('speech:generateScript', { sessionId, ...config }) as Promise<{
+    getIpc().invoke('speech:generateScript', { sessionId, ...config }) as Promise<{ success: boolean }>,
+  getSpeechScript: (sessionId: string) =>
+    getIpc().invoke('speech:getScript', { sessionId }) as Promise<{
       success: boolean
-      script: string
-    }>
+      script: string | null
+    }>,
+  clearSpeechScript: (sessionId: string) =>
+    getIpc().invoke('speech:clearScript', { sessionId }) as Promise<{ success: boolean }>,
+  onSpeechProgress: (
+    callback: (payload: { sessionId: string; current: number; total: number }) => void
+  ): (() => void) => {
+    const channel = 'speech:progress'
+    const handler = (_event: unknown, payload: unknown): void =>
+      callback(payload as { sessionId: string; current: number; total: number })
+    getIpc().on(channel, handler)
+    return () => getIpc().removeListener(channel, handler)
+  }
 }
