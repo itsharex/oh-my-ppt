@@ -285,7 +285,7 @@ export function SpeechScriptDrawer({
 
           {/* Footer actions */}
           {!isGenerating && script && (
-            <div className="flex shrink-0 gap-2 px-3 pb-3">
+            <div className="flex shrink-0 gap-2 px-3 pb-3 pt-2">
               <Button
                 variant="outline"
                 size="sm"
