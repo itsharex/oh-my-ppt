@@ -5,13 +5,10 @@ import log from 'electron-log/main.js'
 import type { IpcContext } from '../context'
 import { resolveActiveModelConfig, resolveGlobalModelTimeouts } from '../config/model-config-utils'
 import { createWorkspace, readWorkspace, scanLatestWorkspace, resolveThinkingDir } from '../../thinking/workspace'
-import { prepareMultipleSources } from '../../thinking/source-prepare'
+import { extractPendingImageTextSources, prepareMultipleSources } from '../../thinking/source-prepare'
 import { runThinkingChat } from '../../thinking/thinking-agent'
-import { hasStyleSkill, listStyleCatalog } from '../../utils/style-skills'
 import { normalizeFontSelection } from '@shared/generation'
 import type { ThinkingChatMessage, ThinkingPrepareGenerationResult } from '@shared/thinking'
-
-const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp'])
 
 async function updateSourcesManifest(
   thinkingDir: string,
@@ -40,6 +37,58 @@ async function updateSourcesManifest(
   )
 }
 
+async function removeSourceFromManifest(thinkingDir: string, sourceId: string): Promise<{
+  removed: boolean
+  fileName?: string
+}> {
+  const manifestPath = path.join(thinkingDir, 'sources.json')
+  let existing: Array<{ id: string; name: string; kind: string; fileName: string }> = []
+  try {
+    const raw = await fs.promises.readFile(manifestPath, 'utf-8')
+    const parsed = JSON.parse(raw)
+    if (Array.isArray(parsed)) {
+      existing = parsed.filter((item) => item && typeof item === 'object')
+    }
+  } catch {
+    existing = []
+  }
+
+  const target = existing.find((item) => item.id === sourceId)
+  if (!target) return { removed: false }
+  await fs.promises.writeFile(
+    manifestPath,
+    JSON.stringify(existing.filter((item) => item.id !== sourceId), null, 2),
+    'utf-8'
+  )
+  return { removed: true, fileName: target.fileName }
+}
+
+function parseThinkingAssetPath(content: string): string {
+  const match = content.match(/^- thinkingAssetPath:\s*(.+)$/m)
+  return match?.[1]?.trim() || ''
+}
+
+async function removeCopiedSourceFiles(thinkingDir: string, fileName: string): Promise<void> {
+  const sourcePath = path.join(thinkingDir, 'sources', fileName)
+  let imageAssetPath = ''
+  try {
+    const content = await fs.promises.readFile(sourcePath, 'utf-8')
+    imageAssetPath = parseThinkingAssetPath(content)
+  } catch {
+    imageAssetPath = ''
+  }
+
+  await fs.promises.rm(sourcePath, { force: true })
+  if (imageAssetPath) {
+    const assetsDir = path.join(thinkingDir, 'assets')
+    const resolvedAssetPath = path.resolve(imageAssetPath)
+    const relative = path.relative(assetsDir, resolvedAssetPath)
+    if (relative && !relative.startsWith('..') && !path.isAbsolute(relative)) {
+      await fs.promises.rm(resolvedAssetPath, { force: true })
+    }
+  }
+}
+
 function parseTopicFromThinkingMd(thinkingMd: string): string {
   // Try "## Topic: xxx" (inline) first, then "## Topic\nxxx" (next line)
   const inline = thinkingMd.match(/^##\s*Topic\s*:\s*(.+)/m)
@@ -61,81 +110,12 @@ function readMarkdownSectionValue(markdown: string, heading: string): string {
   return block?.[1]?.trim().split('\n')[0]?.trim() || ''
 }
 
-function isValidStyleIdCandidate(value: string): boolean {
-  return /^[a-z0-9-]{3,40}$/.test(value.trim().toLowerCase())
-}
-
-function parseStyleFromThinkingMd(thinkingMd: string): string {
-  const styleText = readMarkdownSectionValue(thinkingMd, 'Style')
-  if (!styleText) return ''
-
-  const normalizedText = styleText.trim().toLowerCase()
-  const catalog = listStyleCatalog()
-
-  if (isValidStyleIdCandidate(normalizedText)) {
-    try {
-      if (hasStyleSkill(normalizedText)) return normalizedText
-    } catch {
-      // Natural-language style text should fall through to catalog matching.
-    }
-  }
-
-  const exact = catalog.find((item) => {
-    const candidates = [item.id, item.styleKey, item.label].map((value) => value.toLowerCase())
-    return candidates.includes(normalizedText)
-  })
-  if (exact) return exact.id
-
-  const styleKeywords = normalizedText
-    .split(/[\s,，、/|]+/)
-    .map((item) => item.trim())
-    .filter(Boolean)
-  const semanticKeywords: string[] = []
-  if (/数据|分析|商业|行业|会议|报告/.test(styleText)) {
-    semanticKeywords.push('数据', '分析', '商业', '会议')
-  }
-  if (/科技|ai|人工智能|技术/.test(styleText)) {
-    semanticKeywords.push('科技', '技术', '深色', '冷静')
-  }
-  if (/极简|简洁|干净|白/.test(styleText)) {
-    semanticKeywords.push('极简', '简约', '留白')
-  }
-
-  const keywords = Array.from(new Set([...styleKeywords, ...semanticKeywords]))
-  let best: { id: string; score: number } | null = null
-  for (const item of catalog) {
-    const haystack = [
-      item.id,
-      item.styleKey,
-      item.label,
-      item.description,
-      item.category,
-      item.styleCase
-    ]
-      .join(' ')
-      .toLowerCase()
-    let score = 0
-    for (const keyword of keywords) {
-      const normalizedKeyword = keyword.toLowerCase()
-      if (normalizedKeyword && haystack.includes(normalizedKeyword)) score += 1
-    }
-    if (/数据|分析|商业/.test(styleText) && item.styleKey === 'arctic-cool') score += 3
-    if (/行业|会议|报告/.test(styleText) && item.styleKey === 'minimal-white') score += 1
-    if (!best || score > best.score) {
-      best = { id: item.id, score }
-    }
-  }
-
-  if (best && best.score > 0) {
-    log.info('[thinking] matched natural-language style', {
-      styleText,
-      styleId: best.id,
-      score: best.score
-    })
-    return best.id
-  }
-
-  return ''
+function readMarkdownSectionBlock(markdown: string, heading: string): string {
+  const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const inline = markdown.match(new RegExp(`^##\\s*${escaped}\\s*:\\s*(.+)`, 'm'))
+  if (inline) return inline[1].trim()
+  const block = markdown.match(new RegExp(`^##\\s*${escaped}\\s*\\n([\\s\\S]*?)(?=^##\\s+|(?![\\s\\S]))`, 'm'))
+  return block?.[1]?.trim() || ''
 }
 
 function parseFontFromThinkingMd(thinkingMd: string): unknown {
@@ -202,27 +182,7 @@ export function registerThinkingHandlers(ctx: IpcContext): void {
         throw new Error('Upload at most 10 files at a time')
       }
 
-      const hasImage = filePaths.some((filePath) =>
-        IMAGE_EXTENSIONS.has(path.extname(filePath).toLowerCase())
-      )
-      const activeModel = hasImage ? await resolveActiveModelConfig(ctx) : null
-      const modelTimeouts = hasImage ? await resolveGlobalModelTimeouts(ctx) : null
-      const prepared = await prepareMultipleSources(
-        filePaths,
-        dir,
-        activeModel && modelTimeouts
-          ? {
-              imageSummary: {
-                provider: activeModel.provider,
-                apiKey: activeModel.apiKey,
-                model: activeModel.model,
-                baseUrl: activeModel.baseUrl,
-                maxTokens: activeModel.maxTokens,
-                modelTimeoutMs: modelTimeouts.document
-              }
-            }
-          : undefined
-      )
+      const prepared = await prepareMultipleSources(filePaths, dir)
 
       const sources = prepared.map((p) => ({
         id: p.id,
@@ -250,6 +210,31 @@ export function registerThinkingHandlers(ctx: IpcContext): void {
   )
 
   ipcMain.handle(
+    'thinking:removeSource',
+    async (_event, payload: { thinkingId: string; sourceId: string }) => {
+      const thinkingId = String(payload?.thinkingId || '').trim()
+      const sourceId = String(payload?.sourceId || '').trim()
+      if (!thinkingId || !sourceId) throw new Error('Invalid source removal request')
+
+      const storagePath = await resolveStoragePath()
+      await readWorkspace(storagePath, thinkingId)
+      const dir = resolveThinkingDir(storagePath, thinkingId)
+      const removed = await removeSourceFromManifest(dir, sourceId)
+      if (removed.fileName) {
+        await removeCopiedSourceFiles(dir, removed.fileName)
+      }
+
+      log.info('[thinking] source removed', {
+        thinkingId,
+        sourceId,
+        removed: removed.removed
+      })
+
+      return { success: true, removed: removed.removed }
+    }
+  )
+
+  ipcMain.handle(
     'thinking:chat',
     async (
       _event,
@@ -262,6 +247,14 @@ export function registerThinkingHandlers(ctx: IpcContext): void {
       const workspace = await readWorkspace(storagePath, thinkingId)
       const activeModel = await resolveActiveModelConfig(ctx)
       const modelTimeouts = await resolveGlobalModelTimeouts(ctx)
+      await extractPendingImageTextSources(dir, {
+        provider: activeModel.provider,
+        apiKey: activeModel.apiKey,
+        model: activeModel.model,
+        baseUrl: activeModel.baseUrl,
+        maxTokens: activeModel.maxTokens,
+        modelTimeoutMs: modelTimeouts.document
+      })
 
       const emitThinkingEvent = (event: { type: string; toolName: string; summary: string }): void => {
         const windows = BrowserWindow.getAllWindows()
@@ -327,15 +320,9 @@ export function registerThinkingHandlers(ctx: IpcContext): void {
 
       const topic = parseTopicFromThinkingMd(workspace.thinkingMd)
       const pageCount = parsePageCountFromThinkingMd(workspace.thinkingMd)
-      let styleId = parseStyleFromThinkingMd(workspace.thinkingMd)
+      const styleText = readMarkdownSectionBlock(workspace.thinkingMd, 'Style')
       const rawFont = parseFontFromThinkingMd(workspace.thinkingMd)
       const fontSelection = normalizeFontSelection(rawFont)
-
-      // Default to first available style if not found
-      if (!styleId) {
-        const catalog = listStyleCatalog()
-        styleId = catalog.length > 0 ? catalog[0].id : ''
-      }
 
       if (!topic) {
         throw new Error('thinking.md is missing ## Topic. Please complete the thinking brief first.')
@@ -350,7 +337,8 @@ export function registerThinkingHandlers(ctx: IpcContext): void {
         thinkingDocumentPath,
         topic,
         pageCount: Math.max(1, Math.min(40, pageCount)),
-        styleId,
+        styleId: '',
+        styleText,
         fontSelection
       }
 

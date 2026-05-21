@@ -60,8 +60,10 @@ export interface StyleDetail {
 
 export interface StyleListItem {
   id: string
+  styleKey?: string
   label: string
   description: string
+  aliases?: string[]
   category: string
   source?: 'builtin' | 'custom' | 'override'
   editable?: boolean
@@ -582,6 +584,11 @@ export const ipc = {
   }) =>
     getIpc().invoke('thinking:uploadSources', payload) as Promise<{
       sources: Array<{ id: string; name: string; kind: string }>
+    }>,
+  thinkingRemoveSource: (payload: { thinkingId: string; sourceId: string }) =>
+    getIpc().invoke('thinking:removeSource', payload) as Promise<{
+      success: boolean
+      removed: boolean
     }>,
   thinkingChat: (payload: {
     thinkingId: string

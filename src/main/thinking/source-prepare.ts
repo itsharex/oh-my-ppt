@@ -3,7 +3,11 @@ import fs from 'fs'
 import path from 'path'
 import log from 'electron-log/main.js'
 import { nanoid } from 'nanoid'
-import { invokeVisionModelText } from '../utils/vision-model'
+import { HumanMessage } from '@langchain/core/messages'
+import { resolveModelTimeoutMs } from '@shared/model-timeout'
+import { isSupportedImageMimeType, normalizeImageMimeType } from '@shared/image-mime'
+import { resolveModel } from '../agent'
+import { extractModelText } from '../ipc/utils'
 import type { ThinkingSource } from '@shared/thinking'
 
 const require = createRequire(import.meta.url)
@@ -68,36 +72,29 @@ const mimeTypeFromExtension = (ext: string): string => {
   return ''
 }
 
-const buildImageSummaryPrompt = (name: string): string =>
+const buildImageTextExtractionPrompt = (name: string): string =>
   [
-    `请理解这张图片，并为后续演示文稿规划生成一份结构化摘要。图片文件名：${name}`,
+    `请只识别这张图片中的文字、数字、表格、图表标签、界面文案或可直接引用的数据。图片文件名：${name}`,
     '',
-    '输出要求：',
-    '- 使用用户可能使用的主要语言；无法判断时用中文。',
-    '- 不要编造图片中不存在的具体数据。',
-    '- 如果图片包含文字、数字、表格、图表或界面信息，请尽量提取。',
-    '- 如果图片更适合作为风格参考、封面图、页面插图或证据素材，请明确建议。',
+    '严格要求：',
+    '- 只做文字/数据识别，不做视觉理解、图片摘要、用途建议或风格分析。',
+    '- 不要描述配色、构图、审美、质感、版式、插画风格或设计方向。',
+    '- 不要判断这张图适合做封面、插图、风格参考或证据素材。',
+    '- 不要编造图片中不存在的文字、数字或事实。',
+    '- 如果没有可识别文字或数据，只输出“未识别到明确文字内容”。',
     '',
     '请按以下 Markdown 小节输出：',
-    '## Visual Summary',
-    '## Key Text Or Data',
-    '## Suggested Slide Usage',
-    '## Style Notes'
+    '## Extracted Text',
+    '## Extracted Data'
   ].join('\n')
 
-const buildFallbackImageSummary = (name: string): string =>
+const buildFallbackImageTextExtraction = (name: string): string =>
   [
-    '## Visual Summary',
-    `图片 ${name} 已上传，但当前模型没有返回可用的视觉摘要。`,
+    '## Extracted Text',
+    `图片 ${name} 已上传，但未识别到明确文字内容。`,
     '',
-    '## Key Text Or Data',
-    '- 待用户补充或后续重新分析。',
-    '',
-    '## Suggested Slide Usage',
-    '- 可作为后续页面生成的本地图片素材。',
-    '',
-    '## Style Notes',
-    '- 待补充。'
+    '## Extracted Data',
+    '- 未识别到明确数据。'
   ].join('\n')
 
 export type SourceKind = ThinkingSource['kind']
@@ -110,7 +107,7 @@ export interface PreparedSource {
   assetsPath?: string
 }
 
-export interface ImageSummaryOptions {
+export interface ImageTextExtractionOptions {
   provider: string
   apiKey: string
   model: string
@@ -118,6 +115,8 @@ export interface ImageSummaryOptions {
   maxTokens?: number
   modelTimeoutMs: number
 }
+
+const IMAGE_TEXT_MARKER = '<!-- image-text-extracted -->'
 
 function detectKind(ext: string): SourceKind {
   if (SUPPORTED_IMAGE_EXTENSIONS.has(ext)) return 'image'
@@ -127,34 +126,117 @@ function detectKind(ext: string): SourceKind {
   return 'text'
 }
 
-async function summarizeImage(args: {
+async function extractImageText(args: {
   filePath: string
   name: string
   ext: string
-  options: ImageSummaryOptions
+  options: ImageTextExtractionOptions
 }): Promise<string> {
+  const mimeType = normalizeImageMimeType(mimeTypeFromExtension(args.ext))
+  if (!isSupportedImageMimeType(mimeType)) {
+    throw new Error(`不支持的图片格式：${mimeType || 'unknown'}`)
+  }
   const imageBase64 = await fs.promises.readFile(args.filePath, 'base64')
-  const response = await invokeVisionModelText({
-    imageBase64,
-    mimeType: mimeTypeFromExtension(args.ext),
-    prompt: buildImageSummaryPrompt(args.name),
+  const imageBytes = Buffer.byteLength(imageBase64, 'base64')
+  log.info('[thinking:image-text] invoke thinking image text model', {
     provider: args.options.provider,
-    apiKey: args.options.apiKey,
     model: args.options.model,
-    baseUrl: args.options.baseUrl,
-    maxTokens: args.options.maxTokens,
-    modelTimeoutMs: args.options.modelTimeoutMs,
-    logTag: 'thinking:image-summary'
+    mimeType,
+    imageBytes
   })
-  return response.trim() || buildFallbackImageSummary(args.name)
+  const model = resolveModel(
+    args.options.provider,
+    args.options.apiKey,
+    args.options.model,
+    args.options.baseUrl,
+    0.1,
+    args.options.maxTokens
+  )
+  const result = await model.invoke(
+    [
+      new HumanMessage({
+        content: [
+          { type: 'text', text: buildImageTextExtractionPrompt(args.name) },
+          { type: 'image_url', image_url: { url: `data:${mimeType};base64,${imageBase64}` } }
+        ]
+      })
+    ],
+    {
+      signal: AbortSignal.timeout(resolveModelTimeoutMs(args.options.modelTimeoutMs, 'document'))
+    }
+  )
+  const response = extractModelText(result)
+  return response.trim() || buildFallbackImageTextExtraction(args.name)
+}
+
+const parseImageAssetPath = (content: string): string => {
+  const match = content.match(/^- thinkingAssetPath:\s*(.+)$/m)
+  return match?.[1]?.trim() || ''
+}
+
+export async function extractPendingImageTextSources(
+  thinkingDir: string,
+  options: ImageTextExtractionOptions
+): Promise<void> {
+  const sourcesDir = path.join(thinkingDir, 'sources')
+  if (!fs.existsSync(sourcesDir)) return
+
+  const entries = await fs.promises.readdir(sourcesDir, { withFileTypes: true })
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith('.image.md')) continue
+    const sourcePath = path.join(sourcesDir, entry.name)
+    const content = await fs.promises.readFile(sourcePath, 'utf-8')
+    if (content.includes(IMAGE_TEXT_MARKER)) continue
+
+    const imagePath = parseImageAssetPath(content)
+    if (!imagePath || !fs.existsSync(imagePath)) continue
+
+    try {
+      const extractedText = await extractImageText({
+        filePath: imagePath,
+        name: path.basename(imagePath),
+        ext: path.extname(imagePath).toLowerCase(),
+        options
+      })
+      await fs.promises.writeFile(
+        sourcePath,
+        [
+          content.trimEnd(),
+          '',
+          IMAGE_TEXT_MARKER,
+          '## Notes',
+          '- 以下内容仅来自图片中的文字/数据识别，不包含风格、配色、构图或用途分析。',
+          '',
+          extractedText.trim()
+        ].join('\n') + '\n',
+        'utf-8'
+      )
+    } catch (err) {
+      log.warn('[thinking:source-prepare] image text extraction failed', {
+        source: entry.name,
+        message: err instanceof Error ? err.message : String(err)
+      })
+      await fs.promises.writeFile(
+        sourcePath,
+        [
+          content.trimEnd(),
+          '',
+          IMAGE_TEXT_MARKER,
+          '## Extracted Text',
+          '- 图片文字识别失败。',
+          '',
+          '## Extracted Data',
+          '- 未识别到明确数据。'
+        ].join('\n') + '\n',
+        'utf-8'
+      )
+    }
+  }
 }
 
 export async function prepareSourceFile(
   filePath: string,
-  thinkingDir: string,
-  options?: {
-    imageSummary?: ImageSummaryOptions
-  }
+  thinkingDir: string
 ): Promise<PreparedSource> {
   const resolved = path.resolve(filePath)
   const stat = await fs.promises.stat(resolved)
@@ -203,15 +285,6 @@ export async function prepareSourceFile(
     const mdName = `${id}.image.md`
     sourcePath = path.join(sourcesDir, mdName)
     assetsPath = path.join(assetsDir, imgName)
-    if (!options?.imageSummary) {
-      throw new Error(`Image understanding requires an active vision-capable model: ${path.basename(resolved)}`)
-    }
-    const summary = await summarizeImage({
-      filePath: resolved,
-      name: path.basename(resolved),
-      ext,
-      options: options.imageSummary
-    })
     await fs.promises.copyFile(resolved, assetsPath)
     await fs.promises.writeFile(
       sourcePath,
@@ -227,7 +300,9 @@ export async function prepareSourceFile(
         '- sessionAssetPath: (set during generation copy)',
         '- publicPath: (set during generation copy)',
         '',
-        summary
+        '## Notes',
+        '- 图片已复制到素材库，上传阶段不进行识别或解析。',
+        '- 用户发送消息后才会识别图片中的文字/数据；不会解析图片风格。'
       ].join('\n'),
       'utf-8'
     )
@@ -254,14 +329,11 @@ export async function prepareSourceFile(
 
 export async function prepareMultipleSources(
   filePaths: string[],
-  thinkingDir: string,
-  options?: {
-    imageSummary?: ImageSummaryOptions
-  }
+  thinkingDir: string
 ): Promise<PreparedSource[]> {
   const results: PreparedSource[] = []
   for (const filePath of filePaths) {
-    results.push(await prepareSourceFile(filePath, thinkingDir, options))
+    results.push(await prepareSourceFile(filePath, thinkingDir))
   }
   return results
 }

@@ -90,8 +90,10 @@ export function registerStyleHandlers(ctx: IpcContext): void {
     return {
       items: rows.map((row) => ({
         id: row.id,
+        styleKey: row.style,
         label: row.styleName,
         description: row.description,
+        aliases: JSON.parse(row.aliases || '[]'),
         category: row.category || (row.source === 'builtin' ? '内置' : '自定义'),
         source: row.source,
         editable: row.source !== 'builtin',

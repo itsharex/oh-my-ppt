@@ -627,7 +627,7 @@ export const zh = {
     chatTitle: 'AI 对话',
     thinking: '思考中...',
     inputPlaceholder: '描述你想呈现的主题和内容...',
-    welcomeMessage: '你好，我来帮你把创意整理成清晰的内容方案。\n\n可以从这些地方开始：\n\n- **说一个想法**，我会帮你拆成结构和重点\n- **上传素材**，我会从里面提炼可用内容\n- **说“按这个生成创意大纲”**，我会先整理方案再进入生成\n\n把你的创意、资料或方向发给我就行。',
+    welcomeMessage: '你好，我来帮你把创意整理成清晰的内容方案。\n\n可以这样开始：\n\n- **说一个想法**，我会帮你拆成结构和重点\n- **上传素材后说”按这个生成大纲”**，我会从素材中提炼内容，整理成方案再进入生成\n\n把你的创意、资料或方向发给我就行。',
     sourceCount: '{count} 个素材',
     pageCardsTitle: '页面大纲',
     pageCountLabel: '{count} 页',
@@ -647,7 +647,9 @@ export const zh = {
     fontMode: '字体方案',
     prepareFailed: '准备生成失败',
     uploadFailed: '素材上传失败',
-    uploadTooltip: '支持 .md、.txt、.csv、.docx 文档和 .png、.jpg、.webp 图片',
+    removeSource: '移除素材',
+    removeSourceFailed: '移除素材失败',
+    uploadTooltip: '支持 .md、.txt、.csv、.docx 文档（单个 ≤ {documentMaxSize}MB）和 .png、.jpg、.webp 图片（单张 ≤ {imageMaxSize}MB）',
     needMoreWork: '请先完成大纲后再生成'
   }
 } as const

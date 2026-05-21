@@ -672,7 +672,9 @@ Business presentations, product introductions, project summaries — formal but 
     fontMode: 'Font',
     prepareFailed: 'Failed to prepare generation',
     uploadFailed: 'Failed to upload sources',
-    uploadTooltip: 'Supports .md, .txt, .csv, .docx documents and .png, .jpg, .webp images',
+    removeSource: 'Remove source',
+    removeSourceFailed: 'Failed to remove source',
+    uploadTooltip: 'Supports .md, .txt, .csv, .docx documents (up to {documentMaxSize}MB each) and .png, .jpg, .webp images (up to {imageMaxSize}MB each)',
     needMoreWork: 'Complete the outline before generating'
   }
 } satisfies DeepStringShape<typeof zh>

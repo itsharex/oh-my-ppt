@@ -4,14 +4,36 @@ import { useT } from '@renderer/i18n'
 import { useToastStore } from '@renderer/store'
 import { ipc } from '@renderer/lib/ipc'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/Tooltip'
-import { Bot, BookOpen, Check, ChevronDown, ChevronRight, FileSearch, FileText, FolderOpen, Image as ImageIcon, Loader2, Paperclip, Pencil, Send, User } from 'lucide-react'
+import { Bot, BookOpen, Check, ChevronDown, ChevronRight, FileSearch, FileText, FolderOpen, Image as ImageIcon, Loader2, Paperclip, Pencil, Send, User, X } from 'lucide-react'
 import { ScrollArea } from '../ui/ScrollArea'
 import type { ThinkingChatMessage, ThinkingSource } from '@shared/thinking'
+
+const MAX_DOCUMENT_SIZE_MB = 10
+const MAX_DOCUMENT_SIZE_BYTES = MAX_DOCUMENT_SIZE_MB * 1024 * 1024
+const MAX_IMAGE_SIZE_MB = 5
+const MAX_IMAGE_SIZE_BYTES = MAX_IMAGE_SIZE_MB * 1024 * 1024
+const SUPPORTED_DOCUMENT_EXTENSIONS = new Set(['.md', '.txt', '.text', '.csv', '.docx'])
+const SUPPORTED_IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp'])
 
 interface ThinkingStep {
   type: 'tool_call' | 'tool_result'
   toolName: string
   summary: string
+}
+
+const getFileExtension = (name: string): string => {
+  const match = name.trim().toLowerCase().match(/\.[^.]+$/)
+  return match?.[0] || ''
+}
+
+const isSupportedImageFile = (file: File): boolean => {
+  const ext = getFileExtension(file.name)
+  return SUPPORTED_IMAGE_EXTENSIONS.has(ext)
+}
+
+const isSupportedThinkingFile = (file: File): boolean => {
+  const ext = getFileExtension(file.name)
+  return SUPPORTED_DOCUMENT_EXTENSIONS.has(ext) || SUPPORTED_IMAGE_EXTENSIONS.has(ext)
 }
 
 function StepIcon({ step }: { step: ThinkingStep }): ReactElement {
@@ -33,6 +55,7 @@ interface ThinkingChatProps {
   animatingText: string
   onSend: (content: string) => void
   onSourcesUploaded: (sources: ThinkingSource[]) => void
+  onSourceRemoved: (sourceId: string) => void
 }
 
 function MessageMarkdown({
@@ -116,12 +139,14 @@ export function ThinkingChat({
   thinkingSteps,
   animatingText,
   onSend,
-  onSourcesUploaded
+  onSourcesUploaded,
+  onSourceRemoved
 }: ThinkingChatProps): ReactElement {
   const t = useT()
   const { error: toastError } = useToastStore()
   const [input, setInput] = useState('')
   const [uploading, setUploading] = useState(false)
+  const [removingSourceId, setRemovingSourceId] = useState<string | null>(null)
   const [thinkingExpanded, setThinkingExpanded] = useState(true)
   const scrollRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -167,6 +192,31 @@ export function ThinkingChat({
     }
     if (selectedFiles.length === 0) return
 
+    const unsupportedFile = selectedFiles.find((file) => !isSupportedThinkingFile(file))
+    if (unsupportedFile) {
+      toastError(t('home.unsupportedFileTitle'), {
+        description: t('thinking.uploadTooltip', {
+          documentMaxSize: MAX_DOCUMENT_SIZE_MB,
+          imageMaxSize: MAX_IMAGE_SIZE_MB
+        })
+      })
+      return
+    }
+
+    const oversizedFile = selectedFiles.find((file) => {
+      const maxSizeBytes = isSupportedImageFile(file) ? MAX_IMAGE_SIZE_BYTES : MAX_DOCUMENT_SIZE_BYTES
+      return file.size > maxSizeBytes
+    })
+    if (oversizedFile) {
+      const isImage = isSupportedImageFile(oversizedFile)
+      toastError(t('home.documentTooLargeTitle'), {
+        description: isImage
+          ? t('home.imageTooLarge', { maxSize: MAX_IMAGE_SIZE_MB })
+          : t('home.documentTooLarge', { maxSize: MAX_DOCUMENT_SIZE_MB })
+      })
+      return
+    }
+
     const payloadFiles = selectedFiles
       .map((file) => ({
         path: window.electron?.getPathForFile?.(file) || '',
@@ -195,6 +245,21 @@ export function ThinkingChat({
       })
     } finally {
       setUploading(false)
+    }
+  }
+
+  const handleRemoveSource = async (sourceId: string): Promise<void> => {
+    if (loading || removingSourceId) return
+    setRemovingSourceId(sourceId)
+    try {
+      await ipc.thinkingRemoveSource({ thinkingId, sourceId })
+      onSourceRemoved(sourceId)
+    } catch (err) {
+      toastError(t('thinking.removeSourceFailed'), {
+        description: err instanceof Error ? err.message : t('common.retryLater')
+      })
+    } finally {
+      setRemovingSourceId(null)
     }
   }
 
@@ -266,7 +331,7 @@ export function ThinkingChat({
                 <button
                   type="button"
                   onClick={() => setThinkingExpanded(!thinkingExpanded)}
-                  className="flex w-full items-center gap-1.5 rounded-full border border-[#e0d8c8] bg-[#e8e0d0] px-3 py-2 text-left text-[11px] text-[#5d6b4d] transition-colors hover:bg-[#d4e4c1]"
+                  className="flex w-[180px] items-center gap-1.5 rounded-full border border-[#e0d8c8] bg-[#e8e0d0] px-3 py-2 text-left text-[11px] text-[#5d6b4d] transition-colors hover:bg-[#d4e4c1]"
                 >
                   {thinkingExpanded ? (
                     <ChevronDown className="h-3 w-3 shrink-0" />
@@ -278,12 +343,12 @@ export function ThinkingChat({
                 </button>
               )}
               {thinkingExpanded && visibleThinkingSteps.length > 0 && (
-                <div className="rounded-[1.25rem] border border-[#e0d8c8] bg-[#f5f1e8]">
+                <div className="w-[180px] rounded-[1.25rem] border border-[#e0d8c8] bg-[#f5f1e8]">
                   <div className="space-y-1.5 px-3 py-2">
                     {visibleThinkingSteps.map((step, idx) => (
-                      <div key={`${step.toolName}-${step.summary}-${idx}`} className="flex items-center gap-1.5 text-[11px] leading-relaxed text-[#7a7060]">
+                      <div key={`${step.toolName}-${step.summary}-${idx}`} className="flex items-start gap-1.5 text-[11px] leading-relaxed text-[#7a7060]">
                         <StepIcon step={step} />
-                        <span>{step.summary}</span>
+                        <span className="min-w-0 break-words">{step.summary}</span>
                       </div>
                     ))}
                   </div>
@@ -295,7 +360,7 @@ export function ThinkingChat({
                   <MessageMarkdown content={animatingText} role="assistant" />
                 </div>
               ) : visibleThinkingSteps.length === 0 ? (
-                <div className="rounded-[1.5rem] border border-[#e0d8c8] bg-[#f5f1e8] px-4 py-3 text-[13px] text-[#5d6b4d] shadow-sm">
+                <div className="w-[180px] rounded-[1.5rem] border border-[#e0d8c8] bg-[#f5f1e8] px-4 py-3 text-[13px] text-[#5d6b4d] shadow-sm">
                   <Loader2 className="mr-1.5 inline h-3.5 w-3.5 animate-spin align-[-2px]" />
                   {t('thinking.thinking')}
                 </div>
@@ -306,62 +371,77 @@ export function ThinkingChat({
         </div>
       </ScrollArea>
 
-      {pendingSources.length > 0 && (
-        <div className="border-t border-[#e0d8c8] bg-[#f5f1e8] px-4 py-2.5">
-          <div className="flex max-h-20 flex-wrap gap-1.5 overflow-y-auto">
-            {pendingSources.map((source) => (
-              <span
-                key={source.id}
-                className="inline-flex max-w-[220px] items-center gap-1.5 rounded-full border border-[#c8d6ba] bg-[#d4e4c1] px-2.5 py-1 text-[10px] font-medium text-[#4f6340]"
-              >
-                {sourceIcon(source.kind)}
-                <span className="truncate">{source.name}</span>
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
-
       <div className="border-t border-[#e0d8c8] bg-[#fffdf8] px-4 py-3">
-        <div className="flex items-end gap-2 rounded-full border border-[#e0d8c8] bg-[#f5f1e8] px-2 py-2 shadow-sm focus-within:border-[#8fbc8f] focus-within:ring-2 focus-within:ring-[#d4e4c1]">
-          <TooltipProvider delayDuration={300}>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={handleAttachClick}
-                  disabled={loading || uploading}
-                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[#5d6b4d] transition-colors hover:bg-[#d4e4c1] hover:text-[#3e4a32] disabled:opacity-40"
+        <div className="rounded-[1.5rem] border border-[#e0d8c8] bg-[#f5f1e8] px-2 py-2 shadow-sm focus-within:border-[#8fbc8f] focus-within:ring-2 focus-within:ring-[#d4e4c1]">
+          {pendingSources.length > 0 && (
+            <div className="flex max-h-16 flex-wrap gap-1.5 overflow-y-auto px-2 pb-1.5">
+              {pendingSources.map((source) => (
+                <span
+                  key={source.id}
+                  className="inline-flex max-w-[240px] items-center gap-1.5 rounded-full border border-[#b8cca5] bg-[#d4e4c1] px-2.5 py-1 text-[10px] font-medium text-[#4f6340]"
                 >
-                  {uploading ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Paperclip className="h-4 w-4" />
-                  )}
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="top" className="max-w-[240px] text-[12px]">
-                {t('thinking.uploadTooltip')}
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-          <textarea
-            className="max-h-28 min-h-8 flex-1 resize-none border-0 bg-transparent px-2 py-1.5 text-[13px] leading-relaxed text-[#2f3329] placeholder:text-[#9a9b8c] focus:outline-none"
-            placeholder={t('thinking.inputPlaceholder')}
-            rows={1}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            disabled={loading}
-          />
-          <button
-            type="button"
-            onClick={handleSend}
-            disabled={loading || !input.trim()}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#3e4a32] text-white transition-colors hover:bg-[#5d6b4d] disabled:opacity-40 disabled:hover:bg-[#3e4a32]"
-          >
-            <Send className="h-4 w-4" />
-          </button>
+                  {sourceIcon(source.kind)}
+                  <span className="truncate">{source.name}</span>
+                  <button
+                    type="button"
+                    className="ml-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-[#b9cfa6] disabled:opacity-40"
+                    onClick={() => void handleRemoveSource(source.id)}
+                    disabled={loading || removingSourceId === source.id}
+                    title={t('thinking.removeSource')}
+                  >
+                    {removingSourceId === source.id ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <X className="h-3 w-3" />
+                    )}
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+          <div className="flex items-end gap-2">
+            <TooltipProvider delayDuration={300}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={handleAttachClick}
+                    disabled={loading || uploading}
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[#5d6b4d] transition-colors hover:bg-[#d4e4c1] hover:text-[#3e4a32] disabled:opacity-40"
+                  >
+                    {uploading ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Paperclip className="h-4 w-4" />
+                    )}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="max-w-[240px] text-[12px]">
+                  {t('thinking.uploadTooltip', {
+                    documentMaxSize: MAX_DOCUMENT_SIZE_MB,
+                    imageMaxSize: MAX_IMAGE_SIZE_MB
+                  })}
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            <textarea
+              className="max-h-28 min-h-8 flex-1 resize-none border-0 bg-transparent px-2 py-1.5 text-[13px] leading-relaxed text-[#2f3329] placeholder:text-[#9a9b8c] focus:outline-none"
+              placeholder={t('thinking.inputPlaceholder')}
+              rows={1}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              disabled={loading}
+            />
+            <button
+              type="button"
+              onClick={handleSend}
+              disabled={loading || !input.trim()}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#3e4a32] text-white transition-colors hover:bg-[#5d6b4d] disabled:opacity-40 disabled:hover:bg-[#3e4a32]"
+            >
+              <Send className="h-4 w-4" />
+            </button>
+          </div>
         </div>
         <input
           ref={fileInputRef}

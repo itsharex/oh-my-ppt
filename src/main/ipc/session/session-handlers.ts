@@ -114,6 +114,8 @@ const createThinkingReferenceDocument = async (args: {
       ? [
           '## Available Image Assets',
           '',
+          'These images are available as an asset library. Use them only when the page brief needs an uploaded image. Do not infer style, palette, layout, or visual direction from these assets; the deck style must follow the selected system style preset.',
+          '',
           ...copiedAssets.map(
             (asset, index) =>
               `${index + 1}. ${asset.publicPath}\n   - sessionAssetPath: ${asset.targetPath}`
@@ -124,7 +126,7 @@ const createThinkingReferenceDocument = async (args: {
   const referenceContent = [
     '# Thinking Reference',
     '',
-    'This file was prepared from the exploration workspace. Use the page text as the generation brief and use available image assets when relevant.',
+    'This file was prepared from the exploration workspace. Use the page text as the generation brief. Use available image assets as a library when relevant, but keep visual style governed by the selected system style preset.',
     '',
     '## Final Thinking Document',
     '',

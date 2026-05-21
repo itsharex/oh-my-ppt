@@ -42,5 +42,6 @@ export interface ThinkingPrepareGenerationResult {
   topic: string
   pageCount: number
   styleId: string
+  styleText?: string
   fontSelection: FontSelection
 }

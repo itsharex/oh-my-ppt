@@ -140,6 +140,13 @@ export function ThinkingDetailPage(): ReactElement {
     setPendingSources((prev) => [...prev, ...newSources])
   }
 
+  const handleSourceRemoved = (sourceId: string): void => {
+    useThinkingStore.setState((state) => ({
+      sources: state.sources.filter((source) => source.id !== sourceId)
+    }))
+    setPendingSources((prev) => prev.filter((source) => source.id !== sourceId))
+  }
+
   const handleConfirmGenerate = async (): Promise<void> => {
     if (!thinkingId) return
     try {
@@ -246,6 +253,7 @@ export function ThinkingDetailPage(): ReactElement {
             animatingText={animatingText}
             onSend={handleSend}
             onSourcesUploaded={handleSourcesUploaded}
+            onSourceRemoved={handleSourceRemoved}
           />
         </section>
         {showOutlinePanel && (
