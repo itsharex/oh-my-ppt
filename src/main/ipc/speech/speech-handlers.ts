@@ -1,4 +1,4 @@
-import { ipcMain } from 'electron'
+import { ipcMain, shell } from 'electron'
 import fs from 'fs'
 import path from 'path'
 import * as cheerio from 'cheerio'
@@ -12,7 +12,83 @@ import { resolveModel } from '../../agent'
 import { readAppLocale, uiText } from '../config/locale-utils'
 import { extractModelText } from '../utils'
 
+const SPEECH_DIR = 'speech'
 const SPEECH_SCRIPT_FILE = 'speech-script.md'
+
+function resolveSpeechScriptPath(projectDir: string): string {
+  return path.join(projectDir, SPEECH_DIR, SPEECH_SCRIPT_FILE)
+}
+
+async function ensureSpeechDir(projectDir: string): Promise<void> {
+  await fs.promises.mkdir(path.join(projectDir, SPEECH_DIR), { recursive: true })
+}
+
+async function removeSpeechScript(projectDir: string): Promise<void> {
+  try {
+    await fs.promises.unlink(resolveSpeechScriptPath(projectDir))
+  } catch {
+    // file may not exist
+  }
+}
+
+async function readSpeechScript(projectDir: string): Promise<string | null> {
+  try {
+    return await fs.promises.readFile(resolveSpeechScriptPath(projectDir), 'utf-8')
+  } catch {
+    return null
+  }
+}
+
+function normalizeHeadingText(value: string): string {
+  return value.replace(/^#+\s*/, '').replace(/\s+/g, ' ').trim().toLowerCase()
+}
+
+function normalizeSpeechPartHeading(part: string, pageNumber: number, title: string): string {
+  const heading = `## Slide ${pageNumber}: ${title || 'Untitled'}`
+  const body = part
+    .replace(/^#{1,6}\s+[^\r\n]*(?:\r?\n)+/, '')
+    .replace(/^\s*---\s*$/gm, '')
+    .trim()
+  return body ? `${heading}\n\n${body}` : heading
+}
+
+function isSpeechSectionForPage(section: string, pageNumber: number, title: string): boolean {
+  const heading = normalizeHeadingText(
+    section.split(/\r?\n/).find((line) => line.trim().length > 0) || ''
+  )
+  if (!heading) return false
+  if (new RegExp(`(?:第\\s*${pageNumber}\\s*页|slide\\s*${pageNumber}\\b)`, 'i').test(heading)) {
+    return true
+  }
+  const normalizedTitle = title.replace(/\s+/g, ' ').trim().toLowerCase()
+  return Boolean(normalizedTitle) && heading.includes(normalizedTitle)
+}
+
+function upsertSpeechSection(existingScript: string | null, pageNumber: number, title: string, section: string): string {
+  const nextSection = section.trim()
+  if (!existingScript?.trim()) return nextSection
+
+  const sections = existingScript
+    .split(/\n\s*---\s*\n/g)
+    .map((item) => item.trim())
+    .filter(Boolean)
+  const index = sections.findIndex((item) => isSpeechSectionForPage(item, pageNumber, title))
+  if (index >= 0) {
+    sections[index] = nextSection
+  } else {
+    sections.push(nextSection)
+    sections.sort((a, b) => {
+      const getPageNumber = (item: string): number => {
+        const heading = normalizeHeadingText(item.split(/\r?\n/)[0] || '')
+        const zh = heading.match(/第\s*(\d+)\s*页/)
+        const en = heading.match(/slide\s*(\d+)\b/i)
+        return Number(zh?.[1] || en?.[1] || Number.MAX_SAFE_INTEGER)
+      }
+      return getPageNumber(a) - getPageNumber(b)
+    })
+  }
+  return sections.join('\n\n---\n\n')
+}
 
 function extractTextFromHtml(html: string): string {
   const $ = cheerio.load(html, { scriptingEnabled: false })
@@ -203,12 +279,10 @@ export function registerSpeechHandlers(ctx: IpcContext): void {
       const total = slideContents.length
       const sessionTitle = session.title || session.topic || (isZh ? '未命名' : 'Untitled')
 
-      // Clear existing script before generation so stale data is never shown on failure
-      const scriptPath = path.join(projectDir, SPEECH_SCRIPT_FILE)
-      try {
-        await fs.promises.unlink(scriptPath)
-      } catch {
-        // file may not exist yet
+      const scriptPath = resolveSpeechScriptPath(projectDir)
+      if (scope === 'all') {
+        // Full generation replaces the whole speech artifact.
+        await removeSpeechScript(projectDir)
       }
 
       const systemPrompt = uiText(
@@ -217,7 +291,7 @@ export function registerSpeechHandlers(ctx: IpcContext): void {
 
 **任务规则：**
 - 每次仅为当前一页幻灯片生成演讲稿，不要提前引用后续页面内容。
-- 输出以 "## 第N页：{标题}" 开头，正文直接是演讲词，不要加任何说明性注释或括号提示。
+- 输出以 "## Slide N: {标题}" 开头，正文直接是演讲词，不要加任何说明性注释或括号提示。
 - 演讲词是演讲者直接开口说的话，用第一人称，不要写成旁白或摘要。
 - 不要逐字复读幻灯片上的文字，而是将关键信息转化为自然的口语表达，做到"讲"而非"念"。
 
@@ -259,20 +333,13 @@ If the previous slide's ending is provided, open with a smooth transition senten
           ? uiText(locale, `上一页结尾：${prevEnding}\n\n`, `Previous slide ending: ${prevEnding}\n\n`)
           : ''
 
-        // Use generation index for progress position; include original slide number for context
-        const positionZh =
-          total === 1
-            ? `第 ${slide.pageNumber} 页`
-            : `第 ${current} / ${total} 页（原始页码：第 ${slide.pageNumber} 页）`
-        const positionEn =
-          total === 1
-            ? `Slide ${slide.pageNumber}`
-            : `Slide ${current} of ${total} (original page number: ${slide.pageNumber})`
+        const progressZh = total > 1 ? `【生成进度】${current} / ${total}\n` : ''
+        const progressEn = total > 1 ? `[Generation Progress] ${current} / ${total}\n` : ''
 
         const userPrompt = uiText(
           locale,
           `${contextPart}【演示文稿】${sessionTitle}
-【当前位置】${positionZh}
+${progressZh}【Slide】Slide ${slide.pageNumber}
 【本页标题】${slide.title || '（无标题）'}
 
 【幻灯片文字内容】
@@ -280,7 +347,7 @@ ${slide.text}
 
 请为本页生成演讲稿。`,
           `${contextPart}[Presentation] ${sessionTitle}
-[Position] ${positionEn}
+${progressEn}[Slide] Slide ${slide.pageNumber}
 [Slide Title] ${slide.title || '(no title)'}
 
 [Slide Text Content]
@@ -295,16 +362,26 @@ Please generate the speaker script for this slide.`
           [new SystemMessage(systemPrompt), new HumanMessage(userPrompt)],
           { signal: AbortSignal.timeout(timeoutMs) }
         )
-        const part = extractModelText(response).trim()
-        if (!part) {
+        const rawPart = extractModelText(response).trim()
+        if (!rawPart) {
           throw new Error(uiText(locale, '模型返回为空', 'Model returned empty content'))
         }
+        const part = normalizeSpeechPartHeading(rawPart, slide.pageNumber, slide.title)
         scriptParts.push(part)
 
         prevEnding = part.slice(-100).replace(/\s+/g, ' ').trim()
       }
 
-      const script = scriptParts.join('\n\n---\n\n')
+      const script =
+        scope === 'single'
+          ? upsertSpeechSection(
+              await readSpeechScript(projectDir),
+              slideContents[0].pageNumber,
+              slideContents[0].title,
+              scriptParts[0]
+            )
+          : scriptParts.join('\n\n---\n\n')
+      await ensureSpeechDir(projectDir)
       await fs.promises.writeFile(scriptPath, script, 'utf-8')
 
       log.info('[speech] script saved', { sessionId, scriptPath })
@@ -319,14 +396,22 @@ Please generate the speaker script for this slide.`
     if (!sessionId) throw new Error('Session ID is required')
 
     const projectDir = await ctx.resolveSessionProjectDir(sessionId)
-    const scriptPath = path.join(projectDir, SPEECH_SCRIPT_FILE)
+    const script = await readSpeechScript(projectDir)
+    return { success: true, script }
+  })
 
-    try {
-      const script = await fs.promises.readFile(scriptPath, 'utf-8')
-      return { success: true, script }
-    } catch {
-      return { success: true, script: null }
+  ipcMain.handle('speech:openScriptFile', async (_event, payload) => {
+    const sessionId = typeof payload?.sessionId === 'string' ? payload.sessionId.trim() : ''
+    if (!sessionId) throw new Error('Session ID is required')
+
+    const projectDir = await ctx.resolveSessionProjectDir(sessionId)
+    const scriptPath = resolveSpeechScriptPath(projectDir)
+    await fs.promises.access(scriptPath, fs.constants.R_OK)
+    const errorMessage = await shell.openPath(scriptPath)
+    if (errorMessage) {
+      shell.showItemInFolder(scriptPath)
     }
+    return { success: true, path: scriptPath }
   })
 
   ipcMain.handle('speech:clearScript', async (_event, payload) => {
@@ -334,13 +419,7 @@ Please generate the speaker script for this slide.`
     if (!sessionId) throw new Error('Session ID is required')
 
     const projectDir = await ctx.resolveSessionProjectDir(sessionId)
-    const scriptPath = path.join(projectDir, SPEECH_SCRIPT_FILE)
-
-    try {
-      await fs.promises.unlink(scriptPath)
-    } catch {
-      // file may not exist
-    }
+    await removeSpeechScript(projectDir)
     return { success: true }
   })
 }

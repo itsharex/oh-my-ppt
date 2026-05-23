@@ -1,4 +1,15 @@
-import { Check, ChevronDown, ImagePlus, Loader2, Pencil, Redo2, Sparkles, Undo2, Video } from 'lucide-react'
+import {
+  Check,
+  ChevronDown,
+  ImagePlus,
+  Loader2,
+  Pencil,
+  Redo2,
+  ScrollText,
+  Sparkles,
+  Undo2,
+  Video
+} from 'lucide-react'
 import { cn } from '@renderer/lib/utils'
 import { useSessionDetailUiStore } from '@renderer/store/sessionDetailStore'
 import { useToastStore } from '@renderer/store/toastStore'
@@ -25,6 +36,7 @@ interface PreviewToolbarProps {
   onDiscardAllEdits: () => void
   onAddFromLibrary: (type: 'image' | 'video') => void
   onAddFromLocal: (type: 'image' | 'video') => void
+  onOpenSpeechScript: () => void
 }
 
 export function PreviewToolbar({
@@ -39,13 +51,16 @@ export function PreviewToolbar({
   onSaveAllEdits,
   onDiscardAllEdits,
   onAddFromLibrary,
-  onAddFromLocal
+  onAddFromLocal,
+  onOpenSpeechScript
 }: PreviewToolbarProps) {
   const t = useT()
   const toast = useToastStore()
   const interactionMode = useSessionDetailUiStore((s) => s.interactionMode)
   const setInteractionMode = useSessionDetailUiStore((s) => s.setInteractionMode)
   const clearSelectedElement = useSessionDetailUiStore((s) => s.clearSelectedElement)
+  const speechScriptDialogOpen = useSessionDetailUiStore((s) => s.speechScriptDialogOpen)
+  const setSpeechScriptDialogOpen = useSessionDetailUiStore((s) => s.setSpeechScriptDialogOpen)
 
   if (!selectedPage?.htmlPath) return null
 
@@ -59,7 +74,7 @@ export function PreviewToolbar({
           type="button"
           className={cn(
             'inline-flex h-7 min-w-[52px] shrink-0 items-center justify-center rounded-[7px] px-2 text-[10px] font-semibold leading-none transition-colors',
-            interactionMode === 'preview'
+            interactionMode === 'preview' && !speechScriptDialogOpen
               ? 'bg-[#5d6b4d] text-white shadow-[0_7px_16px_rgba(93,107,77,0.2)]'
               : 'text-[#5d6b4d] hover:bg-[#d4e4c1]/72'
           )}
@@ -68,10 +83,30 @@ export function PreviewToolbar({
               if (isEditing) onDiscardAllEdits()
               setInteractionMode('preview')
             }
+            setSpeechScriptDialogOpen(false)
           }}
           disabled={isGenerating || isSavingEdits}
         >
           {t('sessionDetail.previewMode')}
+        </button>
+        <button
+          type="button"
+          className={cn(
+            'inline-flex h-7 min-w-[52px] shrink-0 items-center justify-center rounded-[7px] px-2 text-[10px] font-semibold leading-none transition-colors',
+            speechScriptDialogOpen
+              ? 'bg-[#5d6b4d] text-white shadow-[0_7px_16px_rgba(93,107,77,0.2)]'
+              : 'text-[#5d6b4d] hover:bg-[#d4e4c1]/72'
+          )}
+          onClick={() => {
+            if (isEditing) onDiscardAllEdits()
+            clearSelectedElement()
+            setInteractionMode('preview')
+            onOpenSpeechScript()
+          }}
+          disabled={isGenerating || isSavingEdits}
+        >
+          <ScrollText className="mr-0.5 h-2.5 w-2.5" />
+          {t('sessionDetail.speechScript')}
         </button>
         <button
           type="button"
@@ -84,6 +119,7 @@ export function PreviewToolbar({
           onClick={() => {
             if (interactionMode !== 'edit') {
               setInteractionMode('edit')
+              setSpeechScriptDialogOpen(false)
               toast.info(t('sessionDetail.editModeToast'))
             }
           }}
@@ -104,6 +140,7 @@ export function PreviewToolbar({
             if (interactionMode !== 'ai-inspect') {
               if (isEditing) onDiscardAllEdits()
               setInteractionMode('ai-inspect')
+              setSpeechScriptDialogOpen(false)
               toast.info(t('sessionDetail.inspectActiveToast'))
             }
           }}

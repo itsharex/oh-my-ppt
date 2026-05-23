@@ -13,7 +13,15 @@ import type {
   RollbackHistoryResult
 } from '@shared/history'
 
-const GITIGNORE_CONTENT = ['.DS_Store', 'Thumbs.db', '*.log', 'tmp/', 'cache/', ''].join('\n')
+const GITIGNORE_ENTRIES = [
+  '.DS_Store',
+  'Thumbs.db',
+  '*.log',
+  'tmp/',
+  'cache/',
+  'speech/'
+]
+const GITIGNORE_CONTENT = [...GITIGNORE_ENTRIES, ''].join('\n')
 
 type RecordOperationArgs = {
   sessionId: string
@@ -43,6 +51,7 @@ const normalizeRelativePath = (value: string): string => value.split(path.sep).j
 const isControlledFile = (relativePath: string): boolean => {
   const rel = normalizeRelativePath(relativePath).replace(/^\/+/, '')
   if (!rel || rel.includes('..') || rel.startsWith('.git/')) return false
+  if (rel.startsWith('speech/')) return false
   if (rel === '.gitignore') return true
   if (rel === 'index.html') return true
   if (/^[^/]+\.html?$/i.test(rel) && rel.toLowerCase() !== 'index.html') return true
@@ -498,6 +507,18 @@ export class GitHistoryService {
     const gitignorePath = path.join(projectDir, '.gitignore')
     if (!fs.existsSync(gitignorePath)) {
       await fs.promises.writeFile(gitignorePath, GITIGNORE_CONTENT, 'utf-8')
+    } else {
+      const existing = await fs.promises.readFile(gitignorePath, 'utf-8').catch(() => '')
+      const lines = new Set(existing.split(/\r?\n/).map((line) => line.trim()))
+      const missing = GITIGNORE_ENTRIES.filter((entry) => !lines.has(entry))
+      if (missing.length > 0) {
+        const separator = existing.length > 0 && !existing.endsWith('\n') ? '\n' : ''
+        await fs.promises.writeFile(
+          gitignorePath,
+          `${existing}${separator}${missing.join('\n')}\n`,
+          'utf-8'
+        )
+      }
     }
   }
 

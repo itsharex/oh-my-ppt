@@ -578,6 +578,11 @@ export const ipc = {
       success: boolean
       script: string | null
     }>,
+  openSpeechScriptFile: (sessionId: string) =>
+    getIpc().invoke('speech:openScriptFile', { sessionId }) as Promise<{
+      success: boolean
+      path: string
+    }>,
   clearSpeechScript: (sessionId: string) =>
     getIpc().invoke('speech:clearScript', { sessionId }) as Promise<{ success: boolean }>,
   onSpeechProgress: (

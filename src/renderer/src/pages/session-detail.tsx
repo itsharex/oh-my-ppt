@@ -1660,7 +1660,6 @@ export function SessionDetailPage(): React.JSX.Element {
                     startIndex: idx >= 0 ? idx : 0
                   })
                 }}
-                onGenerateSpeechScript={handleOpenSpeechDialog}
               />
             </div>
           </div>
@@ -1706,6 +1705,7 @@ export function SessionDetailPage(): React.JSX.Element {
               onDiscardAllEdits={handleDiscardAllEdits}
               onAddFromLibrary={(type) => setAssetPickerOpen(true, type)}
               onAddFromLocal={(type) => void handleUploadAndAdd(type)}
+              onOpenSpeechScript={handleOpenSpeechDialog}
             />
             <div className="flex min-h-0 flex-1">
               <PreviewStage
@@ -1734,7 +1734,7 @@ export function SessionDetailPage(): React.JSX.Element {
                   onConfigChange={setSpeechConfig}
                   onGenerate={(config) => void handleDoGenerateSpeechScript(config)}
                   onClose={() => setSpeechScriptDialogOpen(false)}
-                  sessionTitle={currentSession?.title || currentSession?.topic || undefined}
+                  currentPageNumber={selectedPage?.pageNumber}
                   currentPageTitle={selectedPage?.title || undefined}
                 />
               )}

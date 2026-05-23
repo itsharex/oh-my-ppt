@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { Check, Copy, Download, Loader2, X } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Check, Copy, FileText, Loader2, X } from 'lucide-react'
 import { cn } from '@renderer/lib/utils'
 import { Button } from '../ui/Button'
 import {
@@ -11,7 +11,12 @@ import {
 } from '../ui/Select'
 import { useT } from '@renderer/i18n'
 import { ipc } from '@renderer/lib/ipc'
-import type { SpeechConfig, SpeechLength, SpeechScope, SpeechStyle } from '@shared/speech'
+import type {
+  SpeechConfig,
+  SpeechLength,
+  SpeechScope,
+  SpeechStyle
+} from '@shared/speech'
 
 export type { SpeechConfig }
 
@@ -23,7 +28,7 @@ interface SpeechScriptDrawerProps {
   onConfigChange: (config: SpeechConfig) => void
   onGenerate: (config: SpeechConfig) => void
   onClose: () => void
-  sessionTitle?: string
+  currentPageNumber?: number
   currentPageTitle?: string
 }
 
@@ -35,38 +40,53 @@ export function SpeechScriptDrawer({
   onConfigChange,
   onGenerate,
   onClose,
-  sessionTitle,
+  currentPageNumber,
   currentPageTitle
 }: SpeechScriptDrawerProps): React.JSX.Element {
   const t = useT()
-  const [tab, setTab] = useState<'config' | 'result'>('config')
   const [script, setScript] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
 
-  const loadScript = useCallback(
-    (switchTab: boolean): void => {
-      void ipc
-        .getSpeechScript(sessionId)
-        .then((result) => {
-          if (result.script) {
-            setScript(result.script)
-            if (switchTab) setTab('result')
-          } else {
-            setScript(null)
-            if (switchTab) setTab('config')
-          }
-        })
-        .catch(() => {
-          setScript(null)
-          if (switchTab) setTab('config')
-        })
-    },
-    [sessionId]
-  )
+  const loadScript = useCallback((): void => {
+    void ipc
+      .getSpeechScript(sessionId)
+      .then((result) => {
+        setScript(result.script ?? null)
+      })
+      .catch(() => {
+        setScript(null)
+      })
+  }, [sessionId])
+
+  const visibleScript = useMemo(() => {
+    if (!script) return null
+    if (speechConfig.scope === 'all') return script
+
+    const sections = script
+      .split(/\n\s*---\s*\n/g)
+      .map((section) => section.trim())
+      .filter(Boolean)
+    const title = (currentPageTitle || '').replace(/\s+/g, ' ').trim().toLowerCase()
+    const pageNumber = Number.isFinite(currentPageNumber) ? Number(currentPageNumber) : null
+
+    return (
+      sections.find((section) => {
+        const heading = (section.split(/\r?\n/).find((line) => line.trim().length > 0) || '')
+          .replace(/^#+\s*/, '')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .toLowerCase()
+        if (pageNumber && new RegExp(`(?:第\\s*${pageNumber}\\s*页|slide\\s*${pageNumber}\\b)`, 'i').test(heading)) {
+          return true
+        }
+        return Boolean(title) && heading.includes(title)
+      }) || null
+    )
+  }, [currentPageNumber, currentPageTitle, script, speechConfig.scope])
 
   // Load on mount / session change
   useEffect(() => {
-    loadScript(true)
+    loadScript()
   }, [loadScript])
 
   // Reload after generation finishes (skip initial render via ref)
@@ -77,41 +97,59 @@ export function SpeechScriptDrawer({
       return
     }
     if (!isGenerating) {
-      loadScript(false)
+      loadScript()
     }
   }, [isGenerating, loadScript])
 
+  const handleScopeChange = (scope: SpeechScope): void => {
+    onConfigChange({ ...speechConfig, scope })
+  }
+
+  const generationLabel =
+    speechConfig.scope === 'single' && currentPageNumber
+      ? t('sessionDetail.speechScriptGeneratingSingle', { pageNumber: currentPageNumber })
+      : speechProgress
+        ? t('sessionDetail.speechScriptGenerating', {
+            current: speechProgress.current,
+            total: speechProgress.total
+          })
+        : t('sessionDetail.speechScriptGeneratingInit')
+
+  useEffect(() => {
+    setCopied(false)
+  }, [visibleScript])
+
   const handleCopy = async (): Promise<void> => {
-    if (!script) return
+    if (!visibleScript) return
     try {
-      await navigator.clipboard.writeText(script)
+      await navigator.clipboard.writeText(visibleScript)
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     } catch {
-      // clipboard unavailable — silently no-op
+      const textarea = document.createElement('textarea')
+      textarea.value = visibleScript
+      textarea.style.position = 'fixed'
+      textarea.style.opacity = '0'
+      document.body.appendChild(textarea)
+      textarea.select()
+      try {
+        document.execCommand('copy')
+        setCopied(true)
+        setTimeout(() => setCopied(false), 2000)
+      } finally {
+        document.body.removeChild(textarea)
+      }
     }
   }
 
-  const handleDownload = (): void => {
-    if (!script) return
-    const suffix = t('sessionDetail.speechScriptDownloadSuffix')
-    const safeName = sessionTitle
-      ? sessionTitle.replace(/[\\/:*?"<>|]/g, '_').trim()
-      : ''
-    const fileName = safeName ? `${safeName}${suffix}.md` : 'speech-script.md'
-    const blob = new Blob([script], { type: 'text/markdown;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = fileName
-    a.click()
-    setTimeout(() => URL.revokeObjectURL(url), 0)
+  const handleViewFile = (): void => {
+    void ipc.openSpeechScriptFile(sessionId)
   }
 
   return (
     <aside className="mr-3 mb-3 mt-1 flex min-h-0 w-[300px] shrink-0 flex-col overflow-hidden rounded-[2rem] border border-[#ded2bd]/60 bg-[#f3ecdf]/76 shadow-[0_20px_44px_rgba(74,59,42,0.13)] backdrop-blur-xl">
       {/* Header card */}
-      <div className="relative mx-2.5 mt-2.5 overflow-hidden rounded-[1.35rem] border border-[#e1d6c4]/72 bg-[#fffaf1]/78 px-3 pb-0 pt-3 shadow-[0_6px_16px_rgba(77,61,43,0.08)]">
+      <div className="relative mx-2.5 mt-2.5 overflow-hidden rounded-[1.35rem] border border-[#e1d6c4]/72 bg-[#fffaf1]/78 px-3 pb-2.5 pt-3 shadow-[0_6px_16px_rgba(77,61,43,0.08)]">
         <div className="pointer-events-none absolute -right-6 -top-8 h-24 w-24 rounded-[30%_70%_70%_30%/30%_30%_70%_70%] bg-[#c7d9b4]/12" />
         <div className="relative flex items-center justify-between">
           <h3 className="text-sm font-semibold tracking-[0.04em] text-[#34402c]">
@@ -127,203 +165,164 @@ export function SpeechScriptDrawer({
           </button>
         </div>
 
-        {/* Tabs */}
-        <div className="mt-2.5 flex gap-1">
-          {(['config', 'result'] as const).map((t_) => (
+        {/* Scope tabs */}
+        <div className="mt-2.5 flex gap-0.5 rounded-xl bg-[#ede5d6]/60 p-0.5">
+          {(['all', 'single'] as SpeechScope[]).map((s) => (
             <button
-              key={t_}
+              key={s}
               type="button"
-              onClick={() => { if (t_ === 'result' && !script) return; setTab(t_) }}
+              onClick={() => handleScopeChange(s)}
               className={cn(
-                'flex-1 rounded-t-[0.6rem] py-1.5 text-xs font-medium transition-colors',
-                tab === t_
-                  ? 'bg-[#f3ecdf] text-[#3e4a32]'
-                  : script || t_ === 'config'
-                    ? 'text-[#9a8f80] hover:text-[#5a6b4a]'
-                    : 'cursor-not-allowed text-[#c8bfb0]'
+                'flex-1 rounded-[0.6rem] py-1.5 text-xs font-medium transition-all',
+                speechConfig.scope === s
+                  ? 'bg-[#fffaf1] text-[#3e4a32] shadow-[0_1px_3px_rgba(74,59,42,0.08)]'
+                  : 'text-[#9a8f80] hover:text-[#5a6b4a]'
               )}
             >
-              {t_ === 'config'
-                ? t('sessionDetail.speechScriptTabConfig')
-                : t('sessionDetail.speechScriptTabResult')}
+              {s === 'all'
+                ? t('sessionDetail.speechScriptScopeAll')
+                : t('sessionDetail.speechScriptScopeSingle')}
             </button>
           ))}
         </div>
       </div>
 
-      {/* Config tab */}
-      {tab === 'config' && (
-        <div className="flex flex-1 flex-col gap-4 overflow-y-auto px-3 py-3">
-          {/* Scope */}
-          <div className="overflow-hidden rounded-[1.15rem] border border-[#e1d6c4]/72 bg-[#fffaf1]/78 shadow-[0_4px_12px_rgba(77,61,43,0.06)]">
-            <p className="border-b border-[#ede5d6]/80 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#7a875f]">
-              {t('sessionDetail.speechScriptScope')}
-            </p>
-            <div className="flex">
-              {(['all', 'single'] as SpeechScope[]).map((s, i) => (
-                <button
-                  key={s}
-                  type="button"
-                  onClick={() => onConfigChange({ ...speechConfig, scope: s })}
-                  className={cn(
-                    'flex flex-1 flex-col items-center py-2.5 text-sm transition-colors',
-                    i === 0 ? '' : 'border-l border-[#ede5d6]/80',
-                    speechConfig.scope === s
-                      ? 'bg-[#dbe7ca]/60 text-[#2f3b28]'
-                      : 'text-[#7a6b56] hover:bg-[#f0e8d8]/60'
-                  )}
-                >
-                  <span className="text-[13px] font-medium">
-                    {s === 'all'
-                      ? t('sessionDetail.speechScriptScopeAll')
-                      : t('sessionDetail.speechScriptScopeSingle')}
-                  </span>
-                  <span className="mt-0.5 max-w-[110px] truncate px-1 text-[11px] text-[#9a8f80]">
-                    {s === 'all'
-                      ? t('sessionDetail.speechScriptScopeAllDesc')
-                      : (currentPageTitle || t('sessionDetail.speechScriptScopeSingleDesc'))}
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
+      {/* Scope description */}
+      <p className="shrink-0 px-3 pt-2.5 text-[11px] text-[#9a8f80]">
+        {speechConfig.scope === 'all'
+          ? t('sessionDetail.speechScriptScopeAllDesc')
+          : (currentPageTitle || t('sessionDetail.speechScriptScopeSingleDesc'))}
+      </p>
 
-          {/* Style */}
-          <div className="overflow-hidden rounded-[1.15rem] border border-[#e1d6c4]/72 bg-[#fffaf1]/78 shadow-[0_4px_12px_rgba(77,61,43,0.06)]">
-            <p className="border-b border-[#ede5d6]/80 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#7a875f]">
-              {t('sessionDetail.speechScriptStyle')}
-            </p>
-            <div className="px-3 py-2.5">
-              <Select
-                value={speechConfig.style}
-                onValueChange={(v) => onConfigChange({ ...speechConfig, style: v as SpeechStyle })}
-              >
-                <SelectTrigger className="h-9 text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="conversational">
-                    {t('sessionDetail.speechScriptStyleConversational')}
-                  </SelectItem>
-                  <SelectItem value="formal">
-                    {t('sessionDetail.speechScriptStyleFormal')}
-                  </SelectItem>
-                  <SelectItem value="storytelling">
-                    {t('sessionDetail.speechScriptStyleStorytelling')}
-                  </SelectItem>
-                  <SelectItem value="custom">
-                    {t('sessionDetail.speechScriptStyleCustom')}
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-              {speechConfig.style === 'custom' && (
-                <textarea
-                  className="mt-2 w-full resize-none rounded-lg border border-[#d8ccb5]/80 bg-[#fffdf8]/88 px-3 py-2 text-xs text-[#3f4b35] placeholder:text-[#b0a898] shadow-[inset_0_1px_2px_rgba(74,59,42,0.05)] focus:border-[#9bb98a] focus:outline-none"
-                  rows={3}
-                  placeholder={t('sessionDetail.speechScriptStyleCustomPlaceholder')}
-                  value={speechConfig.customStyle ?? ''}
-                  onChange={(e) => onConfigChange({ ...speechConfig, customStyle: e.target.value })}
-                />
-              )}
-            </div>
-          </div>
+      {/* Config card (fixed, no scroll) */}
+      <div className="mx-2.5 mt-2 shrink-0 overflow-hidden rounded-[1.15rem] border border-[#e1d6c4]/72 bg-[#fffaf1]/78 shadow-[0_4px_12px_rgba(77,61,43,0.06)]">
+        {/* Style row */}
+        <div className="flex items-center gap-2.5 border-b border-[#ede5d6]/60 px-3 py-2">
+          <span className="shrink-0 text-[11px] font-semibold tracking-[0.06em] text-[#7a875f]">
+            {t('sessionDetail.speechScriptStyle')}
+          </span>
+          <Select
+            value={speechConfig.style}
+            onValueChange={(v) => onConfigChange({ ...speechConfig, style: v as SpeechStyle })}
+          >
+            <SelectTrigger className="h-8 flex-1 border-[#d8ccb5]/60 bg-[#fffdf8]/60 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="conversational">
+                {t('sessionDetail.speechScriptStyleConversational')}
+              </SelectItem>
+              <SelectItem value="formal">
+                {t('sessionDetail.speechScriptStyleFormal')}
+              </SelectItem>
+              <SelectItem value="storytelling">
+                {t('sessionDetail.speechScriptStyleStorytelling')}
+              </SelectItem>
+              <SelectItem value="custom">
+                {t('sessionDetail.speechScriptStyleCustom')}
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
 
-          {/* Length */}
-          <div className="overflow-hidden rounded-[1.15rem] border border-[#e1d6c4]/72 bg-[#fffaf1]/78 shadow-[0_4px_12px_rgba(77,61,43,0.06)]">
-            <p className="border-b border-[#ede5d6]/80 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#7a875f]">
-              {t('sessionDetail.speechScriptLength')}
-            </p>
-            <div className="px-3 py-2.5">
-              <Select
-                value={speechConfig.length}
-                onValueChange={(v) => onConfigChange({ ...speechConfig, length: v as SpeechLength })}
-              >
-                <SelectTrigger className="h-9 text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="short">{t('sessionDetail.speechScriptLengthShort')}</SelectItem>
-                  <SelectItem value="medium">{t('sessionDetail.speechScriptLengthMedium')}</SelectItem>
-                  <SelectItem value="long">{t('sessionDetail.speechScriptLengthLong')}</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+        {/* Custom style textarea */}
+        {speechConfig.style === 'custom' && (
+          <div className="border-b border-[#ede5d6]/60 px-3 py-2">
+            <textarea
+              className="w-full resize-none rounded-lg border border-[#d8ccb5]/80 bg-[#fffdf8]/88 px-2.5 py-1.5 text-xs text-[#3f4b35] placeholder:text-[#b0a898] focus:border-[#9bb98a] focus:outline-none"
+              rows={2}
+              placeholder={t('sessionDetail.speechScriptStyleCustomPlaceholder')}
+              value={speechConfig.customStyle ?? ''}
+              onChange={(e) => onConfigChange({ ...speechConfig, customStyle: e.target.value })}
+            />
           </div>
+        )}
 
-          {/* Generate */}
+        {/* Length row */}
+        <div className="flex items-center gap-2.5 px-3 py-2">
+          <span className="shrink-0 text-[11px] font-semibold tracking-[0.06em] text-[#7a875f]">
+            {t('sessionDetail.speechScriptLength')}
+          </span>
+          <Select
+            value={speechConfig.length}
+            onValueChange={(v) => onConfigChange({ ...speechConfig, length: v as SpeechLength })}
+          >
+            <SelectTrigger className="h-8 flex-1 border-[#d8ccb5]/60 bg-[#fffdf8]/60 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="short">{t('sessionDetail.speechScriptLengthShort')}</SelectItem>
+              <SelectItem value="medium">{t('sessionDetail.speechScriptLengthMedium')}</SelectItem>
+              <SelectItem value="long">{t('sessionDetail.speechScriptLengthLong')}</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Generate button */}
+        <div className="border-t border-[#ede5d6]/60 px-3 py-2.5">
           <Button
-            className="w-full gap-2"
+            size="sm"
+            className="w-full gap-1.5 rounded-xl text-xs"
             onClick={() => onGenerate(speechConfig)}
             disabled={isGenerating}
           >
             {isGenerating ? (
               <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                {speechProgress
-                  ? t('sessionDetail.speechScriptGenerating', {
-                      current: speechProgress.current,
-                      total: speechProgress.total
-                    })
-                  : t('sessionDetail.speechScriptGeneratingInit')}
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                {generationLabel}
               </>
             ) : (
-              t('sessionDetail.speechScriptGenerate')
+              t(visibleScript ? 'sessionDetail.speechScriptRegenerate' : 'sessionDetail.speechScriptGenerate')
             )}
           </Button>
         </div>
-      )}
+      </div>
 
-      {/* Result tab */}
-      {tab === 'result' && (
-        <div className="flex flex-1 flex-col overflow-hidden">
-          <div className="min-h-0 flex-1 overflow-y-auto">
-            {isGenerating ? (
-              <div className="flex h-full flex-col items-center justify-center gap-3 px-4">
-                <Loader2 className="h-6 w-6 animate-spin text-[#6f8159]" />
-                <p className="text-center text-sm text-[#7a6b56]">
-                  {speechProgress
-                    ? t('sessionDetail.speechScriptGenerating', {
-                        current: speechProgress.current,
-                        total: speechProgress.total
-                      })
-                    : t('sessionDetail.speechScriptGeneratingInit')}
-                </p>
-              </div>
-            ) : (
-              <div className="mx-2.5 my-2.5 overflow-hidden rounded-[1.15rem] border border-[#e1d6c4]/72 bg-[#fffaf1]/78 px-3 py-3 shadow-[0_4px_12px_rgba(77,61,43,0.06)]">
-                <pre className="whitespace-pre-wrap font-sans text-[13px] leading-relaxed text-[#3f4b35]">
-                  {script}
-                </pre>
-              </div>
-            )}
-          </div>
+      {/* Divider */}
+      <div className="mx-3 my-2 shrink-0 border-t border-[#e1d6c4]/50" />
 
-          {/* Footer actions */}
-          {!isGenerating && script && (
-            <div className="flex shrink-0 gap-2 px-3 pb-3 pt-2">
-              <Button
-                variant="outline"
-                size="sm"
-                className="flex-1 gap-1.5 text-xs"
-                onClick={() => void handleCopy()}
-              >
-                {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-                {copied
-                  ? t('sessionDetail.speechScriptCopied')
-                  : t('sessionDetail.speechScriptCopy')}
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="flex-1 gap-1.5 text-xs"
-                onClick={handleDownload}
-              >
-                <Download className="h-3.5 w-3.5" />
-                {t('sessionDetail.speechScriptDownload')}
-              </Button>
-            </div>
-          )}
+      {/* Result area (only this section scrolls) */}
+      {isGenerating ? (
+        <div className="flex flex-col items-center gap-2 py-8">
+          <Loader2 className="h-5 w-5 animate-spin text-[#6f8159]" />
+          <p className="text-center text-xs text-[#7a6b56]">
+            {generationLabel}
+          </p>
         </div>
+      ) : visibleScript ? (
+        <div className="flex min-h-0 flex-1 flex-col gap-2 px-2.5 pb-3">
+          <div className="min-h-0 flex-1 overflow-y-auto rounded-[1.15rem] border border-[#e1d6c4]/72 bg-[#fffaf1]/78 px-3 py-3 shadow-[0_4px_12px_rgba(77,61,43,0.06)]">
+            <pre className="whitespace-pre-wrap font-sans text-[12px] leading-relaxed text-[#3f4b35]">
+              {visibleScript}
+            </pre>
+          </div>
+          <div className="flex shrink-0 gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="flex-1 gap-1.5 text-xs"
+              onClick={() => void handleCopy()}
+            >
+              {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+              {copied
+                ? t('sessionDetail.speechScriptCopied')
+                : t('sessionDetail.speechScriptCopy')}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="flex-1 gap-1.5 text-xs"
+              onClick={handleViewFile}
+            >
+              <FileText className="h-3.5 w-3.5" />
+              {t('sessionDetail.speechScriptViewFile')}
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <p className="py-6 text-center text-[11px] text-[#b0a898]">
+          {t('sessionDetail.speechScriptEmptyHint')}
+        </p>
       )}
     </aside>
   )
