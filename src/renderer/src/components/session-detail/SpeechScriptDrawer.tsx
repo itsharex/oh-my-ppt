@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Check, Copy, Download, Loader2, X } from 'lucide-react'
 import { cn } from '@renderer/lib/utils'
 import { Button } from '../ui/Button'
@@ -11,17 +11,9 @@ import {
 } from '../ui/Select'
 import { useT } from '@renderer/i18n'
 import { ipc } from '@renderer/lib/ipc'
+import type { SpeechConfig, SpeechLength, SpeechScope, SpeechStyle } from '@shared/speech'
 
-type SpeechScope = 'all' | 'single'
-type SpeechLength = 'short' | 'medium' | 'long'
-type SpeechStyle = 'formal' | 'conversational' | 'storytelling' | 'custom'
-
-export interface SpeechConfig {
-  scope: SpeechScope
-  length: SpeechLength
-  style: SpeechStyle
-  customStyle?: string
-}
+export type { SpeechConfig }
 
 interface SpeechScriptDrawerProps {
   sessionId: string
@@ -51,29 +43,31 @@ export function SpeechScriptDrawer({
   const [script, setScript] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
 
-  const loadScript = (switchTab: boolean): void => {
-    void ipc
-      .getSpeechScript(sessionId)
-      .then((result) => {
-        if (result.script) {
-          setScript(result.script)
-          if (switchTab) setTab('result')
-        } else {
+  const loadScript = useCallback(
+    (switchTab: boolean): void => {
+      void ipc
+        .getSpeechScript(sessionId)
+        .then((result) => {
+          if (result.script) {
+            setScript(result.script)
+            if (switchTab) setTab('result')
+          } else {
+            setScript(null)
+            if (switchTab) setTab('config')
+          }
+        })
+        .catch(() => {
           setScript(null)
           if (switchTab) setTab('config')
-        }
-      })
-      .catch(() => {
-        setScript(null)
-        if (switchTab) setTab('config')
-      })
-  }
+        })
+    },
+    [sessionId]
+  )
 
   // Load on mount / session change
   useEffect(() => {
     loadScript(true)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId])
+  }, [loadScript])
 
   // Reload after generation finishes (skip initial render via ref)
   const isFirstRender = useRef(true)
@@ -85,8 +79,7 @@ export function SpeechScriptDrawer({
     if (!isGenerating) {
       loadScript(false)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isGenerating])
+  }, [isGenerating, loadScript])
 
   const handleCopy = async (): Promise<void> => {
     if (!script) return

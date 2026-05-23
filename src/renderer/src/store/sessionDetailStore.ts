@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type { UploadedAsset } from '@shared/generation.js'
-import type { SpeechConfig } from '@renderer/components/session-detail/SpeechScriptDrawer'
+import type { SpeechConfig } from '@shared/speech'
 
 export type SessionDetailChatType = 'main' | 'page'
 export type InteractionMode = 'preview' | 'ai-inspect' | 'edit'
@@ -207,6 +207,7 @@ export const useSessionDetailUiStore = create<SessionDetailUiStore>((set) => ({
       assetPickerOpen: false,
       isGeneratingSpeechScript: false,
       speechProgress: null,
-      speechScriptDialogOpen: false
+      speechScriptDialogOpen: false,
+      speechConfig: { scope: 'all' as const, length: 'medium' as const, style: 'conversational' as const }
     })
 }))

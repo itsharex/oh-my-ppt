@@ -13,7 +13,7 @@ import type {
   UploadedAsset
 } from '@shared/generation.js'
 import type { UpdateAvailablePayload } from '@shared/app-update.js'
-import type { SpeechConfig } from '@renderer/components/session-detail/SpeechScriptDrawer'
+import type { SpeechConfig } from '@shared/speech'
 import type { HistoryVersion, RollbackHistoryResult } from '@shared/history.js'
 import type {
   ThinkingStage,

@@ -39,6 +39,7 @@ import { useSessionDetailUiStore } from '../store/sessionDetailStore'
 import { useEditHistoryStore } from '../store/editHistoryStore'
 import type { GenerateChunkEvent } from '@shared/generation.js'
 import type { HistoryVersion } from '@shared/history.js'
+import type { SpeechConfig } from '@shared/speech'
 import { useToastStore } from '../store'
 import { getEditorGate } from '../lib/sessionMetadata'
 import { useT } from '../i18n'
@@ -724,7 +725,7 @@ export function SessionDetailPage(): React.JSX.Element {
         latestPages[latestPages.length - 1]
       targetSelection = (addedPage || fallbackPage)?.id ?? null
       // Only clear script on success — a new page invalidates the existing script
-      if (id) void ipc.clearSpeechScript(id)
+      if (id) void ipc.clearSpeechScript(id).catch((err) => console.warn('[speech] clearSpeechScript failed', err))
     } catch (err) {
       const message = err instanceof Error ? err.message : t('sessionDetail.addPageFailed')
       toastError(message)
@@ -749,7 +750,7 @@ export function SessionDetailPage(): React.JSX.Element {
       useGenerateStore.getState().setPages(result.generatedPages)
       useSessionDetailUiStore.getState().setSelectedPageId(result.selectedPageId)
       useSessionDetailUiStore.getState().bumpPreviewKey()
-      void ipc.clearSpeechScript(id)
+      void ipc.clearSpeechScript(id).catch((err) => console.warn('[speech] clearSpeechScript failed', err))
     } catch (error) {
       toastError(error instanceof Error ? error.message : t('pageManagement.reorderFailed'))
     } finally {
@@ -775,7 +776,7 @@ export function SessionDetailPage(): React.JSX.Element {
       useSessionDetailUiStore.getState().setSelectedPageId(result.selectedPageId)
       useSessionDetailUiStore.getState().bumpPreviewKey()
       setDeleteConfirmPage(null)
-      void ipc.clearSpeechScript(id)
+      void ipc.clearSpeechScript(id).catch((err) => console.warn('[speech] clearSpeechScript failed', err))
     } catch (error) {
       toastError(error instanceof Error ? error.message : t('pageManagement.deleteFailed'))
     } finally {
@@ -827,12 +828,7 @@ export function SessionDetailPage(): React.JSX.Element {
     useSessionDetailUiStore.getState().setSpeechScriptDialogOpen(true)
   }
 
-  const handleDoGenerateSpeechScript = async (config: {
-    scope: 'all' | 'single'
-    length: 'short' | 'medium' | 'long'
-    style: 'formal' | 'conversational' | 'storytelling' | 'custom'
-    customStyle?: string
-  }): Promise<void> => {
+  const handleDoGenerateSpeechScript = async (config: SpeechConfig): Promise<void> => {
     const detailState = useSessionDetailUiStore.getState()
     if (!id || detailState.isGeneratingSpeechScript) return
     detailState.setIsGeneratingSpeechScript(true)
@@ -1729,9 +1725,9 @@ export function SessionDetailPage(): React.JSX.Element {
                   setDeleteConfirmOpen(true)
                 }}
               />
-              {speechScriptDialogOpen && (
+              {speechScriptDialogOpen && id && (
                 <SpeechScriptDrawer
-                  sessionId={id || ''}
+                  sessionId={id}
                   isGenerating={isGeneratingSpeechScript}
                   speechProgress={speechProgress}
                   speechConfig={speechConfig}

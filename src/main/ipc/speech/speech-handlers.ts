@@ -5,13 +5,12 @@ import * as cheerio from 'cheerio'
 import { HumanMessage, SystemMessage } from '@langchain/core/messages'
 import log from 'electron-log/main.js'
 import { resolveModelTimeoutMs } from '@shared/model-timeout'
+import type { SpeechLength, SpeechStyle } from '@shared/speech'
 import type { IpcContext } from '../context'
 import { resolveActiveModelConfig, resolveGlobalModelTimeouts } from '../config/model-config-utils'
 import { resolveModel } from '../../agent'
 import { readAppLocale, uiText } from '../config/locale-utils'
-
-export type SpeechLength = 'short' | 'medium' | 'long'
-export type SpeechStyle = 'formal' | 'conversational' | 'storytelling' | 'custom'
+import { extractModelText } from '../utils'
 
 const SPEECH_SCRIPT_FILE = 'speech-script.md'
 
@@ -101,6 +100,8 @@ function buildStyleInstruction(style: SpeechStyle, isZh: boolean, customStyle?: 
   }
 }
 
+const activeSpeechGenerations = new Set<string>()
+
 export function registerSpeechHandlers(ctx: IpcContext): void {
   ipcMain.handle('speech:generateScript', async (event, payload) => {
     const sessionId = typeof payload?.sessionId === 'string' ? payload.sessionId.trim() : ''
@@ -125,78 +126,94 @@ export function registerSpeechHandlers(ctx: IpcContext): void {
       throw new Error(uiText(locale, '单页模式需要提供当前页面 ID', 'currentPageId is required for single-page scope'))
     }
 
-    const session = await ctx.db.getSession(sessionId)
-    if (!session) {
-      throw new Error(uiText(locale, '找不到会话', 'Session not found'))
+    if (activeSpeechGenerations.has(sessionId)) {
+      throw new Error(uiText(locale, '正在生成中，请稍候', 'Generation already in progress'))
     }
+    activeSpeechGenerations.add(sessionId)
 
-    const pages = await ctx.db.listSessionPages(sessionId)
-    if (pages.length === 0) {
-      throw new Error(uiText(locale, '该会话没有幻灯片页面', 'No pages found in this session'))
-    }
-
-    const projectDir = await ctx.resolveSessionProjectDir(sessionId)
-
-    const filteredPages =
-      scope === 'single' && currentPageId ? pages.filter((p) => p.id === currentPageId) : pages
-
-    if (filteredPages.length === 0) {
-      throw new Error(uiText(locale, '找不到指定页面', 'Specified page not found'))
-    }
-
-    const slideContents: Array<{ pageNumber: number; title: string; text: string }> = []
-    for (const p of filteredPages) {
-      if (!p.html_path) continue
-      const htmlPath = path.isAbsolute(p.html_path)
-        ? path.resolve(p.html_path)
-        : path.resolve(projectDir, p.html_path)
-      if (!ctx.isPathInside(htmlPath, projectDir)) {
-        log.warn('[speech] skipping page with unsafe htmlPath', { htmlPath, projectDir })
-        continue
-      }
-      try {
-        const html = await fs.promises.readFile(htmlPath, 'utf-8')
-        const text = extractTextFromHtml(html)
-        if (text) {
-          slideContents.push({ pageNumber: p.page_number, title: p.title || '', text })
-        }
-      } catch (err) {
-        log.warn('[speech] failed to read page html', { htmlPath: p.html_path, err })
-      }
-    }
-
-    if (slideContents.length === 0) {
-      throw new Error(uiText(locale, '没有可读取的幻灯片内容', 'No readable slide content found'))
-    }
-
-    const modelConfig = await resolveActiveModelConfig(ctx)
-    const timeouts = await resolveGlobalModelTimeouts(ctx)
-    const timeoutMs = resolveModelTimeoutMs(timeouts['document'], 'document')
-    const model = resolveModel(
-      modelConfig.provider,
-      modelConfig.apiKey,
-      modelConfig.model,
-      modelConfig.baseUrl,
-      0.7,
-      modelConfig.maxTokens
-    )
-
-    const lengthInstruction = buildLengthInstruction(length, isZh)
-    const styleInstruction = buildStyleInstruction(style, isZh, customStyle)
-    const total = slideContents.length
-    const sessionTitle = session.title || session.topic || (isZh ? '未命名' : 'Untitled')
-
-    // Clear existing script before generation so stale data is never shown on failure
-    const scriptPath = path.join(projectDir, SPEECH_SCRIPT_FILE)
     try {
-      await fs.promises.unlink(scriptPath)
-    } catch {
-      // file may not exist yet
-    }
+      const session = await ctx.db.getSession(sessionId)
+      if (!session) {
+        throw new Error(uiText(locale, '找不到会话', 'Session not found'))
+      }
 
-    const systemPrompt = uiText(
-      locale,
-      `你是一位经验丰富的演讲稿撰写人，擅长将幻灯片内容转化为自然流畅、打动人心的演讲词。
+      const pages = await ctx.db.listSessionPages(sessionId)
+      if (pages.length === 0) {
+        throw new Error(uiText(locale, '该会话没有幻灯片页面', 'No pages found in this session'))
+      }
+
+      const projectDir = await ctx.resolveSessionProjectDir(sessionId)
+
+      const filteredPages =
+        scope === 'single' && currentPageId ? pages.filter((p) => p.id === currentPageId) : pages
+
+      if (filteredPages.length === 0) {
+        throw new Error(uiText(locale, '找不到指定页面', 'Specified page not found'))
+      }
+
+      const slideContents: Array<{ pageNumber: number; title: string; text: string }> = []
+      for (const p of filteredPages) {
+        if (!p.html_path) continue
+        const rawHtmlPath = path.isAbsolute(p.html_path)
+          ? p.html_path
+          : path.resolve(projectDir, p.html_path)
+        let safeHtmlPath: string
+        try {
+          safeHtmlPath = await ctx.assertPathInAllowedRoots({
+            filePath: rawHtmlPath,
+            mode: 'read',
+            sessionId,
+            htmlOnly: true
+          })
+        } catch {
+          log.warn('[speech] skipping page with unsafe htmlPath', { rawHtmlPath, projectDir })
+          continue
+        }
+        try {
+          const html = await fs.promises.readFile(safeHtmlPath, 'utf-8')
+          const text = extractTextFromHtml(html)
+          slideContents.push({
+            pageNumber: p.page_number,
+            title: p.title || '',
+            text: text || uiText(locale, '（本页主要为图片或视觉内容，请结合上下文发挥）', '(This slide is mainly visual; improvise based on context.)')
+          })
+        } catch (err) {
+          log.warn('[speech] failed to read page html', { htmlPath: p.html_path, err })
+        }
+      }
+
+      if (slideContents.length === 0) {
+        throw new Error(uiText(locale, '没有可读取的幻灯片内容', 'No readable slide content found'))
+      }
+
+      const modelConfig = await resolveActiveModelConfig(ctx)
+      const timeouts = await resolveGlobalModelTimeouts(ctx)
+      const timeoutMs = resolveModelTimeoutMs(timeouts['document'], 'document')
+      const model = resolveModel(
+        modelConfig.provider,
+        modelConfig.apiKey,
+        modelConfig.model,
+        modelConfig.baseUrl,
+        0.7,
+        modelConfig.maxTokens
+      )
+
+      const lengthInstruction = buildLengthInstruction(length, isZh)
+      const styleInstruction = buildStyleInstruction(style, isZh, customStyle)
+      const total = slideContents.length
+      const sessionTitle = session.title || session.topic || (isZh ? '未命名' : 'Untitled')
+
+      // Clear existing script before generation so stale data is never shown on failure
+      const scriptPath = path.join(projectDir, SPEECH_SCRIPT_FILE)
+      try {
+        await fs.promises.unlink(scriptPath)
+      } catch {
+        // file may not exist yet
+      }
+
+      const systemPrompt = uiText(
+        locale,
+        `你是一位经验丰富的演讲稿撰写人，擅长将幻灯片内容转化为自然流畅、打动人心的演讲词。
 
 **任务规则：**
 - 每次仅为当前一页幻灯片生成演讲稿，不要提前引用后续页面内容。
@@ -212,7 +229,7 @@ ${styleInstruction}
 
 **页面衔接：**
 如提供了上一页的结尾内容，请在开头自然地加入过渡语句，使演讲整体连贯，不显突兀。`,
-      `You are an experienced speech writer who transforms slide content into natural, compelling spoken words.
+        `You are an experienced speech writer who transforms slide content into natural, compelling spoken words.
 
 **Rules:**
 - Generate speaker notes for the current slide only. Do not reference future slides.
@@ -228,33 +245,33 @@ ${styleInstruction}
 
 **Transitions:**
 If the previous slide's ending is provided, open with a smooth transition sentence that connects the two slides naturally.`
-    )
+      )
 
-    const scriptParts: string[] = []
-    let prevEnding = ''
+      const scriptParts: string[] = []
+      let prevEnding = ''
 
-    for (let i = 0; i < slideContents.length; i++) {
-      const slide = slideContents[i]
-      const current = i + 1
-      event.sender.send('speech:progress', { sessionId, current, total })
+      for (let i = 0; i < slideContents.length; i++) {
+        const slide = slideContents[i]
+        const current = i + 1
+        event.sender.send('speech:progress', { sessionId, current, total })
 
-      const contextPart = prevEnding
-        ? uiText(locale, `上一页结尾：${prevEnding}\n\n`, `Previous slide ending: ${prevEnding}\n\n`)
-        : ''
+        const contextPart = prevEnding
+          ? uiText(locale, `上一页结尾：${prevEnding}\n\n`, `Previous slide ending: ${prevEnding}\n\n`)
+          : ''
 
-      // Use generation index for progress position; include original slide number for context
-      const positionZh =
-        total === 1
-          ? `第 ${slide.pageNumber} 页`
-          : `第 ${current} / ${total} 页（原始页码：第 ${slide.pageNumber} 页）`
-      const positionEn =
-        total === 1
-          ? `Slide ${slide.pageNumber}`
-          : `Slide ${current} of ${total} (original page number: ${slide.pageNumber})`
+        // Use generation index for progress position; include original slide number for context
+        const positionZh =
+          total === 1
+            ? `第 ${slide.pageNumber} 页`
+            : `第 ${current} / ${total} 页（原始页码：第 ${slide.pageNumber} 页）`
+        const positionEn =
+          total === 1
+            ? `Slide ${slide.pageNumber}`
+            : `Slide ${current} of ${total} (original page number: ${slide.pageNumber})`
 
-      const userPrompt = uiText(
-        locale,
-        `${contextPart}【演示文稿】${sessionTitle}
+        const userPrompt = uiText(
+          locale,
+          `${contextPart}【演示文稿】${sessionTitle}
 【当前位置】${positionZh}
 【本页标题】${slide.title || '（无标题）'}
 
@@ -262,7 +279,7 @@ If the previous slide's ending is provided, open with a smooth transition senten
 ${slide.text}
 
 请为本页生成演讲稿。`,
-        `${contextPart}[Presentation] ${sessionTitle}
+          `${contextPart}[Presentation] ${sessionTitle}
 [Position] ${positionEn}
 [Slide Title] ${slide.title || '(no title)'}
 
@@ -270,26 +287,31 @@ ${slide.text}
 ${slide.text}
 
 Please generate the speaker script for this slide.`
-      )
+        )
 
-      log.info('[speech] generating slide', { sessionId, current, total })
+        log.info('[speech] generating slide', { sessionId, current, total })
 
-      const response = await model.invoke(
-        [new SystemMessage(systemPrompt), new HumanMessage(userPrompt)],
-        { signal: AbortSignal.timeout(timeoutMs) }
-      )
-      const part =
-        typeof response.content === 'string' ? response.content : JSON.stringify(response.content)
-      scriptParts.push(part)
+        const response = await model.invoke(
+          [new SystemMessage(systemPrompt), new HumanMessage(userPrompt)],
+          { signal: AbortSignal.timeout(timeoutMs) }
+        )
+        const part = extractModelText(response).trim()
+        if (!part) {
+          throw new Error(uiText(locale, '模型返回为空', 'Model returned empty content'))
+        }
+        scriptParts.push(part)
 
-      prevEnding = part.slice(-100).replace(/\s+/g, ' ').trim()
+        prevEnding = part.slice(-100).replace(/\s+/g, ' ').trim()
+      }
+
+      const script = scriptParts.join('\n\n---\n\n')
+      await fs.promises.writeFile(scriptPath, script, 'utf-8')
+
+      log.info('[speech] script saved', { sessionId, scriptPath })
+      return { success: true }
+    } finally {
+      activeSpeechGenerations.delete(sessionId)
     }
-
-    const script = scriptParts.join('\n\n---\n\n')
-    await fs.promises.writeFile(scriptPath, script, 'utf-8')
-
-    log.info('[speech] script saved', { sessionId, scriptPath })
-    return { success: true }
   })
 
   ipcMain.handle('speech:getScript', async (_event, payload) => {
