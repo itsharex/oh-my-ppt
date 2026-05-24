@@ -71,54 +71,6 @@ const buildPreviewClickAnimationCleanupScript = (): string => `
 })();
 `
 
-const buildThumbnailFreezeScript = (): string => `
-(() => {
-  if (window.__pptThumbnailFrozen) return;
-  window.__pptThumbnailFrozen = true;
-
-  const style = document.createElement("style");
-  style.id = "ppt-thumbnail-freeze";
-  style.textContent = "html, body, body * { animation: none !important; transition: none !important; }";
-  document.head.appendChild(style);
-
-  if (window.PPT && typeof window.PPT.stopAnimations === "function") {
-    try { window.PPT.stopAnimations(); } catch (_) {}
-  }
-
-  const root = document.querySelector(".ppt-page-root, [data-ppt-guard-root='1']");
-  if (!root) return;
-
-  root.querySelectorAll("[style]").forEach((el) => {
-    if (!(el instanceof HTMLElement)) return;
-    const s = el.style;
-    if (s.transition && (s.transition.includes("transform") || s.transition.includes("opacity"))) {
-      s.transition = "";
-    }
-  });
-
-  const resetInlineMotion = (el, force) => {
-    if (!(el instanceof HTMLElement)) return;
-    const inlineOpacity = el.style.opacity.trim();
-    const inlineTransform = el.style.transform.trim();
-    if (force || (inlineOpacity && Number(inlineOpacity) < 1)) {
-      el.style.opacity = "";
-    }
-    if (force || /translate(?:3d|X|Y)?\(|scale(?:3d|X|Y)?\(/.test(inlineTransform)) {
-      el.style.transform = "";
-    }
-  };
-
-  root.querySelectorAll("[data-ppt-anim-initialized='1'], [data-anim]").forEach((el) => {
-    resetInlineMotion(el, true);
-  });
-
-  const defaultMotionSelector = ".opacity-0, [data-anime], [data-animate], h1, h2, h3, p, li, .card, .panel, .text-section, .diagram-section, .timeline-node, section, section > *";
-  root.querySelectorAll(defaultMotionSelector).forEach((el) => {
-    resetInlineMotion(el, false);
-  });
-})();
-`
-
 export interface PreviewIframeHandle {
   patchPageContent: (pageId: string, newHtml: string) => void
   liveUpdateElement: (
@@ -217,6 +169,9 @@ export const PreviewIframe = forwardRef<
   const containerRef = useRef<HTMLDivElement | null>(null)
   const webviewRef = useRef<Electron.WebviewTag | null>(null)
   const webviewReadyRef = useRef(false)
+  const inspectorInjectedRef = useRef(false)
+  const editModeInjectedRef = useRef(false)
+  const previewClickInjectedRef = useRef(false)
   const previewScaleRef = useRef(1)
   const [webviewElement, setWebviewElement] = useState<Electron.WebviewTag | null>(null)
   const [webviewReady, setWebviewReady] = useState(false)
@@ -320,6 +275,9 @@ export const PreviewIframe = forwardRef<
 
   const handleWebviewRef = useCallback((node: Electron.WebviewTag | null): void => {
     webviewReadyRef.current = false
+    inspectorInjectedRef.current = false
+    editModeInjectedRef.current = false
+    previewClickInjectedRef.current = false
     setWebviewReady(false)
     webviewRef.current = node
     setWebviewElement((prev) => (prev === node ? prev : node))
@@ -639,15 +597,6 @@ export const PreviewIframe = forwardRef<
 
     webview.addEventListener('dom-ready', markReady as EventListener)
     webview.addEventListener('did-start-loading', handleStartLoading as EventListener)
-    window.setTimeout(() => {
-      try {
-        if (webview.isConnected && !webview.isLoading()) {
-          markReady()
-        }
-      } catch {
-        // Some webview methods can throw during teardown.
-      }
-    }, 0)
 
     return () => {
       webview.removeEventListener('dom-ready', markReady as EventListener)
@@ -667,15 +616,20 @@ export const PreviewIframe = forwardRef<
     const runInspectorLifecycle = (): void => {
       if (inspecting) {
         safeExecuteHostScript(webview, 'inspector-inject', buildInspectorInjectScript())
+        inspectorInjectedRef.current = true
       } else {
+        if (!inspectorInjectedRef.current) return
         safeExecuteHostScript(webview, 'inspector-cleanup', buildInspectorCleanupScript())
+        inspectorInjectedRef.current = false
       }
     }
 
     runInspectorLifecycle()
 
     return () => {
+      if (!inspectorInjectedRef.current) return
       safeExecuteHostScript(webview, 'inspector-cleanup', buildInspectorCleanupScript())
+      inspectorInjectedRef.current = false
     }
   }, [inspectable, inspecting, webviewReady, webviewSrc, webviewElement])
 
@@ -695,8 +649,11 @@ export const PreviewIframe = forwardRef<
           'edit-inject',
           buildEditModeInjectScript(previewScaleRef.current)
         )
+        editModeInjectedRef.current = true
       } else {
+        if (!editModeInjectedRef.current) return
         safeExecuteHostScript(webview, 'edit-cleanup', buildEditModeCleanupScript())
+        editModeInjectedRef.current = false
       }
     }
 
@@ -704,7 +661,9 @@ export const PreviewIframe = forwardRef<
     if (editMode) onDidReloadRef.current?.()
 
     return () => {
+      if (!editModeInjectedRef.current) return
       safeExecuteHostScript(webview, 'edit-cleanup', buildEditModeCleanupScript())
+      editModeInjectedRef.current = false
     }
   }, [inspectable, editMode, webviewReady, webviewSrc, webviewElement])
 
@@ -719,32 +678,30 @@ export const PreviewIframe = forwardRef<
           'preview-click-animation-inject',
           buildPreviewClickAnimationInjectScript()
         )
+        previewClickInjectedRef.current = true
       } else {
+        if (!previewClickInjectedRef.current) return
         safeExecuteHostScript(
           webview,
           'preview-click-animation-cleanup',
           buildPreviewClickAnimationCleanupScript()
         )
+        previewClickInjectedRef.current = false
       }
     }
 
     runPreviewClickAnimationLifecycle()
 
     return () => {
+      if (!previewClickInjectedRef.current) return
       safeExecuteHostScript(
         webview,
         'preview-click-animation-cleanup',
         buildPreviewClickAnimationCleanupScript()
       )
+      previewClickInjectedRef.current = false
     }
   }, [inspectable, currentInteractionMode, webviewReady, webviewSrc, webviewElement])
-
-  // Thumbnail: freeze all animations so the thumbnail renders the final visible state.
-  useEffect(() => {
-    const webview = webviewElement
-    if (!webview || !thumbnail || !webviewReady) return
-    safeExecuteHostScript(webview, 'thumbnail-freeze', buildThumbnailFreezeScript())
-  }, [thumbnail, webviewReady, webviewSrc, webviewElement])
 
   useEffect(() => {
     const webview = webviewElement

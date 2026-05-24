@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import {
   Check,
   ChevronDown,
@@ -56,18 +57,40 @@ export function PreviewToolbar({
 }: PreviewToolbarProps) {
   const t = useT()
   const toast = useToastStore()
+  const [isPreviewSettling, setIsPreviewSettling] = useState(false)
   const interactionMode = useSessionDetailUiStore((s) => s.interactionMode)
   const setInteractionMode = useSessionDetailUiStore((s) => s.setInteractionMode)
   const clearSelectedElement = useSessionDetailUiStore((s) => s.clearSelectedElement)
   const speechScriptDialogOpen = useSessionDetailUiStore((s) => s.speechScriptDialogOpen)
   const setSpeechScriptDialogOpen = useSessionDetailUiStore((s) => s.setSpeechScriptDialogOpen)
+  const selectedPageKey = selectedPage?.htmlPath
+    ? `${selectedPage.pageId}:${selectedPage.htmlPath}`
+    : ''
+
+  useEffect(() => {
+    if (!selectedPageKey) {
+      setIsPreviewSettling(false)
+      return
+    }
+    setIsPreviewSettling(true)
+    const timer = window.setTimeout(() => {
+      setIsPreviewSettling(false)
+    }, 500)
+    return () => window.clearTimeout(timer)
+  }, [selectedPageKey])
 
   if (!selectedPage?.htmlPath) return null
 
   const isEditing = interactionMode === 'edit'
+  const toolbarDisabled = isGenerating || isSavingEdits || isPreviewSettling
 
   return (
-    <div className="flex min-w-0 items-center gap-3 px-4 pb-1.5 pt-2">
+    <div
+      className={cn(
+        'flex min-w-0 items-center gap-3 px-4 pb-1.5 pt-2 transition-opacity duration-200',
+        isPreviewSettling && 'pointer-events-none opacity-0'
+      )}
+    >
       {/* Left: Mode switcher pill */}
       <div className="flex shrink-0 items-center gap-0.5 rounded-[9px] border border-[#d9cfbd]/72 bg-[#fffaf1]/90 p-0.5 shadow-[0_8px_20px_rgba(74,59,42,0.10)] backdrop-blur-xl">
         <button
@@ -85,7 +108,7 @@ export function PreviewToolbar({
             }
             setSpeechScriptDialogOpen(false)
           }}
-          disabled={isGenerating || isSavingEdits}
+          disabled={toolbarDisabled}
         >
           {t('sessionDetail.previewMode')}
         </button>
@@ -103,7 +126,7 @@ export function PreviewToolbar({
             setInteractionMode('preview')
             onOpenSpeechScript()
           }}
-          disabled={isGenerating || isSavingEdits}
+          disabled={toolbarDisabled}
         >
           <ScrollText className="mr-0.5 h-2.5 w-2.5" />
           {t('sessionDetail.speechScript')}
@@ -123,7 +146,7 @@ export function PreviewToolbar({
               toast.info(t('sessionDetail.editModeToast'))
             }
           }}
-          disabled={isGenerating || isSavingEdits}
+          disabled={toolbarDisabled}
         >
           <Pencil className="mr-0.5 h-2.5 w-2.5" />
           {t('sessionDetail.editMode')}
@@ -144,7 +167,7 @@ export function PreviewToolbar({
               toast.info(t('sessionDetail.inspectActiveToast'))
             }
           }}
-          disabled={isGenerating || isSavingEdits}
+          disabled={toolbarDisabled}
         >
           <Sparkles className="mr-0.5 h-2.5 w-2.5" />
           {t('sessionDetail.aiMode')}
@@ -161,7 +184,7 @@ export function PreviewToolbar({
               size="sm"
               className="h-7 shrink-0 rounded-[7px] border border-[#d9cfbd]/62 bg-[#fffaf1]/90 px-2 text-[10px] leading-none text-[#5d6b4d] shadow-[0_4px_12px_rgba(74,59,42,0.06)] hover:bg-[#d4e4c1]/72 disabled:opacity-40"
               onClick={onUndo}
-              disabled={isGenerating || isSavingEdits || !canUndo}
+              disabled={toolbarDisabled || !canUndo}
             >
               <Undo2 className="mr-0.5 h-2.5 w-2.5" />
               {t('sessionDetail.undo')}
@@ -172,7 +195,7 @@ export function PreviewToolbar({
               size="sm"
               className="h-7 shrink-0 rounded-[7px] border border-[#d9cfbd]/62 bg-[#fffaf1]/90 px-2 text-[10px] leading-none text-[#5d6b4d] shadow-[0_4px_12px_rgba(74,59,42,0.06)] hover:bg-[#d4e4c1]/72 disabled:opacity-40"
               onClick={onRedo}
-              disabled={isGenerating || isSavingEdits || !canRedo}
+              disabled={toolbarDisabled || !canRedo}
             >
               <Redo2 className="mr-0.5 h-2.5 w-2.5" />
               {t('sessionDetail.redo')}
@@ -226,7 +249,7 @@ export function PreviewToolbar({
             size="sm"
             className="h-7 shrink-0 rounded-[7px] bg-[#5d6b4d] px-2 text-[10px] leading-none text-white shadow-[0_6px_14px_rgba(93,107,77,0.16)]"
             onClick={onSaveAllEdits}
-            disabled={isGenerating || isSavingEdits}
+            disabled={toolbarDisabled}
           >
             {isSavingEdits ? (
               <Loader2 className="mr-0.5 h-2.5 w-2.5 animate-spin" />
@@ -243,7 +266,7 @@ export function PreviewToolbar({
             size="sm"
             className="h-7 shrink-0 rounded-[7px] border border-transparent bg-[#d4e4c1]/82 px-2 text-[10px] leading-none text-[#3e4a32] shadow-[0_4px_12px_rgba(93,107,77,0.10)] hover:bg-[#c8ddb2]"
             onClick={onDiscardAllEdits}
-            disabled={isGenerating || isSavingEdits}
+            disabled={toolbarDisabled}
           >
             {t('sessionDetail.exitEditMode')}
           </Button>
@@ -258,7 +281,7 @@ export function PreviewToolbar({
               clearSelectedElement()
               setInteractionMode('preview')
             }}
-            disabled={isGenerating || isSavingEdits}
+            disabled={toolbarDisabled}
           >
             {t('sessionDetail.exitAiMode')}
           </Button>
