@@ -17,6 +17,10 @@ interface TemplateStore {
     pageCount?: number
     referenceDocumentPath?: string
   }) => Promise<string>
+  createEditableSessionFromTemplate: (payload: {
+    templateId: string
+    title?: string
+  }) => Promise<string>
   updateTemplateMetadata: (payload: {
     templateId: string
     name: string
@@ -49,6 +53,11 @@ export const useTemplateStore = create<TemplateStore>((set, get) => ({
 
   createSessionFromTemplate: async (payload) => {
     const result = await ipc.createSessionFromTemplate(payload)
+    return result.sessionId
+  },
+
+  createEditableSessionFromTemplate: async (payload) => {
+    const result = await ipc.createEditableSessionFromTemplate(payload)
     return result.sessionId
   },
 

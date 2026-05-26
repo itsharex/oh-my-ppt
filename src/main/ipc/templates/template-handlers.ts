@@ -1,6 +1,7 @@
 import { ipcMain } from 'electron'
 import type { IpcContext } from '../context'
 import {
+  createEditableSessionFromTemplate,
   createSessionFromTemplate,
   createTemplateFromSession,
   deleteTemplate,
@@ -20,6 +21,10 @@ export function registerTemplateHandlers(ctx: IpcContext): void {
 
   ipcMain.handle('templates:createSession', async (_event, payload: unknown) =>
     createSessionFromTemplate(ctx, payload)
+  )
+
+  ipcMain.handle('templates:createEditableSession', async (_event, payload: unknown) =>
+    createEditableSessionFromTemplate(ctx, payload)
   )
 
   ipcMain.handle('templates:updateMetadata', async (_event, payload: unknown) =>

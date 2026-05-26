@@ -1,19 +1,27 @@
-import { CopyPlus, Eye, LayoutTemplate, PencilLine, Plus, Trash2 } from 'lucide-react'
+import { ChevronDown, CopyPlus, Eye, LayoutTemplate, PencilLine, Plus, Sparkles, Trash2 } from 'lucide-react'
 import { Button } from '../ui/Button'
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/Card'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger
+} from '../ui/DropdownMenu'
 import type { TemplateListItem } from '@renderer/lib/ipc'
 import { useT } from '@renderer/i18n'
 import dayjs from 'dayjs'
 
 export function TemplateCard({
   template,
-  onUse,
+  onUseDirect,
+  onUseGenerate,
   onEdit,
   onDelete,
   onPreview
 }: {
   template: TemplateListItem
-  onUse: (template: TemplateListItem) => void
+  onUseDirect: (template: TemplateListItem) => void
+  onUseGenerate: (template: TemplateListItem) => void
   onEdit: (template: TemplateListItem) => void
   onDelete: (template: TemplateListItem) => void
   onPreview: (template: TemplateListItem) => void
@@ -85,10 +93,25 @@ export function TemplateCard({
                 <Trash2 className="h-3.5 w-3.5" />
               </Button>
             </div>
-            <Button size="sm" className="h-8 rounded-md px-3" onClick={() => onUse(template)}>
-              <CopyPlus className="mr-1.5 h-3.5 w-3.5" />
-              {t('templates.use')}
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="sm" className="h-8 rounded-md px-3">
+                  <CopyPlus className="mr-1.5 h-3.5 w-3.5" />
+                  {t('templates.use')}
+                  <ChevronDown className="ml-1 h-3.5 w-3.5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-40">
+                <DropdownMenuItem onSelect={() => onUseDirect(template)}>
+                  <PencilLine className="h-3.5 w-3.5 text-[#5f6b50]" />
+                  {t('templates.createEditable')}
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => onUseGenerate(template)}>
+                  <Sparkles className="h-3.5 w-3.5 text-[#7c6a4c]" />
+                  {t('templates.createAndGenerate')}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
       </CardContent>

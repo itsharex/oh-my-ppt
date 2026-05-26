@@ -14,6 +14,7 @@ const MIN_PAGE_COUNT = 1
 const MAX_PAGE_COUNT = 40
 const MAX_DOCUMENT_SIZE_MB = 10
 const MAX_DOCUMENT_SIZE_BYTES = MAX_DOCUMENT_SIZE_MB * 1024 * 1024
+const DIRECT_CREATE_DONE_DELAY_MS = 500
 
 const resolvePageCount = (raw: string, fallback: number): number => {
   const parsed = Number.parseInt(raw, 10)
@@ -46,6 +47,8 @@ const templateThumbnailUrl = (filePath: string): string => {
   return `${localAssetUrl(filePath)}${separator}print=1&thumbnail=1&fit=off`
 }
 
+const wait = (ms: number): Promise<void> => new Promise((resolve) => window.setTimeout(resolve, ms))
+
 export function TemplatesPage(): React.JSX.Element {
   const navigate = useNavigate()
   const t = useT()
@@ -53,6 +56,7 @@ export function TemplatesPage(): React.JSX.Element {
     templates,
     loading,
     fetchTemplates,
+    createEditableSessionFromTemplate,
     createSessionFromTemplate,
     updateTemplateMetadata,
     deleteTemplate
@@ -70,6 +74,7 @@ export function TemplatesPage(): React.JSX.Element {
   const [documentParseError, setDocumentParseError] = useState<string | null>(null)
   const [hasParsedSource, setHasParsedSource] = useState(false)
   const [creating, setCreating] = useState(false)
+  const [directCreatingTemplateName, setDirectCreatingTemplateName] = useState<string | null>(null)
   const [editing, setEditing] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const documentInputRef = useRef<HTMLInputElement | null>(null)
@@ -225,6 +230,28 @@ export function TemplatesPage(): React.JSX.Element {
     }
   }
 
+  const handleCreateEditable = async (template: TemplateListItem): Promise<void> => {
+    if (directCreatingTemplateName) return
+    const deckTitle = template.name
+    setDirectCreatingTemplateName(deckTitle)
+    try {
+      const sessionId = await createEditableSessionFromTemplate({
+        templateId: template.id,
+        title: deckTitle
+      })
+      await wait(DIRECT_CREATE_DONE_DELAY_MS)
+      success(t('templates.sessionCreated'), { description: t('templates.directEditCreatedDescription') })
+      setUseTarget(null)
+      navigate(`/sessions/${sessionId}`)
+    } catch (err) {
+      error(t('templates.createFailed'), {
+        description: err instanceof Error ? err.message : t('common.retryLater')
+      })
+    } finally {
+      setDirectCreatingTemplateName(null)
+    }
+  }
+
   const handleDelete = async (): Promise<void> => {
     if (!deleteTarget || deleting) return
     setDeleting(true)
@@ -295,7 +322,8 @@ export function TemplatesPage(): React.JSX.Element {
             <TemplateCard
               key={template.id}
               template={template}
-              onUse={openUseDialog}
+              onUseDirect={(item) => void handleCreateEditable(item)}
+              onUseGenerate={openUseDialog}
               onPreview={setPreviewTarget}
               onEdit={setEditTarget}
               onDelete={setDeleteTarget}
@@ -303,6 +331,22 @@ export function TemplatesPage(): React.JSX.Element {
           ))}
         </div>
       )}
+
+      {directCreatingTemplateName ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#2d261f]/28 backdrop-blur-[2px]">
+          <div className="w-[min(360px,calc(100vw-32px))] rounded-xl border border-[#ded2bd]/80 bg-[#fffdf8] px-5 py-4 shadow-[0_18px_45px_rgba(57,47,36,0.22)]">
+            <div className="flex items-center gap-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#eef3e7] text-[#5f6b50]">
+                <Loader2 className="h-4 w-4 animate-spin" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-[#34402c]">{t('templates.creatingEditable')}</p>
+                <p className="mt-1 truncate text-xs text-muted-foreground">{directCreatingTemplateName}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <Dialog open={Boolean(previewTarget)} onOpenChange={(open) => !open && setPreviewTarget(null)}>
         <DialogContent className="w-auto max-w-none gap-3 rounded-lg bg-[#f6efe2] p-4">

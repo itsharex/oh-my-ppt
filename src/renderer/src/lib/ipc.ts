@@ -346,6 +346,14 @@ export const ipc = {
       success: true
       sessionId: string
     }>,
+  createEditableSessionFromTemplate: (payload: {
+    templateId: string
+    title?: string
+  }) =>
+    getIpc().invoke('templates:createEditableSession', payload) as Promise<{
+      success: true
+      sessionId: string
+    }>,
   updateTemplateMetadata: (payload: {
     templateId: string
     name: string

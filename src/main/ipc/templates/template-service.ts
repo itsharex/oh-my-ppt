@@ -491,3 +491,107 @@ export async function createSessionFromTemplate(
 
   return { success: true, sessionId }
 }
+
+export async function createEditableSessionFromTemplate(
+  ctx: IpcContext,
+  payload: unknown
+): Promise<{ success: true; sessionId: string }> {
+  const record = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {}
+  const templateId = typeof record.templateId === 'string' ? record.templateId.trim() : ''
+  const title = typeof record.title === 'string' && record.title.trim() ? record.title.trim() : ''
+
+  const templatesRoot = await ensureTemplatesRoot()
+  const { manifest, templateDir } = await readManifest(templatesRoot, templateId)
+  if (manifest.pages.length === 0) throw new Error('模板没有可创建的页面')
+
+  const activeModel = await resolveActiveModelConfig(ctx)
+  const storagePath = await ctx.resolveStoragePath()
+  const sessionId = createTemplateSessionId()
+  const projectDir = path.join(storagePath, sessionId)
+  const deckTitle = title || manifest.name || '从模板创建的演示'
+
+  await fs.promises.mkdir(projectDir, { recursive: true })
+  await copyDirExcluding(templateDir, projectDir, { exclude: ['manifest.json'] })
+  await ctx.ensureSessionAssets(projectDir)
+  const preparedPages = await prepareTemplatePagesForSession({
+    manifest,
+    projectDir,
+    totalPages: manifest.pageCount || manifest.pages.length
+  })
+  const indexPages: DeckPageFile[] = preparedPages.map((page) => ({
+    id: page.id,
+    pageNumber: page.pageNumber,
+    pageId: page.pageId,
+    title: page.title,
+    htmlPath: path.basename(page.htmlPath)
+  }))
+  const indexPath = path.join(projectDir, 'index.html')
+  await fs.promises.writeFile(indexPath, buildProjectIndexHtml(deckTitle, indexPages), 'utf-8')
+
+  await ctx.agentManager.createSession({
+    sessionId,
+    provider: activeModel.provider,
+    model: activeModel.model,
+    baseUrl: activeModel.baseUrl,
+    projectDir,
+    topic: deckTitle,
+    styleId: manifest.styleId || undefined,
+    pageCount: preparedPages.length
+  })
+  const designContract = resolveTemplateDesignContract(manifest.designContract)
+  await ctx.db.updateSessionDesignContract(sessionId, designContract)
+  const projectId = await ctx.db.createProject({
+    session_id: sessionId,
+    title: deckTitle,
+    output_path: projectDir,
+    root_path: projectDir
+  })
+  const runId = await ctx.db.createGenerationRun({
+    sessionId,
+    mode: 'import',
+    totalPages: preparedPages.length,
+    metadata: {
+      source: 'template-direct-edit',
+      templateId
+    }
+  })
+  for (const page of preparedPages) {
+    await ctx.db.upsertSessionPage({
+      id: page.id,
+      sessionId,
+      legacyPageId: null,
+      fileSlug: page.pageId,
+      pageNumber: page.pageNumber,
+      title: page.title,
+      htmlPath: page.htmlPath,
+      status: 'completed',
+      error: null
+    })
+    await ctx.db.upsertGenerationPage({
+      runId,
+      sessionId,
+      pageId: page.pageId,
+      pageNumber: page.pageNumber,
+      title: page.title,
+      contentOutline: '',
+      layoutIntent: null,
+      htmlPath: page.htmlPath,
+      status: 'completed'
+    })
+  }
+
+  const metadata = {
+    source: 'template-direct-edit',
+    templateId,
+    createdFromTemplateAt: Date.now(),
+    indexPath,
+    projectId,
+    entryMode: 'direct_edit'
+  }
+  await ctx.db.updateSessionMetadata(sessionId, metadata)
+  await ctx.db.updateGenerationRunStatus(runId, 'completed')
+  await ctx.db.updateProjectStatus(projectId, 'draft')
+  await ctx.db.updateSessionStatus(sessionId, 'completed')
+
+  return { success: true, sessionId }
+}
