@@ -1,5 +1,6 @@
 import fs from 'fs'
 import path from 'path'
+import crypto from 'crypto'
 import { LRUCache } from 'lru-cache'
 import type { IpcContext } from '../context'
 import { resolveActiveModelConfig } from '../config/model-config-utils'
@@ -48,7 +49,7 @@ function clearTemplateCache(templatesRoot: string, templateId?: string): void {
 }
 
 function createTemplateSessionId(): string {
-  return `session_${createLowercaseId()}`
+  return crypto.randomUUID()
 }
 
 function createTemplateSessionPageId(): string {

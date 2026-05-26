@@ -12,7 +12,7 @@ import {
   SelectValue
 } from '../components/ui/Select'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../components/ui/Tooltip'
-import { CircleAlert, FileText, FileUp, Loader2, Sparkles } from 'lucide-react'
+import { CircleAlert, FileText, Loader2, Sparkles } from 'lucide-react'
 import { useSessionStore } from '../store'
 import { useSettingsStore } from '../store'
 import { useToastStore } from '../store'
@@ -28,8 +28,6 @@ const MAX_DOCUMENT_SIZE_MB = 10
 const MAX_DOCUMENT_SIZE_BYTES = MAX_DOCUMENT_SIZE_MB * 1024 * 1024
 const MAX_IMAGE_SIZE_MB = 5
 const MAX_IMAGE_SIZE_BYTES = MAX_IMAGE_SIZE_MB * 1024 * 1024
-const MAX_PPTX_SIZE_MB = 80
-const MAX_PPTX_SIZE_BYTES = MAX_PPTX_SIZE_MB * 1024 * 1024
 const IMAGE_STYLE_PARSE_DELAY_MS = 300
 const isImageFileName = (name: string): boolean => /\.(png|jpe?g|webp)$/i.test(name.trim())
 
@@ -81,13 +79,10 @@ export function SessionCreatePage(): ReactElement {
   >([])
   const [fontOptions, setFontOptions] = useState<FontListItem[]>([])
   const [parsingDocument, setParsingDocument] = useState(false)
-  const [importingPptx, setImportingPptx] = useState(false)
-  const [pptxImportProgress, setPptxImportProgress] = useState<string | null>(null)
   const [documentParseError, setDocumentParseError] = useState<string | null>(null)
   const [hasParsedSource, setHasParsedSource] = useState(false)
   const [referenceDocumentPath, setReferenceDocumentPath] = useState<string | null>(null)
   const documentInputRef = useRef<HTMLInputElement | null>(null)
-  const pptxInputRef = useRef<HTMLInputElement | null>(null)
 
   const validateForm = (): string => {
     const topicText = topic.trim()
@@ -279,12 +274,6 @@ export function SessionCreatePage(): ReactElement {
     documentInputRef.current?.click()
   }
 
-  const handleImportPptxClick = async (): Promise<void> => {
-    if (importingPptx) return
-    if (!(await ensureUploadPrerequisites())) return
-    pptxInputRef.current?.click()
-  }
-
   const parseImageStyle = async (file: File): Promise<StyleParseResult> => {
     const hintedMimeType = normalizeImageMimeType(file.type)
     const fallbackMimeType = getImageMimeTypeFromFileName(file.name || '')
@@ -415,75 +404,9 @@ export function SessionCreatePage(): ReactElement {
     }
   }
 
-  const handlePptxFilesSelected = async (files: FileList | null): Promise<void> => {
-    const selectedFiles = Array.from(files || [])
-    if (pptxInputRef.current) {
-      pptxInputRef.current.value = ''
-    }
-    if (selectedFiles.length === 0) return
-    if (selectedFiles.length > 1) {
-      error(t('home.pptxSingleOnlyTitle'), {
-        description: t('home.pptxSingleOnly')
-      })
-      return
-    }
-    const selectedFile = selectedFiles[0]
-    if (!/\.pptx$/i.test(selectedFile.name)) {
-      error(t('home.unsupportedFileTitle'), {
-        description: t('home.unsupportedPptx')
-      })
-      return
-    }
-    if (selectedFile.size > MAX_PPTX_SIZE_BYTES) {
-      error(t('home.pptxTooLargeTitle'), {
-        description: t('home.pptxTooLarge', { maxSize: MAX_PPTX_SIZE_MB })
-      })
-      return
-    }
-    const filePath = window.electron?.getPathForFile?.(selectedFile) || ''
-    if (!filePath) {
-      error(t('home.pptxPathFailedTitle'), {
-        description: t('home.pptxPathFailed')
-      })
-      return
-    }
-    setImportingPptx(true)
-    setPptxImportProgress(t('home.pptxPreparing'))
-    try {
-      const result = await ipc.importPptx({
-        filePath,
-        title: selectedFile.name.replace(/\.pptx$/i, ''),
-        styleId: selectedStyleId || null
-      })
-      success(t('home.pptxImportDone'), {
-        description:
-          result.warnings.length > 0
-            ? t('home.pptxImportedWithWarnings', {
-                pageCount: result.pageCount,
-                warningCount: result.warnings.length
-              })
-            : t('home.pptxImported', { pageCount: result.pageCount })
-      })
-      navigate(`/sessions/${result.sessionId}`)
-    } catch (err) {
-      error(t('home.pptxImportFailed'), {
-        description: err instanceof Error ? err.message : t('common.retryLater')
-      })
-    } finally {
-      setImportingPptx(false)
-      setPptxImportProgress(null)
-    }
-  }
-
   useEffect(() => {
     void fetchSettings()
   }, [fetchSettings])
-
-  useEffect(() => {
-    return ipc.onPptxImportProgress((payload) => {
-      setPptxImportProgress(`${payload.label}${payload.progress ? ` · ${payload.progress}%` : ''}`)
-    })
-  }, [])
 
   const titleFontOptions = fontOptions.filter((font) => font.role.includes('title'))
   const bodyFontOptions = fontOptions.filter((font) => font.role.includes('body'))
@@ -523,7 +446,7 @@ export function SessionCreatePage(): ReactElement {
                         onClick={() => {
                           void handleParseDocumentClick()
                         }}
-                        disabled={parsingDocument || importingPptx}
+                        disabled={parsingDocument}
                         className="shrink-0"
                       >
                         {parsingDocument ? (
@@ -543,33 +466,6 @@ export function SessionCreatePage(): ReactElement {
                   </TooltipContent>
                 </Tooltip>
 
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span className="inline-flex">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          void handleImportPptxClick()
-                        }}
-                        disabled={importingPptx || parsingDocument}
-                        className="shrink-0"
-                      >
-                        {importingPptx ? (
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        ) : (
-                          <FileUp className="mr-2 h-4 w-4" />
-                        )}
-                        {importingPptx ? t('home.importingPptx') : t('home.importPptx')}
-                      </Button>
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom" align="start">
-                    {t('home.importPptxTooltip', { maxSize: MAX_PPTX_SIZE_MB })}
-                  </TooltipContent>
-                </Tooltip>
-
                 {hasParsedSource && !parsingDocument ? (
                   <span className="rounded-full bg-[#e8f0df] px-2.5 py-1 text-xs text-[#4f6340]">
                     {t('home.parsed')}
@@ -577,10 +473,6 @@ export function SessionCreatePage(): ReactElement {
                 ) : null}
               </div>
             </TooltipProvider>
-
-            {pptxImportProgress ? (
-              <p className="min-w-0 text-xs text-[#4f6340]">{pptxImportProgress}</p>
-            ) : null}
           </div>
           <input
             ref={documentInputRef}
@@ -589,14 +481,6 @@ export function SessionCreatePage(): ReactElement {
             multiple={false}
             className="hidden"
             onChange={(event) => void handleDocumentFilesSelected(event.target.files)}
-          />
-          <input
-            ref={pptxInputRef}
-            type="file"
-            accept=".pptx"
-            multiple={false}
-            className="hidden"
-            onChange={(event) => void handlePptxFilesSelected(event.target.files)}
           />
         </div>
         {documentParseError && (

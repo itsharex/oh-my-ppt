@@ -11,6 +11,46 @@ import { recordHistoryOperationStrict } from '../history/git-history-service'
 const MAX_IMPORT_FILE_BYTES = 300 * 1024 * 1024
 const MAX_EXTRACTED_BYTES = 600 * 1024 * 1024
 const MAX_EXTRACTED_FILES = 5000
+const IGNORED_IMPORT_FILE_EXTENSIONS = new Set([
+  '.ppt',
+  '.pptx',
+  '.key',
+  '.py',
+  '.pyc',
+  '.pyo',
+  '.ipynb',
+  '.sqlite',
+  '.sqlite3',
+  '.db',
+  '.log'
+])
+const IGNORED_IMPORT_FILE_NAMES = new Set([
+  '.ds_store',
+  '.gitignore',
+  'thumbs.db',
+  'desktop.ini',
+  'package-lock.json',
+  'pnpm-lock.yaml',
+  'yarn.lock'
+])
+const IGNORED_IMPORT_DIR_NAMES = new Set([
+  '.git',
+  '.github',
+  '.idea',
+  '.vscode',
+  '_export_screenshots',
+  '__macosx',
+  '__pycache__',
+  'conversation_history',
+  '.pytest_cache',
+  '.mypy_cache',
+  '.ruff_cache',
+  'node_modules',
+  'tmp',
+  'temp',
+  'cache',
+  '.cache'
+])
 
 type ImportKind = 'slide-pack' | 'zip'
 
@@ -39,15 +79,18 @@ type PreparedImport = {
   warnings: string[]
 }
 
-const isIgnoredArchivePath = (relativePath: string): boolean => {
+const isIgnoredArchivePath = (
+  relativePath: string,
+  options?: { allowPresentationFiles?: boolean }
+): boolean => {
   const parts = relativePath.split('/').filter(Boolean)
   if (parts.length === 0) return true
-  if (parts.some((part) => part === '.git' || part === 'node_modules' || part === 'tmp' || part === 'cache')) {
-    return true
-  }
-  if (parts[0] === '__MACOSX') return true
+  if (parts.some((part) => IGNORED_IMPORT_DIR_NAMES.has(part.toLowerCase()))) return true
   const baseName = parts[parts.length - 1]
-  return baseName === '.DS_Store' || baseName === 'Thumbs.db'
+  if (IGNORED_IMPORT_FILE_NAMES.has(baseName.toLowerCase())) return true
+  const ext = path.extname(baseName).toLowerCase()
+  if (options?.allowPresentationFiles && ['.ppt', '.pptx', '.key'].includes(ext)) return false
+  return IGNORED_IMPORT_FILE_EXTENSIONS.has(ext)
 }
 
 const normalizeArchivePath = (rawName: string): string | null => {
@@ -97,11 +140,20 @@ const findSlidePackZipInsideZip = (zipData: Uint8Array): Uint8Array | null => {
   const candidates = Object.entries(files)
     .map(([name, data]) => ({ name: normalizeArchivePath(name), data }))
     .filter((entry): entry is { name: string; data: Uint8Array } => {
-      if (!entry.name || isIgnoredArchivePath(entry.name)) return false
+      if (!entry.name || isIgnoredArchivePath(entry.name, { allowPresentationFiles: true })) return false
       return entry.data.byteLength > 8
     })
   if (candidates.length !== 1) return null
   return tryExtractSlidePackZip(Buffer.from(candidates[0].data))
+}
+
+const archiveHasRootIndexHtml = (zipData: Uint8Array): boolean => {
+  const files = tryReadZip(zipData)
+  if (!files) return false
+  return Object.keys(files).some((rawName) => {
+    const relativePath = normalizeArchivePath(rawName)
+    return relativePath?.toLowerCase() === 'index.html'
+  })
 }
 
 const extractZipToDirectory = async (
@@ -119,13 +171,18 @@ const extractZipToDirectory = async (
 
   let totalBytes = 0
   let fileCount = 0
+  let skippedFiles = 0
   const entries: Array<{ relativePath: string; data: Uint8Array }> = []
   const rootNames = new Set<string>()
   const illegalRootFiles: string[] = []
 
   for (const [rawName, data] of Object.entries(files)) {
     const relativePath = normalizeArchivePath(rawName)
-    if (!relativePath || isIgnoredArchivePath(relativePath)) continue
+    if (!relativePath) continue
+    if (isIgnoredArchivePath(relativePath)) {
+      skippedFiles += 1
+      continue
+    }
     fileCount += 1
     totalBytes += data.byteLength
     if (fileCount > MAX_EXTRACTED_FILES) throw new Error('导入包文件数量过多，请精简后重试。')
@@ -170,7 +227,8 @@ const extractZipToDirectory = async (
     mode,
     sessionRoot,
     fileCount,
-    totalBytes
+    totalBytes,
+    skippedFiles
   })
   return sessionRoot
 }
@@ -202,6 +260,19 @@ const prepareImportSource = async (sourceBuffer: Buffer, tempDir: string): Promi
       sessionRoot: await extractZipToDirectory(
         nestedSlidePackZip,
         path.join(tempDir, 'slide-pack-zip'),
+        'deck-root'
+      ),
+      warnings: []
+    }
+  }
+
+  if (archiveHasRootIndexHtml(sourceBuffer)) {
+    log.info('[session-import] detected flat session zip')
+    return {
+      importKind: 'zip',
+      sessionRoot: await extractZipToDirectory(
+        sourceBuffer,
+        path.join(tempDir, 'session-zip-root'),
         'deck-root'
       ),
       warnings: []
@@ -295,12 +366,17 @@ const copyDirectory = async (sourceDir: string, targetDir: string): Promise<void
   const sourceRoot = path.resolve(sourceDir)
   const targetRoot = path.resolve(targetDir)
   let copiedFiles = 0
+  let skippedFiles = 0
   const copyRecursive = async (currentSource: string): Promise<void> => {
     const entries = await fs.promises.readdir(currentSource, { withFileTypes: true })
     for (const entry of entries) {
       const sourcePath = path.join(currentSource, entry.name)
       const relativePath = path.relative(sourceRoot, sourcePath).split(path.sep).join('/')
-      if (!relativePath || isIgnoredArchivePath(relativePath)) continue
+      if (!relativePath) continue
+      if (isIgnoredArchivePath(relativePath)) {
+        skippedFiles += 1
+        continue
+      }
       const targetPath = path.resolve(targetRoot, relativePath)
       ensureInside(targetPath, targetRoot, '复制目标路径不合法，已拒绝导入。')
       if (entry.isSymbolicLink()) continue
@@ -319,7 +395,8 @@ const copyDirectory = async (sourceDir: string, targetDir: string): Promise<void
   log.info('[session-import] copy directory completed', {
     sourceDir,
     targetDir,
-    copiedFiles
+    copiedFiles,
+    skippedFiles
   })
 }
 
