@@ -7,6 +7,12 @@ import { buildPageScaffoldHtml, buildProjectIndexHtml, type DeckPageFile } from 
 import { escapeHtml } from '../ipc/utils'
 import { validatePersistedPageHtml } from '../tools/html-utils'
 import { PptxTextValidator } from './pptx-text-validator'
+import {
+  normalizePptxShapeName,
+  readPptxAnimationPlans,
+  type ImportedElementAnimation,
+  type SlideAnimationPlan
+} from './pptx-animation-import'
 
 const PAGE_WIDTH = 1600
 const PAGE_HEIGHT = 900
@@ -49,6 +55,11 @@ type FlattenedElement = {
 type TextImportAdjustment = {
   content: string
   extraCss: string[]
+}
+
+type SlideAnimationContext = {
+  plan?: SlideAnimationPlan
+  usedAnimationIds: Set<number>
 }
 
 export type ImportedPptxPage = {
@@ -509,6 +520,92 @@ const borderCss = (element: Record<string, unknown>, scale: number): string[] =>
   return [`border:${Math.max(1, width * scale).toFixed(1)}px ${type} ${color}`]
 }
 
+const overlapArea = (
+  left: { x: number; y: number; w: number; h: number },
+  right: { x: number; y: number; w: number; h: number }
+): number => {
+  const x = Math.max(0, Math.min(left.x + left.w, right.x + right.w) - Math.max(left.x, right.x))
+  const y = Math.max(0, Math.min(left.y + left.h, right.y + right.h) - Math.max(left.y, right.y))
+  return x * y
+}
+
+const centerInside = (
+  inner: { x: number; y: number; w: number; h: number },
+  outer: { x: number; y: number; w: number; h: number }
+): boolean => {
+  const cx = inner.x + inner.w / 2
+  const cy = inner.y + inner.h / 2
+  return cx >= outer.x && cx <= outer.x + outer.w && cy >= outer.y && cy <= outer.y + outer.h
+}
+
+const resolveElementAnimation = (
+  context: SlideAnimationContext | undefined,
+  element: Record<string, unknown>,
+  offsetX: number,
+  offsetY: number
+): ImportedElementAnimation | undefined => {
+  const plan = context?.plan
+  if (!plan || plan.animations.length === 0) return undefined
+  const name = normalizePptxShapeName(element.name)
+  if (name) {
+    const byName = plan.byName.get(name)
+    const match = byName?.find((animation) => !context.usedAnimationIds.has(animation.id))
+    if (match) {
+      context.usedAnimationIds.add(match.id)
+      return match
+    }
+  }
+
+  const box = {
+    x: clampNumber(element.left) + offsetX,
+    y: clampNumber(element.top) + offsetY,
+    w: Math.max(1, clampNumber(element.width)),
+    h: Math.max(1, clampNumber(element.height))
+  }
+  const boxArea = Math.max(0.0001, box.w * box.h)
+  const candidates = plan.animations
+    .filter(
+      (animation) =>
+        !context.usedAnimationIds.has(animation.id) &&
+        animation.x !== undefined &&
+        animation.y !== undefined &&
+        animation.w !== undefined &&
+        animation.h !== undefined
+    )
+    .map((animation) => {
+      const animBox = {
+        x: animation.x || 0,
+        y: animation.y || 0,
+        w: Math.max(1, animation.w || 1),
+        h: Math.max(1, animation.h || 1)
+      }
+      const overlap = overlapArea(box, animBox)
+      const animArea = Math.max(0.0001, animBox.w * animBox.h)
+      const eligible =
+        overlap > 0 &&
+        (centerInside(box, animBox) || overlap / boxArea >= 0.45 || overlap / animArea >= 0.25)
+      return { animation, overlap, eligible }
+    })
+    .filter((candidate) => candidate.eligible)
+    .sort((a, b) => b.overlap - a.overlap || a.animation.id - b.animation.id)
+  const match = candidates[0]?.animation
+  if (match) context.usedAnimationIds.add(match.id)
+  return match
+}
+
+const buildAnimationAttrs = (animation: ImportedElementAnimation | undefined): string => {
+  if (!animation) return ''
+  return [
+    `data-anim="${animation.type}"`,
+    `data-anim-duration="${animation.duration}"`,
+    `data-anim-delay="${animation.delay}"`,
+    animation.trigger === 'click' ? 'data-anim-trigger="click"' : '',
+    `data-pptx-source-spid="${escapeHtml(animation.sourceId)}"`
+  ]
+    .filter(Boolean)
+    .join(' ')
+}
+
 const adjustTextBlockWithPretext = async (args: {
   validator?: PptxTextValidator
   element: Record<string, unknown>
@@ -597,6 +694,7 @@ const buildTextBlock = async (args: {
   element: Record<string, unknown>
   blockId: string
   role?: string
+  animation?: ImportedElementAnimation
   imagesDir: string
   registry: ImageRegistry
   scaleX: number
@@ -637,12 +735,15 @@ const buildTextBlock = async (args: {
     extra: [...fillCss, ...borderCss(args.element, args.textScale), 'padding:0.1px', ...adjustment.extraCss]
   })
   const roleAttr = args.role ? ` data-role="${escapeHtml(args.role)}"` : ''
-  return `<section data-block-id="${escapeHtml(args.blockId)}"${roleAttr} style="${css}">${adjustment.content || '&nbsp;'}</section>`
+  const animationAttrs = buildAnimationAttrs(args.animation)
+  const animationAttrText = animationAttrs ? ` ${animationAttrs}` : ''
+  return `<section data-block-id="${escapeHtml(args.blockId)}"${roleAttr}${animationAttrText} style="${css}">${adjustment.content || '&nbsp;'}</section>`
 }
 
 const buildImageBlock = async (args: {
   element: Record<string, unknown>
   blockId: string
+  animation?: ImportedElementAnimation
   imagesDir: string
   registry: ImageRegistry
   scaleX: number
@@ -667,16 +768,19 @@ const buildImageBlock = async (args: {
     overflow: 'hidden',
     extra: [...borderCss(args.element, Math.min(args.scaleX, args.scaleY)), 'display:flex']
   })
+  const animationAttrs = buildAnimationAttrs(args.animation)
+  const animationAttrText = animationAttrs ? ` ${animationAttrs}` : ''
   if (!source) {
-    return `<section data-block-id="${escapeHtml(args.blockId)}" style="${css};align-items:center;justify-content:center;background:#f3f4f6;color:#6b7280;font-size:18px;">图片未能导入</section>`
+    return `<section data-block-id="${escapeHtml(args.blockId)}"${animationAttrText} style="${css};align-items:center;justify-content:center;background:#f3f4f6;color:#6b7280;font-size:18px;">图片未能导入</section>`
   }
-  return `<figure data-block-id="${escapeHtml(args.blockId)}" style="${css}"><img src="${source}" alt="" style="width:100%;height:100%;object-fit:contain;display:block;" /></figure>`
+  return `<figure data-block-id="${escapeHtml(args.blockId)}"${animationAttrText} style="${css}"><img src="${source}" alt="" style="width:100%;height:100%;object-fit:contain;display:block;" /></figure>`
 }
 
 const buildShapeBlock = async (args: {
   element: Record<string, unknown>
   blockId: string
   role?: string
+  animation?: ImportedElementAnimation
   imagesDir: string
   registry: ImageRegistry
   scaleX: number
@@ -703,12 +807,15 @@ const buildShapeBlock = async (args: {
     overflow: 'hidden',
     extra: [...fillCss, ...borderCss(args.element, args.textScale)]
   })
-  return `<div data-block-id="${escapeHtml(args.blockId)}" style="${css}"></div>`
+  const animationAttrs = buildAnimationAttrs(args.animation)
+  const animationAttrText = animationAttrs ? ` ${animationAttrs}` : ''
+  return `<div data-block-id="${escapeHtml(args.blockId)}"${animationAttrText} style="${css}"></div>`
 }
 
 const buildTableBlock = (args: {
   element: Record<string, unknown>
   blockId: string
+  animation?: ImportedElementAnimation
   scaleX: number
   scaleY: number
   textScale: number
@@ -748,7 +855,9 @@ const buildTableBlock = (args: {
     offsetY: args.offsetY,
     extra: ['background:#fff']
   })
-  return `<section data-block-id="${escapeHtml(args.blockId)}" style="${css}"><table style="width:100%;height:100%;border-collapse:collapse;font-size:${Math.max(12, 12 * args.textScale).toFixed(1)}px;">${tableRows}</table></section>`
+  const animationAttrs = buildAnimationAttrs(args.animation)
+  const animationAttrText = animationAttrs ? ` ${animationAttrs}` : ''
+  return `<section data-block-id="${escapeHtml(args.blockId)}"${animationAttrText} style="${css}"><table style="width:100%;height:100%;border-collapse:collapse;font-size:${Math.max(12, 12 * args.textScale).toFixed(1)}px;">${tableRows}</table></section>`
 }
 
 const mapChartType = (chartType: string, barDir?: string): { type: string; indexAxis?: 'x' | 'y' } | null => {
@@ -765,6 +874,7 @@ const mapChartType = (chartType: string, barDir?: string): { type: string; index
 const buildChartBlock = (args: {
   element: Chart
   blockId: string
+  animation?: ImportedElementAnimation
   pageId: string
   chartIndex: number
   scaleX: number
@@ -775,6 +885,8 @@ const buildChartBlock = (args: {
 }): string => {
   const chartType = mapChartType(args.element.chartType, 'barDir' in args.element ? args.element.barDir : undefined)
   const canvasId = `chart-${args.pageId}-${args.chartIndex}`
+  const animationAttrs = buildAnimationAttrs(args.animation)
+  const animationAttrText = animationAttrs ? ` ${animationAttrs}` : ''
   const css = buildBlockStyle({
     element: args.element as unknown as Record<string, unknown>,
     scaleX: args.scaleX,
@@ -785,7 +897,7 @@ const buildChartBlock = (args: {
     extra: ['background:#fff', 'padding:10px']
   })
   if (!chartType || !('data' in args.element) || !Array.isArray(args.element.data)) {
-    return `<section data-block-id="${escapeHtml(args.blockId)}" style="${css};display:flex;align-items:center;justify-content:center;color:#6b7280;">图表已作为占位导入</section>`
+    return `<section data-block-id="${escapeHtml(args.blockId)}"${animationAttrText} style="${css};display:flex;align-items:center;justify-content:center;color:#6b7280;">图表已作为占位导入</section>`
   }
   const series = args.element.data as ChartSeries[]
   const labels = series[0]?.values?.map((item) => item.x ?? '') || []
@@ -800,7 +912,7 @@ const buildChartBlock = (args: {
     data: { labels, datasets },
     options: { responsive: true, maintainAspectRatio: false, indexAxis: chartType.indexAxis || 'x' }
   }
-  return `<section data-block-id="${escapeHtml(args.blockId)}" style="${css}">
+  return `<section data-block-id="${escapeHtml(args.blockId)}"${animationAttrText} style="${css}">
   <canvas id="${canvasId}" style="width:100%;height:100%;"></canvas>
 </section>
 <script>
@@ -816,6 +928,8 @@ const renderElement = async (args: {
   element: Element
   pageId: string
   blockCounters: Record<string, number>
+  animationContext?: SlideAnimationContext
+  inheritedAnimation?: ImportedElementAnimation
   imagesDir: string
   registry: ImageRegistry
   scaleX: number
@@ -834,6 +948,9 @@ const renderElement = async (args: {
     return `${prefix}-${args.blockCounters[prefix]}`
   }
   const record = args.element as unknown as Record<string, unknown>
+  const elementAnimation =
+    resolveElementAnimation(args.animationContext, record, args.offsetX, args.offsetY) ||
+    args.inheritedAnimation
   if (args.element.type === 'group') {
     const children = Array.isArray(args.element.elements)
       ? [...args.element.elements].sort(
@@ -852,6 +969,7 @@ const renderElement = async (args: {
         element: child,
         offsetX: groupOffsetX,
         offsetY: groupOffsetY,
+        inheritedAnimation: elementAnimation,
         titleAssigned
       })
       rendered.push(result.html)
@@ -864,6 +982,7 @@ const renderElement = async (args: {
       html: await buildImageBlock({
         element: record,
         blockId: nextBlockId('image'),
+        animation: elementAnimation,
         imagesDir: args.imagesDir,
         registry: args.registry,
         scaleX: args.scaleX,
@@ -880,6 +999,7 @@ const renderElement = async (args: {
       html: buildTableBlock({
         element: record,
         blockId: nextBlockId('table'),
+        animation: elementAnimation,
         scaleX: args.scaleX,
         scaleY: args.scaleY,
         textScale: args.textScale,
@@ -897,6 +1017,7 @@ const renderElement = async (args: {
       html: buildChartBlock({
         element: args.element,
         blockId: `chart-${chartIndex}`,
+        animation: elementAnimation,
         pageId: args.pageId,
         chartIndex,
         scaleX: args.scaleX,
@@ -916,6 +1037,7 @@ const renderElement = async (args: {
         element: record,
         blockId: shouldBeTitle ? 'title' : nextBlockId('text'),
         role: shouldBeTitle ? 'title' : undefined,
+        animation: elementAnimation,
         imagesDir: args.imagesDir,
         registry: args.registry,
         scaleX: args.scaleX,
@@ -939,6 +1061,7 @@ const renderElement = async (args: {
         element: record,
         blockId: shouldBeTitle ? 'title' : nextBlockId(text ? 'text' : 'shape'),
         role: shouldBeTitle ? 'title' : undefined,
+        animation: elementAnimation,
         imagesDir: args.imagesDir,
         registry: args.registry,
         scaleX: args.scaleX,
@@ -965,8 +1088,10 @@ const renderElement = async (args: {
       offsetY: args.offsetY,
       extra: ['background:#f8fafc', 'border:1px dashed #cbd5e1', 'padding:12px', 'color:#475569']
     })
+    const animationAttrs = buildAnimationAttrs(elementAnimation)
+    const animationAttrText = animationAttrs ? ` ${animationAttrs}` : ''
     return {
-      html: `<section data-block-id="${nextBlockId('diagram')}" style="${css}">${escapeHtml(text)}</section>`,
+      html: `<section data-block-id="${nextBlockId('diagram')}"${animationAttrText} style="${css}">${escapeHtml(text)}</section>`,
       titleAssigned: args.titleAssigned
     }
   }
@@ -978,12 +1103,42 @@ const buildFallbackTitle = (title: string): string =>
     <h1 style="margin:0;font-size:36px;line-height:1.2;color:#111827;">${escapeHtml(title)}</h1>
   </header>`
 
+const buildImportedPptxMotionScript = (): string => `<script data-pptx-import-motion="1">
+(function () {
+  function runImportedPptxMotion() {
+    var root = document.querySelector(".ppt-page-root");
+    var pptApi = window.PPT;
+    if (!root || !pptApi || typeof pptApi.scanDataAnim !== "function") return;
+    var config = pptApi.scanDataAnim(root);
+    if (!config || (!config.load.length && !config.click.length)) return;
+    if (config.load.length && typeof pptApi.executeDataAnim === "function") {
+      pptApi.executeDataAnim(config.load);
+    }
+    if (config.click.length && pptApi.clicks && typeof pptApi.clicks.on === "function") {
+      config.click.forEach(function (animDef, index) {
+        pptApi.clicks.on(index + 1, function () {
+          if (typeof pptApi.executeDataAnim === "function") {
+            pptApi.executeDataAnim([animDef]);
+          }
+        });
+      });
+    }
+  }
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", runImportedPptxMotion, { once: true });
+  } else {
+    runImportedPptxMotion();
+  }
+})();
+</script>`
+
 const buildSlideHtml = async (args: {
   slide: Slide
   pageNumber: number
   pageId: string
   title: string
   size: { width: number; height: number }
+  animationPlan?: SlideAnimationPlan
   projectDir: string
   registry: ImageRegistry
   textValidator?: PptxTextValidator
@@ -995,6 +1150,10 @@ const buildSlideHtml = async (args: {
   const warnings: ImportWarning[] = []
   const backgroundCss = await fillToCss(args.slide.fill, imagesDir, args.registry)
   const blockCounters: Record<string, number> = {}
+  const animationContext: SlideAnimationContext = {
+    plan: args.animationPlan,
+    usedAnimationIds: new Set<number>()
+  }
   const elements = [...(args.slide.layoutElements || []), ...(args.slide.elements || [])].sort(
     (a, b) => clampNumber((a as unknown as Record<string, unknown>).order) - clampNumber((b as unknown as Record<string, unknown>).order)
   )
@@ -1006,6 +1165,7 @@ const buildSlideHtml = async (args: {
         element,
         pageId: args.pageId,
         blockCounters,
+        animationContext,
         imagesDir,
         registry: args.registry,
         scaleX,
@@ -1043,11 +1203,13 @@ const buildSlideHtml = async (args: {
     .slice(0, 8)
     .join('；')
   const sectionStyle = ['position:relative', 'width:100%', 'height:100%', 'overflow:hidden', ...backgroundCss].join(';')
+  const hasImportedAnimations = rendered.some((html) => /\sdata-anim=/.test(html))
   const body = `<section data-page-scaffold="1" style="${sectionStyle}">
   <main data-block-id="content" data-role="content" style="position:absolute;inset:0;z-index:0;">
     ${rendered.join('\n')}
   </main>
-</section>`
+</section>
+${hasImportedAnimations ? buildImportedPptxMotionScript() : ''}`
   const scaffold = buildPageScaffoldHtml({
     pageNumber: args.pageNumber,
     pageId: args.pageId,
@@ -1106,6 +1268,7 @@ export async function importPptxToEditableHtml(args: {
   const effectiveSlides = maxPages && maxPages < slides.length
     ? slides.slice(0, maxPages)
     : slides
+  const animationPlans = readPptxAnimationPlans(buffer, effectiveSlides.length, parsed.size)
   args.onProgress?.({
     stage: 'media',
     progress: 24,
@@ -1135,6 +1298,7 @@ export async function importPptxToEditableHtml(args: {
         pageId,
         title: pageTitle,
         size: parsed.size,
+        animationPlan: animationPlans[i],
         projectDir: args.projectDir,
         registry,
         textValidator
