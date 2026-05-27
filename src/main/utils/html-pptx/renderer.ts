@@ -13,7 +13,8 @@ import {
   RESET_SCALE_FOR_PPTX_CAPTURE_SCRIPT,
   WAIT_FOR_PPTX_CAPTURE_FRAME_SCRIPT,
   MARK_KATEX_BLOCKS_SCRIPT,
-  COLLECT_KATEX_BLOCK_RECTS_SCRIPT
+  COLLECT_KATEX_BLOCK_RECTS_SCRIPT,
+  COLLECT_PPTX_ANIMATION_TRACES_SCRIPT
 } from './browser-scripts'
 
 export interface HtmlPageForPptx {
@@ -366,6 +367,21 @@ export const extractHtmlPageToPptxSlide = async ({
     )
 
     const slide = normalizeExtractedHtmlToPptxSlide(extracted, page.title)
+
+    try {
+      const traces = await win.webContents.executeJavaScript(
+        COLLECT_PPTX_ANIMATION_TRACES_SCRIPT,
+        true
+      )
+      if (Array.isArray(traces) && traces.length > 0) {
+        slide.animationTraces = traces
+      }
+    } catch (error) {
+      log.warn('[export:pptx] animation trace collection failed', {
+        pageId: page.pageId,
+        error: error instanceof Error ? error.message : String(error)
+      })
+    }
 
     // Reset page fit scale BEFORE background capture for full resolution,
     // but AFTER extraction (which used the scaled coordinates for correct positions).

@@ -9,8 +9,14 @@ import type {
   HtmlToPptxImage,
   HtmlToPptxTable,
   HtmlToPptxTableCell,
-  HtmlToPptxEmbeddedFont
+  HtmlToPptxEmbeddedFont,
+  HtmlToPptxAnimationTrace
 } from './types'
+import {
+  buildSlideTimingXml,
+  buildSlideTransitionXml,
+  type PptxTargetAnimation
+} from './animation-writer'
 
 // ─── Constants ───────────────────────────────────────────────────────
 const EMU_PER_INCH = 914400
@@ -18,6 +24,8 @@ const SLIDE_WIDTH_IN = 13.333333333  // exact 16:9 = 12192000 / 914400
 const SLIDE_HEIGHT_IN = 7.5
 const SLIDE_WIDTH_EMU = 12192000
 const SLIDE_HEIGHT_EMU = 6858000
+const PPTX_TRACE_WIDTH_PX = 1600
+const PPTX_TRACE_HEIGHT_PX = 900
 
 const inToEmu = (inches: number): number => Math.round(inches * EMU_PER_INCH)
 const ptToEmu = (pt: number): number => Math.round(pt * 12700)
@@ -541,16 +549,110 @@ type SlideContentItem =
   | { kind: 'image'; order: number; priority: number; item: HtmlToPptxImage }
   | { kind: 'text'; order: number; priority: number; item: HtmlToPptxTextBox }
 
+interface SlideShapePosition {
+  pptxId: number
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
 const contentOrder = (value: number | undefined, fallback: number): number =>
   Number.isFinite(value) ? Number(value) : fallback
 
-function buildSlideXml(
+const pxTraceToInches = (trace: HtmlToPptxAnimationTrace): Omit<SlideShapePosition, 'pptxId'> => ({
+  x: (trace.x / PPTX_TRACE_WIDTH_PX) * SLIDE_WIDTH_IN,
+  y: (trace.y / PPTX_TRACE_HEIGHT_PX) * SLIDE_HEIGHT_IN,
+  w: (trace.w / PPTX_TRACE_WIDTH_PX) * SLIDE_WIDTH_IN,
+  h: (trace.h / PPTX_TRACE_HEIGHT_PX) * SLIDE_HEIGHT_IN
+})
+
+const overlapArea = (
+  left: Omit<SlideShapePosition, 'pptxId'>,
+  right: Omit<SlideShapePosition, 'pptxId'>
+): number => {
+  const x = Math.max(0, Math.min(left.x + left.w, right.x + right.w) - Math.max(left.x, right.x))
+  const y = Math.max(0, Math.min(left.y + left.h, right.y + right.h) - Math.max(left.y, right.y))
+  return x * y
+}
+
+const centerInside = (
+  inner: Omit<SlideShapePosition, 'pptxId'>,
+  outer: Omit<SlideShapePosition, 'pptxId'>
+): boolean => {
+  const cx = inner.x + inner.w / 2
+  const cy = inner.y + inner.h / 2
+  return cx >= outer.x && cx <= outer.x + outer.w && cy >= outer.y && cy <= outer.y + outer.h
+}
+
+function matchAnimationTracesToTargets(
+  traces: HtmlToPptxAnimationTrace[] | undefined,
+  shapePositions: SlideShapePosition[]
+): PptxTargetAnimation[] {
+  if (!traces?.length || shapePositions.length === 0) return []
+
+  const animations: PptxTargetAnimation[] = []
+  const claimed = new Set<number>()
+  const orderedTraces = [...traces].sort((a, b) => a.order - b.order || a.delay - b.delay)
+
+  for (const trace of orderedTraces) {
+    const traceBox = pxTraceToInches(trace)
+    const traceArea = Math.max(0.0001, traceBox.w * traceBox.h)
+    const candidates = shapePositions
+      .map((shape) => {
+        const shapeBox = { x: shape.x, y: shape.y, w: shape.w, h: shape.h }
+        const overlap = overlapArea(traceBox, shapeBox)
+        const shapeArea = Math.max(0.0001, shape.w * shape.h)
+        const eligible =
+          overlap > 0 &&
+          (centerInside(shapeBox, traceBox) ||
+            overlap / shapeArea >= 0.35 ||
+            overlap / traceArea >= 0.16)
+        return { shape, overlap, eligible }
+      })
+      .filter((candidate) => candidate.eligible && !claimed.has(candidate.shape.pptxId))
+      .sort((a, b) => b.overlap - a.overlap || a.shape.pptxId - b.shape.pptxId)
+
+    const targets = candidates.length > 0
+      ? candidates.map((candidate) => candidate.shape)
+      : shapePositions
+          .map((shape) => {
+            const shapeBox = { x: shape.x, y: shape.y, w: shape.w, h: shape.h }
+            return { shape, overlap: overlapArea(traceBox, shapeBox) }
+          })
+          .filter((candidate) => candidate.overlap > 0 && !claimed.has(candidate.shape.pptxId))
+          .sort((a, b) => b.overlap - a.overlap)
+          .slice(0, 1)
+          .map((candidate) => candidate.shape)
+
+    for (const target of targets) {
+      claimed.add(target.pptxId)
+      animations.push({
+        spid: target.pptxId,
+        type: trace.type,
+        trigger: trace.trigger,
+        duration: trace.duration,
+        delay: trace.delay,
+        order: trace.order
+      })
+    }
+  }
+
+  return animations
+}
+
+export function buildSlideXml(
   slide: HtmlToPptxSlide,
   imageRels: Map<string, ImageRel>,
   idStart: number
 ): string {
   let nextId = idStart
   const shapes: string[] = []
+  const shapePositions: SlideShapePosition[] = []
+
+  const recordPosition = (pptxId: number, item: { x: number; y: number; w: number; h: number }) => {
+    shapePositions.push({ pptxId, x: item.x, y: item.y, w: item.w, h: item.h })
+  }
 
   // Background color
   let bgXml = ''
@@ -621,17 +723,21 @@ function buildSlideXml(
     nextId++
     if (entry.kind === 'shape') {
       shapes.push(buildShapeXml(nextId, entry.item))
+      recordPosition(nextId, entry.item)
     } else if (entry.kind === 'table') {
       shapes.push(buildTableXml(nextId, entry.item))
+      recordPosition(nextId, entry.item)
     } else if (entry.kind === 'image') {
       const rel = imageRels.get(entry.item.dataUri)
       if (rel) {
         shapes.push(buildImagePic(nextId, rel.rId, entry.item))
+        recordPosition(nextId, entry.item)
       }
     } else {
       const xml = buildTextShape(nextId, entry.item)
       if (xml) {
         shapes.push(xml)
+        recordPosition(nextId, entry.item)
       }
     }
   }
@@ -642,8 +748,16 @@ function buildSlideXml(
     const rel = imageRels.get(img.dataUri)
     if (rel) {
       shapes.push(buildImagePic(nextId, rel.rId, img))
+      recordPosition(nextId, img)
     }
   }
+
+  const timingXml = buildSlideTimingXml(
+    matchAnimationTracesToTargets(slide.animationTraces, shapePositions)
+  )
+  const transitionXml = slide.transitionType
+    ? buildSlideTransitionXml(slide.transitionType, slide.transitionDurationMs)
+    : ''
 
   return `${XML_HEADER}<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
        xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"
@@ -670,6 +784,8 @@ function buildSlideXml(
   <p:clrMapOvr>
     <a:masterClrMapping/>
   </p:clrMapOvr>
+  ${transitionXml}
+  ${timingXml}
 </p:sld>`
 }
 

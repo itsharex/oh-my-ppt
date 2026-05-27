@@ -190,9 +190,11 @@ export const FREEZE_PAGE_FOR_EXPORT_SCRIPT = `
     return Number(getComputedStyle(node).opacity || '1') <= 0.04;
   };
 
-  // Mark [data-anim] elements as animated for PPTX background capture
+  // Mark [data-anim] elements for native PPT animation export. They must not
+  // remain baked into the static background, otherwise the animation appears
+  // to do nothing because the final state is already visible.
   root.querySelectorAll('[data-anim]').forEach(function (el) {
-    el.setAttribute('data-pptx-animated', '1');
+    el.setAttribute('data-pptx-native-anim', '1');
   });
 
   const motionTargets = root.querySelectorAll(
@@ -383,6 +385,11 @@ export const HIDE_FOR_PPTX_BACKGROUND_SCRIPT = `
     // Precisely hide extracted shapes (background/border) and images (visibility)
     '[data-pptx-extracted-shape] { background-color: transparent !important; border-color: transparent !important; }',
     '[data-pptx-extracted-image] { opacity: 0 !important; visibility: hidden !important; }',
+    // Hide native animation sources from the static background. Their exported
+    // PPT shapes/text/images are animated separately in slide timing XML.
+    '[data-pptx-native-anim] { background-color: transparent !important; border-color: transparent !important; box-shadow: none !important; }',
+    '[data-pptx-native-anim], [data-pptx-native-anim] * { color: transparent !important; -webkit-text-fill-color: transparent !important; -webkit-text-stroke-color: transparent !important; text-shadow: none !important; text-decoration-color: transparent !important; caret-color: transparent !important; }',
+    '[data-pptx-native-anim] img, [data-pptx-native-anim] canvas, img[data-pptx-native-anim], canvas[data-pptx-native-anim] { opacity: 0 !important; visibility: hidden !important; }',
     // Hide non-animated images (fallback for non-extracted decorative images)
     'img:not([data-pptx-animated]):not([data-pptx-extracted-image]), canvas:not([data-pptx-animated]):not([data-pptx-extracted-image]) { opacity: 0 !important; visibility: hidden !important; }',
     // Make container backgrounds transparent (catch-all for non-extracted containers)
@@ -481,6 +488,85 @@ export const MARK_KATEX_BLOCKS_SCRIPT = `
     count++;
   }
   return count;
+})()
+`
+
+export const COLLECT_PPTX_ANIMATION_TRACES_SCRIPT = `
+(() => {
+  const root = document.querySelector('.ppt-page-root') || document.body;
+  const pageRect = root.getBoundingClientRect();
+  const supportedTypes = new Set([
+    'fade',
+    'fade-up',
+    'fade-down',
+    'fade-left',
+    'fade-right',
+    'scale-in',
+    'slide-up',
+    'slide-left'
+  ]);
+  const supportedTriggers = new Set(['load', 'click']);
+  const staggerCounters = {};
+  const traces = [];
+  const collectTrace = (el, type, trigger, duration, delay, order) => {
+    const rect = el.getBoundingClientRect();
+    if (rect.width < 2 || rect.height < 2) return;
+    el.setAttribute('data-pptx-native-anim', '1');
+    traces.push({
+      type,
+      trigger,
+      duration: Math.max(100, Math.min(5000, Number(duration) || 500)),
+      delay: Math.max(0, Math.min(30000, Number(delay) || 0)),
+      order,
+      x: Math.round(rect.left - pageRect.left),
+      y: Math.round(rect.top - pageRect.top),
+      w: Math.round(rect.width),
+      h: Math.round(rect.height)
+    });
+  };
+
+  const elements = Array.from(root.querySelectorAll('[data-anim]'));
+
+  elements.forEach((el, order) => {
+    const type = (el.getAttribute('data-anim') || 'fade-up').trim().toLowerCase();
+    if (type === 'none' || !supportedTypes.has(type)) return;
+
+    const triggerRaw = (el.getAttribute('data-anim-trigger') || 'load').trim().toLowerCase();
+    const trigger = supportedTriggers.has(triggerRaw) ? triggerRaw : 'load';
+    const duration = Math.max(100, Math.min(5000, Number(el.getAttribute('data-anim-duration')) || 500));
+    const delayRaw = (el.getAttribute('data-anim-delay') || '0').trim();
+    let delay = 0;
+    if (delayRaw.indexOf('stagger') === 0) {
+      const match = delayRaw.match(/stagger\\s*\\(\\s*(\\d+)\\s*\\)/);
+      const gap = match ? Number(match[1]) : 50;
+      const key = trigger;
+      if (staggerCounters[key] === undefined) staggerCounters[key] = 0;
+      delay = staggerCounters[key] * gap;
+      staggerCounters[key] += 1;
+    } else {
+      delay = Number(delayRaw) || 0;
+    }
+
+    collectTrace(el, type, trigger, duration, delay, order);
+  });
+
+  const directMarkers = Array.from(
+    root.querySelectorAll('.opacity-0, [data-anime], [data-animate]')
+  ).filter((el) => !el.closest('[data-anim]'));
+  directMarkers.slice(0, 16).forEach((el, index) => {
+    collectTrace(el, 'fade-up', 'load', 560, index * 45, elements.length + index);
+  });
+
+  if (traces.length === 0) {
+    const legacyTargets = Array.from(
+      root.querySelectorAll('h1, h2, h3, p, li, .card, .panel, .text-section, .diagram-section, .timeline-node, section, section > *')
+    ).filter((el) => !el.closest('[data-anim]'));
+    legacyTargets.slice(0, 16).forEach((el, index) => {
+      collectTrace(el, 'fade-up', 'load', 560, index * 45, index);
+    });
+  }
+
+  return traces;
 })()
 `
 
