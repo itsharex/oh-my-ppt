@@ -1,3 +1,5 @@
+import { buildElementPickerCoreScript } from './element-picker-core'
+
 export const EDIT_MODE_CONSOLE_PREFIX = '__PPT_EDIT_MODE__:'
 
 export type ElementKind =
@@ -58,8 +60,16 @@ export interface EditableElementSnapshot {
   text?: {
     editable: boolean
     value: string
+    html: string
     reason?: string
   }
+}
+
+export interface EditTextTarget {
+  type: 'text-node'
+  parentSelector: string
+  textNodeIndex: number
+  text: string
 }
 
 export interface EditSelectionPayload {
@@ -73,6 +83,8 @@ export interface EditSelectionPayload {
   snapshot?: EditableElementSnapshot | null
   isText: boolean
   text: string
+  html?: string
+  textTarget?: EditTextTarget
   style: {
     color?: string
     fontSize?: string
@@ -153,6 +165,7 @@ export function buildEditModeInjectScript(previewScale = 1): string {
   const __fitScope = document.querySelector(".ppt-page-fit-scope");
   if (__fitScope) __fitScope.style.transform = "none";
   const TEXT_TAGS = new Set(["h1", "h2", "h3", "h4", "h5", "h6", "p", "li", "span", "strong", "em", "b", "i", "small", "label", "button", "td", "th", "blockquote", "figcaption"]);
+  const EDITABLE_TEXT_CHILD_TAGS = new Set([...TEXT_TAGS, "a", "code", "sub", "sup", "u", "s", "br"]);
   const BLOCKED_TEXT_TAGS = new Set(["script", "style", "svg", "canvas", "img", "video", "audio", "input", "textarea", "select", "option"]);
 
   const normalizeText = (value) => String(value || "").replace(/\\\\s+/g, " ").trim();
@@ -164,7 +177,8 @@ export function buildEditModeInjectScript(previewScale = 1): string {
   const hasOnlyEditableTextChildren = (element) => {
     return Array.from(element.children || []).every((child) => {
       const tag = child.tagName ? child.tagName.toLowerCase() : "";
-      return tag === "br";
+      if (!EDITABLE_TEXT_CHILD_TAGS.has(tag)) return false;
+      return hasOnlyEditableTextChildren(child);
     });
   };
 
@@ -270,7 +284,10 @@ export function buildEditModeInjectScript(previewScale = 1): string {
     if (!(el instanceof Element)) return null;
     const scope = getPageScopeSelector();
     const blockId = el.getAttribute("data-block-id");
-    if (blockId) return scope + ' [data-block-id="' + attrEscape(blockId) + '"]';
+    if (blockId) {
+      const selector = scope + ' [data-block-id="' + attrEscape(blockId) + '"]';
+      if (isUniqueSelector(selector)) return selector;
+    }
 
     const role = el.getAttribute("data-role");
     if (role) {
@@ -454,53 +471,17 @@ export function buildEditModeInjectScript(previewScale = 1): string {
     return rect.width >= 2 && rect.height >= 2;
   };
 
-  const isPointInRect = (rect, clientX, clientY) => {
-    return clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom;
-  };
+  ${buildElementPickerCoreScript()}
 
-  const getElementDepth = (element) => {
-    let depth = 0;
-    let current = element;
-    while (current && current.parentElement) {
-      depth += 1;
-      current = current.parentElement;
-    }
-    return depth;
-  };
+  const elementPicker = createPptElementPicker({
+    getPageRoot,
+    getContentRoot,
+    isSelectable: isUsableElementTarget,
+    getSelector: buildStableSelector
+  });
 
   const getPointTarget = (origin, clientX, clientY) => {
-    const hitElement = document.elementFromPoint(clientX, clientY);
-    const root = getPageRoot(origin) || getPageRoot(hitElement) || document.querySelector(".ppt-page-root, [data-ppt-guard-root='1']");
-    if (!root) return null;
-    const seen = new Set();
-    const candidates = [];
-    const addCandidate = (element) => {
-      if (!(element instanceof Element)) return;
-      if (seen.has(element)) return;
-      seen.add(element);
-      if (!root.contains(element)) return;
-      if (!isUsableElementTarget(element)) return;
-      const selector = buildStableSelector(element);
-      if (!selector) return;
-      const rect = element.getBoundingClientRect();
-      if (!isPointInRect(rect, clientX, clientY)) return;
-      const centerX = rect.left + rect.width / 2;
-      const centerY = rect.top + rect.height / 2;
-      candidates.push({
-        element,
-        area: Math.max(1, rect.width * rect.height),
-        distance: Math.hypot(centerX - clientX, centerY - clientY),
-        depth: getElementDepth(element),
-      });
-    };
-
-    if (typeof document.elementsFromPoint === "function") {
-      document.elementsFromPoint(clientX, clientY).forEach(addCandidate);
-    }
-    root.querySelectorAll("*").forEach(addCandidate);
-
-    candidates.sort((a, b) => a.area - b.area || b.depth - a.depth || a.distance - b.distance);
-    return candidates[0]?.element || null;
+    return elementPicker.pickAtPoint(origin, clientX, clientY);
   };
 
   const pickCanvasTarget = (origin) => {
@@ -643,10 +624,10 @@ export function buildEditModeInjectScript(previewScale = 1): string {
         transition: none !important;
       }
       .\${HOVER_CLASS} {
-        cursor: move !important;
+        cursor: crosshair !important;
       }
       .\${HOVER_CLASS} * {
-        cursor: move !important;
+        cursor: crosshair !important;
       }
       #\${HOVER_OVERLAY_ID} {
         position: fixed !important;
@@ -725,7 +706,7 @@ export function buildEditModeInjectScript(previewScale = 1): string {
       html,
       body,
       body * {
-        cursor: move !important;
+        cursor: crosshair !important;
         -webkit-user-select: none !important;
         user-select: none !important;
       }
@@ -794,10 +775,10 @@ export function buildEditModeInjectScript(previewScale = 1): string {
   const previousCursor = cursorHost && cursorHost.style ? cursorHost.style.cursor : "";
   const previousRootCursor = rootHost && rootHost.style ? rootHost.style.cursor : "";
   if (rootHost && rootHost.style) {
-    rootHost.style.cursor = "move";
+    rootHost.style.cursor = "crosshair";
   }
   if (cursorHost && cursorHost.style) {
-    cursorHost.style.cursor = "move";
+    cursorHost.style.cursor = "crosshair";
   }
   ensureStyle();
 
@@ -1005,6 +986,39 @@ export function buildEditModeInjectScript(previewScale = 1): string {
     return element.getAttribute("data-block-id") || "";
   };
 
+  const getCaretNodeAtPoint = (clientX, clientY) => {
+    if (!Number.isFinite(clientX) || !Number.isFinite(clientY)) return null;
+    try {
+      if (typeof document.caretPositionFromPoint === "function") {
+        return document.caretPositionFromPoint(clientX, clientY)?.offsetNode || null;
+      }
+      if (typeof document.caretRangeFromPoint === "function") {
+        return document.caretRangeFromPoint(clientX, clientY)?.startContainer || null;
+      }
+    } catch (_error) {}
+    return null;
+  };
+
+  const buildTextTargetAtPoint = (selected, selectedSelector, clientX, clientY) => {
+    if (!(selected instanceof Element)) return undefined;
+    const node = getCaretNodeAtPoint(clientX, clientY);
+    if (!node || node.nodeType !== Node.TEXT_NODE) return undefined;
+    const parent = node.parentElement;
+    if (!(parent instanceof Element) || !selected.contains(parent)) return undefined;
+    const text = String(node.nodeValue || "");
+    if (!normalizeText(text)) return undefined;
+    const parentSelector = parent === selected ? selectedSelector : buildStableSelector(parent);
+    if (!parentSelector) return undefined;
+    const textNodeIndex = Array.prototype.indexOf.call(parent.childNodes || [], node);
+    if (textNodeIndex < 0) return undefined;
+    return {
+      type: "text-node",
+      parentSelector,
+      textNodeIndex,
+      text,
+    };
+  };
+
   const classifyElement = (element, isText) => {
     if (!(element instanceof Element)) return "unknown";
     const tag = element.tagName ? element.tagName.toLowerCase() : "";
@@ -1171,6 +1185,7 @@ export function buildEditModeInjectScript(previewScale = 1): string {
       text: {
         editable: isText,
         value: rawText,
+        html: isText ? target.innerHTML : "",
         reason: isText ? undefined : "not-text-only",
       },
     };
@@ -1190,7 +1205,7 @@ export function buildEditModeInjectScript(previewScale = 1): string {
     };
   };
 
-  const emitSelected = (target, selector) => {
+  const emitSelected = (target, selector, textTarget) => {
     const snapshot = collectElementSnapshot(target, selector);
     if (!snapshot) {
       console.log(LOG_PREFIX + JSON.stringify({
@@ -1229,6 +1244,8 @@ export function buildEditModeInjectScript(previewScale = 1): string {
       snapshot,
       isText,
       text: snapshot.text?.value || "",
+      html: snapshot.text?.html || "",
+      textTarget,
       style: isText ? {
         color: snapshot.computed.color || "",
         fontSize: snapshot.computed.fontSize || "",
@@ -1507,6 +1524,7 @@ export function buildEditModeInjectScript(previewScale = 1): string {
       elementTag,
       startClientX: event.clientX,
       startClientY: event.clientY,
+      textTarget: buildTextTargetAtPoint(target, selector, event.clientX, event.clientY),
       baseX,
       baseY,
     };
@@ -1520,7 +1538,7 @@ export function buildEditModeInjectScript(previewScale = 1): string {
       const s = dragPendingState;
       dragPendingState = null;
       setSelected(s.target);
-      emitSelected(s.target, s.selector);
+      emitSelected(s.target, s.selector, s.textTarget);
       return;
     }
 
@@ -1529,6 +1547,8 @@ export function buildEditModeInjectScript(previewScale = 1): string {
         event.target?.releasePointerCapture?.(event.pointerId);
       } catch (_error) {}
       pendingAnchorState = null;
+      if (rootHost && rootHost.style) rootHost.style.cursor = "crosshair";
+      if (cursorHost && cursorHost.style) cursorHost.style.cursor = "crosshair";
       event.preventDefault();
       event.stopPropagation();
       return;
@@ -1633,8 +1653,8 @@ export function buildEditModeInjectScript(previewScale = 1): string {
     } catch (_error) {}
     target.style.willChange = "";
     updateOverlay();
-    if (rootHost && rootHost.style) rootHost.style.cursor = "move";
-    if (cursorHost && cursorHost.style) cursorHost.style.cursor = "move";
+    if (rootHost && rootHost.style) rootHost.style.cursor = "crosshair";
+    if (cursorHost && cursorHost.style) cursorHost.style.cursor = "crosshair";
 
     if (Math.abs(deltaX) >= 0.5 || Math.abs(deltaY) >= 0.5) {
       const movedPageBounds = getPageBoundsFor(target);
@@ -1684,8 +1704,23 @@ export function buildEditModeInjectScript(previewScale = 1): string {
     try {
       const el = document.querySelector(selector);
       if (!el) return;
+      if (typeof patch.html === "string") {
+        el.innerHTML = patch.html;
+      } else
       if (typeof patch.text === "string") {
-        el.textContent = patch.text;
+        const target = patch.textTarget;
+        if (target && target.type === "text-node" && typeof target.parentSelector === "string") {
+          const parent = document.querySelector(target.parentSelector);
+          const index = Number(target.textNodeIndex);
+          const node = parent && Number.isInteger(index) ? parent.childNodes[index] : null;
+          if (node && node.nodeType === Node.TEXT_NODE) {
+            node.nodeValue = patch.text;
+          } else {
+            el.textContent = patch.text;
+          }
+        } else {
+          el.textContent = patch.text;
+        }
       }
       if (patch.style) {
         if (patch.style.color) el.style.setProperty("color", patch.style.color, "important");

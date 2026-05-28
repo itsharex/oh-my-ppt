@@ -236,6 +236,7 @@ export function registerEditorHandlers(ctx: IpcContext): void {
             ? (rawPatch.style as Record<string, unknown>)
             : {}
         html = patchElementProperties(html, selector, {
+          html: typeof rawPatch.html === 'string' ? rawPatch.html : undefined,
           text: typeof rawPatch.text === 'string' ? rawPatch.text : undefined,
           style: {
             color: typeof rawStyle.color === 'string' ? rawStyle.color : undefined,
@@ -274,6 +275,8 @@ export function registerEditorHandlers(ctx: IpcContext): void {
         try {
           html = patchGenericElementProperties(html, resolvedSelector, {
             text: typeof patch.text === 'string' ? patch.text : undefined,
+            html: typeof patch.html === 'string' ? patch.html : undefined,
+            textTarget: patch.textTarget,
             style: style as Parameters<typeof patchGenericElementProperties>[2]['style'],
             attrs: attrs as Parameters<typeof patchGenericElementProperties>[2]['attrs']
           })
@@ -416,6 +419,8 @@ export function registerEditorHandlers(ctx: IpcContext): void {
       record.patch && typeof record.patch === 'object'
         ? (record.patch as {
             text?: unknown
+            html?: unknown
+            textTarget?: unknown
             style?: unknown
           })
         : {}
@@ -436,7 +441,9 @@ export function registerEditorHandlers(ctx: IpcContext): void {
     await withHtmlFileLock(safeHtmlPath, async () => {
       const html = await fs.promises.readFile(safeHtmlPath, 'utf-8')
       const nextHtml = patchElementProperties(html, selector, {
+        html: typeof rawPatch.html === 'string' ? rawPatch.html : undefined,
         text: typeof rawPatch.text === 'string' ? rawPatch.text : undefined,
+        textTarget: rawPatch.textTarget,
         style: {
           color: typeof rawStyle.color === 'string' ? rawStyle.color : undefined,
           fontSize: typeof rawStyle.fontSize === 'string' ? rawStyle.fontSize : undefined,

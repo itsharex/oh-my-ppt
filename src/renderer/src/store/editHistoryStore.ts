@@ -32,7 +32,14 @@ export interface PropertyEditItem {
   selector: string
   blockId?: string
   patch: {
+    html?: string
     text?: string
+    textTarget?: {
+      type: 'text-node'
+      parentSelector: string
+      textNodeIndex: number
+      text: string
+    }
     style?: {
       zIndex?: number
       opacity?: number
@@ -96,7 +103,9 @@ function cloneSnapshot(s: EditSnapshot): EditSnapshot {
     propertyEdits: s.propertyEdits.map((e) => ({
       ...e,
       patch: {
+        html: e.patch.html,
         text: e.patch.text,
+        textTarget: e.patch.textTarget ? { ...e.patch.textTarget } : undefined,
         style: e.patch.style ? { ...e.patch.style } : undefined,
         attrs: e.patch.attrs ? { ...e.patch.attrs } : undefined
       }
@@ -128,6 +137,8 @@ function propertyPatchEquals(a: PropertyEditItem['patch'], b: PropertyEditItem['
   const bAttrs = compactPatchObject(b.attrs)
   return (
     a.text === b.text &&
+    a.html === b.html &&
+    JSON.stringify(a.textTarget || null) === JSON.stringify(b.textTarget || null) &&
     JSON.stringify(aStyle) === JSON.stringify(bStyle) &&
     JSON.stringify(aAttrs) === JSON.stringify(bAttrs)
   )
@@ -238,7 +249,9 @@ export const useEditHistoryStore = create<EditHistoryState>((set, get) => ({
           item.selector === edit.selector
       )
       const mergePatch = (prev: PropertyEditItem['patch'], next: PropertyEditItem['patch']): PropertyEditItem['patch'] => ({
+        html: next.html ?? prev.html,
         text: next.text ?? prev.text,
+        textTarget: next.textTarget ?? prev.textTarget,
         style: {
           ...(prev.style || {}),
           ...(next.style || {})

@@ -4,6 +4,7 @@ import type {
 } from '../../preview/edit-mode-script'
 
 export interface ElementEditDraft {
+  html: string
   text: string
   color: string
   fontSize: string

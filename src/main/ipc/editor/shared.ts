@@ -103,6 +103,19 @@ export function serializeStyle(styleMap: Map<string, string>): string {
     .join('; ')
 }
 
+function stripStyleKeys(style: string, keys: string[]): string {
+  const excluded = new Set(keys.map((key) => key.toLowerCase()))
+  const styleMap = parseStyle(style)
+  let changed = false
+  for (const key of Array.from(styleMap.keys())) {
+    if (excluded.has(key.toLowerCase())) {
+      styleMap.delete(key)
+      changed = true
+    }
+  }
+  return changed ? serializeStyle(styleMap) : style
+}
+
 export function clampDragValue(value: unknown): number {
   const parsed = Number(value)
   if (!Number.isFinite(parsed)) return 0
@@ -333,7 +346,9 @@ export function patchElementProperties(
   html: string,
   selector: string,
   patch: {
+    html?: string
     text?: string
+    textTarget?: unknown
     style?: {
       color?: string
       fontSize?: string
@@ -361,11 +376,22 @@ export function patchElementProperties(
     throw new Error('当前元素包含非文本子元素，暂不支持直接编辑；可以选择更内层的文字。')
   }
 
-  if (typeof patch.text === 'string') {
-    const text = normalizeText(patch.text)
+  if (typeof patch.html === 'string') {
+    const nextHtml = stripUnsafeRichTextHtml(patch.html)
+    const text = normalizeText(
+      cheerio.load(`<root>${nextHtml}</root>`, { scriptingEnabled: false }, false).text()
+    )
     if (!text) throw new Error('文字不能为空')
     if (text.length > 500) throw new Error('文字不能超过 500 个字符')
-    target.text(text)
+    target.html(nextHtml)
+  } else if (typeof patch.text === 'string') {
+    const text = patch.text
+    const normalizedText = normalizeText(text)
+    if (!normalizedText) throw new Error('文字不能为空')
+    if (normalizedText.length > 500) throw new Error('文字不能超过 500 个字符')
+    if (!patchTextNodeTarget($, patch.textTarget, text)) {
+      target.text(normalizedText)
+    }
   }
 
   const stylePatch = patch.style || {}
@@ -383,11 +409,104 @@ export function patchElementProperties(
   return $.html()
 }
 
+export interface TextNodeTarget {
+  type: 'text-node'
+  parentSelector: string
+  textNodeIndex: number
+}
+
+function normalizeTextNodeTarget(value: unknown): TextNodeTarget | null {
+  if (!value || typeof value !== 'object') return null
+  const record = value as {
+    type?: unknown
+    parentSelector?: unknown
+    textNodeIndex?: unknown
+  }
+  if (record.type !== 'text-node') return null
+  const parentSelector =
+    typeof record.parentSelector === 'string' ? record.parentSelector.trim() : ''
+  const textNodeIndex = Number(record.textNodeIndex)
+  if (
+    !parentSelector ||
+    !Number.isInteger(textNodeIndex) ||
+    textNodeIndex < 0 ||
+    textNodeIndex > 1000
+  ) {
+    return null
+  }
+  return { type: 'text-node', parentSelector, textNodeIndex }
+}
+
+export function patchTextNodeTarget(
+  $: cheerio.CheerioAPI,
+  textTarget: unknown,
+  text: string
+): boolean {
+  const target = normalizeTextNodeTarget(textTarget)
+  if (!target) return false
+  let parent: cheerio.Cheerio<AnyNode>
+  try {
+    parent = $(target.parentSelector).first()
+  } catch {
+    return false
+  }
+  if (!parent || parent.length === 0) return false
+  const node = parent.contents().get(target.textNodeIndex) as
+    | (AnyNode & { type?: string; data?: string })
+    | undefined
+  if (!node || node.type !== 'text') return false
+  node.data = text
+  return true
+}
+
+function stripUnsafeRichTextHtml(html: string): string {
+  const $ = cheerio.load(`<root>${html}</root>`, { scriptingEnabled: false }, false)
+  const root = $('root').first()
+  root
+    .find(
+      'script, style, iframe, object, embed, img, video, audio, canvas, svg, input, textarea, select'
+    )
+    .remove()
+  root.find('*').each((_, node) => {
+    const el = $(node)
+    const tagName = String(node.tagName || '').toLowerCase()
+    if (!EDITABLE_TEXT_CHILD_TAGS.has(tagName)) {
+      el.replaceWith(el.contents())
+      return
+    }
+    const attrs = { ...(node.attribs || {}) }
+    for (const name of Object.keys(attrs)) {
+      if (
+        name === 'style' ||
+        name === 'class' ||
+        name === 'data-block-id' ||
+        name === 'href' ||
+        name === 'target' ||
+        name === 'rel'
+      ) {
+        continue
+      }
+      el.removeAttr(name)
+    }
+    const style = stripStyleKeys(el.attr('style') || '', ['zoom'])
+    if (style) el.attr('style', style)
+    else el.removeAttr('style')
+    if (tagName === 'a') {
+      const href = el.attr('href') || ''
+      if (href && !/^(https?:|mailto:|#)/i.test(href)) el.removeAttr('href')
+      if (el.attr('target') === '_blank') el.attr('rel', 'noopener noreferrer')
+    }
+  })
+  return root.html() || ''
+}
+
 export function patchGenericElementProperties(
   html: string,
   selector: string,
   patch: {
+    html?: string
     text?: string
+    textTarget?: unknown
     style?: {
       zIndex?: unknown
       opacity?: unknown
@@ -418,14 +537,25 @@ export function patchGenericElementProperties(
   }
   if (!target || target.length === 0) return html
 
-  if (typeof patch.text === 'string') {
-    const text = normalizeText(patch.text)
+  if (typeof patch.html === 'string') {
+    const nextHtml = stripUnsafeRichTextHtml(patch.html)
+    const text = normalizeText(
+      cheerio.load(`<root>${nextHtml}</root>`, { scriptingEnabled: false }, false).text()
+    )
     if (!text) throw new Error('文字不能为空')
     if (text.length > 500) throw new Error('文字不能超过 500 个字符')
-    if (!hasOnlyEditableTextChildren($, target)) {
-      throw new Error('当前元素包含非文本子元素，暂不支持直接编辑；可以选择更内层的文字。')
+    target.html(nextHtml)
+  } else if (typeof patch.text === 'string') {
+    const text = patch.text
+    const normalizedText = normalizeText(text)
+    if (!normalizedText) throw new Error('文字不能为空')
+    if (normalizedText.length > 500) throw new Error('文字不能超过 500 个字符')
+    if (!patchTextNodeTarget($, patch.textTarget, text)) {
+      if (!hasOnlyEditableTextChildren($, target)) {
+        throw new Error('当前元素包含非文本子元素，暂不支持直接编辑；可以选择更内层的文字。')
+      }
+      target.text(normalizedText)
     }
-    target.text(text)
   }
 
   const stylePatch = patch.style || {}
@@ -499,11 +629,14 @@ export function ensureElementAnchorInHtml(
   assertAnchorableElement(target)
   const existingBlockId = (target.attr('data-block-id') || '').trim()
   if (existingBlockId) {
-    return {
-      html,
-      selector: stableSelectorFor(args.pageId, existingBlockId),
-      blockId: existingBlockId,
-      changed: false
+    const existingSelector = stableSelectorFor(args.pageId, existingBlockId)
+    if ($(existingSelector).length === 1) {
+      return {
+        html,
+        selector: existingSelector,
+        blockId: existingBlockId,
+        changed: false
+      }
     }
   }
   const blockId = allocateBlockId()

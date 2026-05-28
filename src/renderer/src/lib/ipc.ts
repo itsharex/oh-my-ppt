@@ -179,7 +179,14 @@ export interface UpdateElementPropertiesPayload {
   pageId: string
   selector: string
   patch: {
+    html?: string
     text?: string
+    textTarget?: {
+      type: 'text-node'
+      parentSelector: string
+      textNodeIndex: number
+      text: string
+    }
     style?: {
       color?: string
       fontSize?: string

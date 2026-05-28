@@ -12,6 +12,7 @@ import {
   EDIT_MODE_CONSOLE_PREFIX,
   type EditableElementSnapshot,
   type EditModeMovePayload,
+  type EditTextTarget,
   type EditSelectionPayload
 } from './edit-mode-script'
 import { ipc } from '@renderer/lib/ipc'
@@ -75,7 +76,12 @@ export interface PreviewIframeHandle {
   patchPageContent: (pageId: string, newHtml: string) => void
   liveUpdateElement: (
     selector: string,
-    patch: { text?: string; style?: { color?: string; fontSize?: string; fontWeight?: string } }
+    patch: {
+      html?: string
+      text?: string
+      textTarget?: EditTextTarget
+      style?: { color?: string; fontSize?: string; fontWeight?: string }
+    }
   ) => void
   applyElementProperties: (
     selector: string,
@@ -259,6 +265,15 @@ export const PreviewIframe = forwardRef<
         elementText: args.elementText,
         reason: args.reason
       })
+      if (result.changed && result.blockId) {
+        const webview = webviewRef.current
+        if (webview) {
+          safeExecuteJavaScript(
+            webview,
+            `(() => { var __el = document.querySelector(${JSON.stringify(args.selector)}); if (__el && !__el.getAttribute('data-block-id')) __el.setAttribute('data-block-id', ${JSON.stringify(result.blockId)}); })();`
+          )
+        }
+      }
       return { selector: result.selector || args.selector, blockId: result.blockId }
     } catch {
       throw new Error('Failed to anchor selected element')
@@ -342,7 +357,13 @@ export const PreviewIframe = forwardRef<
       },
       liveUpdateElement(
         selector: string,
-        patch: { text?: string; style?: { color?: string; fontSize?: string; fontWeight?: string }; zIndex?: number }
+        patch: {
+          html?: string
+          text?: string
+          textTarget?: EditTextTarget
+          style?: { color?: string; fontSize?: string; fontWeight?: string }
+          zIndex?: number
+        }
       ): void {
         const wv = webviewRef.current
         if (!wv) return
@@ -779,6 +800,8 @@ export const PreviewIframe = forwardRef<
             height?: number
           }>
           text?: string
+          html?: string
+          textTarget?: EditTextTarget
           style?: EditSelectionPayload['style']
           bounds?: EditSelectionPayload['bounds']
           translateX?: number
@@ -815,6 +838,10 @@ export const PreviewIframe = forwardRef<
               elementText: parsed.elementText,
               reason: 'drag'
             })
+            const textTarget =
+              parsed.textTarget && parsed.textTarget.parentSelector === parsed.selector
+                ? { ...parsed.textTarget, parentSelector: anchor.selector }
+                : parsed.textTarget
             onElementSelectedRef.current?.({
               selector: anchor.selector,
               blockId: anchor.blockId || parsed.blockId,
@@ -832,6 +859,8 @@ export const PreviewIframe = forwardRef<
                 : parsed.snapshot,
               isText: Boolean(parsed.isText),
               text: typeof parsed.text === 'string' ? parsed.text : '',
+              html: typeof parsed.html === 'string' ? parsed.html : '',
+              textTarget,
               style: parsed.style || {},
               bounds: parsed.bounds,
               translateX: Number(parsed.translateX || 0),

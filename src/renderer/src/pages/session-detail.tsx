@@ -49,6 +49,7 @@ import dayjs from 'dayjs'
 import { nanoid } from 'nanoid'
 
 const EMPTY_ELEMENT_DRAFT: ElementEditDraft = {
+  html: '',
   text: '',
   color: '#34402c',
   fontSize: '',
@@ -93,7 +94,9 @@ type ElementPropertyAttrsPatch = {
 }
 
 type ElementPropertyPatch = {
+  html?: string
   text?: string
+  textTarget?: EditSelectionPayload['textTarget']
   style?: ElementPropertyStylePatch
   attrs?: ElementPropertyAttrsPatch
 }
@@ -1297,7 +1300,8 @@ export function SessionDetailPage(): React.JSX.Element {
     const attrs = payload.snapshot.attrs
     if (payload.isText) {
       setTextDraft({
-        text: payload.text,
+        text: payload.textTarget?.text ?? payload.text,
+        html: payload.html || payload.snapshot.text?.html || '',
         color: rgbToHex(computed.color),
         fontSize: fontSizeToNumber(computed.fontSize),
         fontWeight: normalizeFontWeight(computed.fontWeight),
@@ -1363,6 +1367,7 @@ export function SessionDetailPage(): React.JSX.Element {
       fields.add('preload')
     }
     if (capabilities.includes('text')) {
+      fields.add('html')
       fields.add('text')
       fields.add('color')
       fields.add('fontSize')
@@ -1383,6 +1388,7 @@ export function SessionDetailPage(): React.JSX.Element {
     const style: ElementPropertyStylePatch = {}
     const attrs: ElementPropertyAttrsPatch = {}
     let text: string | undefined
+    let html: string | undefined
 
     if (commitFields.has('layoutZIndex')) {
       const value = parseInt(draft.layoutZIndex, 10)
@@ -1403,7 +1409,12 @@ export function SessionDetailPage(): React.JSX.Element {
     if (commitFields.has('objectFit') && draft.objectFit !== (initial.computed.objectFit || 'contain')) {
       style.objectFit = draft.objectFit
     }
-    if (commitFields.has('text') && draft.text.trim() && draft.text.trim() !== (initial.text?.value || '')) {
+    const initialHtml = initial.text?.html || ''
+    if (commitFields.has('html') && draft.html.trim() && draft.html.trim() !== initialHtml.trim()) {
+      html = draft.html.trim()
+    }
+    const initialText = textSelection.textTarget?.text ?? initial.text?.value ?? ''
+    if (!html && commitFields.has('text') && draft.text.trim() && draft.text.trim() !== initialText) {
       text = draft.text.trim()
     }
     if (commitFields.has('color') && draft.color !== rgbToHex(initial.computed.color)) {
@@ -1441,11 +1452,18 @@ export function SessionDetailPage(): React.JSX.Element {
       attrs.preload = draft.preload
     }
 
-    if (text === undefined && Object.keys(style).length === 0 && Object.keys(attrs).length === 0) {
+    if (
+      html === undefined &&
+      text === undefined &&
+      Object.keys(style).length === 0 &&
+      Object.keys(attrs).length === 0
+    ) {
       return null
     }
     return {
+      html,
       text,
+      textTarget: text !== undefined ? textSelection.textTarget : undefined,
       style: Object.keys(style).length > 0 ? style : undefined,
       attrs: Object.keys(attrs).length > 0 ? attrs : undefined
     }
@@ -1531,7 +1549,9 @@ export function SessionDetailPage(): React.JSX.Element {
       // Text & style: only for text elements
       if (textSelection.isText) {
         previewIframeRef.current?.liveUpdateElement(textSelection.selector, {
+          html: draft.html,
           text: draft.text,
+          textTarget: textSelection.textTarget,
           style: {
             color: draft.color,
             fontSize: draft.fontSize ? `${draft.fontSize}px` : undefined,
@@ -1575,6 +1595,7 @@ export function SessionDetailPage(): React.JSX.Element {
     for (const t of snapshot.textEdits) {
       iframe.liveUpdateElement(t.selector, {
         text: t.patch.text,
+        textTarget: undefined,
         style: t.patch.style
       })
     }
@@ -1583,9 +1604,17 @@ export function SessionDetailPage(): React.JSX.Element {
         style: p.patch.style,
         attrs: p.patch.attrs
       })
-      if (p.patch.text || p.patch.style?.color || p.patch.style?.fontSize || p.patch.style?.fontWeight) {
+      if (
+        p.patch.html ||
+        p.patch.text ||
+        p.patch.style?.color ||
+        p.patch.style?.fontSize ||
+        p.patch.style?.fontWeight
+      ) {
         iframe.liveUpdateElement(p.selector, {
           text: p.patch.text,
+          html: p.patch.html,
+          textTarget: p.patch.textTarget,
           style: {
             color: p.patch.style?.color,
             fontSize: p.patch.style?.fontSize,

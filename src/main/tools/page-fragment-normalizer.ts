@@ -207,9 +207,9 @@ export const normalizeCreativePageFragment = (html: string): string => {
     const el = $(node)
     if (el.closest('script, style, svg, canvas').length) return
     if (el.attr('data-block-id')) return
-    const text = directTextContent(el)
-    if (!text || text.replace(/\s+/g, '').length === 0) return
     if (!hasOnlyInlineOrTextChildren(el)) return
+    const text = el.text().replace(/\s+/g, ' ').trim()
+    if (!text || text.replace(/\s+/g, '').length === 0) return
     const tagName = (node.type === 'tag' ? node.name : '').toLowerCase()
     el.attr('data-block-id', allocateBlockId(blockIdBaseForTag(tagName, !hasTitleRole), usedBlockIds))
   })
