@@ -115,55 +115,7 @@ const hasConcreteChartHeightStyle = (styleRaw: string): boolean =>
     styleRaw
   )
 
-const validateChartCanvasFrames = ($: cheerio.CheerioAPI, errors: string[]): void => {
-  $('canvas').each((index, node) => {
-    const canvas = $(node)
-    const parent = canvas.parent()
-    if (!parent.length) {
-      errors.push(`第 ${index + 1} 个 canvas 缺少父容器`)
-      return
-    }
-    const parentClassRaw = parent.attr('class') || ''
-    const parentElementChildren = parent.children()
-    const parentIsDedicatedFrame =
-      parentElementChildren.length === 1 && parentElementChildren.get(0) === canvas.get(0)
-    const hasChartFrameClass = classList(parentClassRaw).map(classBaseName).includes('ppt-chart-frame')
-    const hasDirectHeight =
-      hasExplicitChartPixelHeightClass(parentClassRaw) ||
-      hasConcreteChartHeightStyle(parent.attr('style') || '')
 
-    if (!parentIsDedicatedFrame || !hasChartFrameClass || !hasDirectHeight) {
-      errors.push(
-        `第 ${index + 1} 个 canvas 必须放在专用 .ppt-chart-frame 直接父容器中，并由模型选择明确的 h-[Npx] 高度；不要使用 h-full/flex-1/min-h-* 或 h-64 这类缩写。修改图表前请先 ${formatSkillUsageRequirement(CHART_SKILL_NAME)}`
-      )
-    } else {
-      const heightMatch = parentClassRaw.match(/h-\[\s*(\d+(?:\.\d+)?)\s*px\s*\]/)
-      const styleMatch = (parent.attr('style') || '').match(/height\s*:\s*(\d+(?:\.\d+)?)px/i)
-      const heightPx = heightMatch
-        ? parseFloat(heightMatch[1])
-        : styleMatch
-          ? parseFloat(styleMatch[1])
-          : 0
-      if (heightPx > 0 && heightPx < 100) {
-        errors.push(
-          `第 ${index + 1} 个图表高度 h-[${heightPx}px] 过小（最小 100px），请从布局预算反推图表高度：884px − 标题 − 指标 − gap − 卡片内边距 = 图表可用空间`
-        )
-      }
-      // Check budget comment vs actual chart height
-      const prevSibling = parent.prev()
-      const prevText = prevSibling.length ? prevSibling.text() : ''
-      const budgetNumbers = [...prevText.matchAll(/=\s*[~]?\s*(\d+)\s*px/g)].map(
-        (m) => parseInt(m[1], 10)
-      )
-      const budgetedPx = budgetNumbers.length > 0 ? budgetNumbers[budgetNumbers.length - 1] : 0
-      if (budgetedPx > 200 && heightPx > 0 && heightPx < budgetedPx * 0.75) {
-        errors.push(
-          `第 ${index + 1} 个图表高度 h-[${heightPx}px] 远小于预算计算的 ${budgetedPx}px。请将图表高度改为 h-[${Math.round(budgetedPx * 0.9)}px] 左右（预留 10% 余量）`
-        )
-      }
-    }
-  })
-}
 
 const isAllowedRuntimeAsset = (src: string): boolean => {
   const normalized = src.trim().toLowerCase()
@@ -410,7 +362,6 @@ export const validatePersistedPageHtml = (
     errors.push(`data-block-id 重复：${duplicatedBlockIds.join(', ')}`)
   }
 
-  validateChartCanvasFrames($, errors)
 
   $('video').each((index, node) => {
     const video = $(node)

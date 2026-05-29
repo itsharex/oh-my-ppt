@@ -32,15 +32,16 @@ Every chart needs exactly two parts: an HTML frame with explicit height, and a s
 
 ### 1. HTML — chart frame with explicit height
 
-You MUST write a budget comment before the chart frame. Calculate the remaining height and write it as an HTML comment. This forces you to actually compute instead of guessing.
+Before writing the chart frame, you MUST calculate the height. Write the calculation as a comment, then **use the result directly in h-[Npx]**. The number in h-[Npx] MUST equal the result of your calculation. Do NOT write a different number.
 
 ```html
-<!-- budget: 884 - 48(p-6) - 68(title) - 24(gap-6) = 744px for grid flex-1 area -->
-<!-- chart column: 744 - 28(h3) - 8(gap-2) - 16(p-2) = 692px → h-[680px] -->
-<div class="ppt-chart-frame relative h-[680px] w-full overflow-hidden">
+<!-- height calc: 884 - 48(p-6) - 68(title) - 24(gap-6) - 28(h3) - 8(gap-2) = 708 -->
+<div class="ppt-chart-frame relative h-[708px] w-full overflow-hidden">
   <canvas id="my-chart" class="h-full w-full"></canvas>
 </div>
 ```
+
+The comment and h-[Npx] MUST show the same number. If your comment says "= 708" then the div MUST say h-[708px].
 
 Calculation steps:
 1. Start from 884px (usable height after runtime p-2 padding)
@@ -48,10 +49,8 @@ Calculation steps:
 3. Subtract all modules above the chart: title, subtitle, metrics row, legends
 4. Subtract all gaps between modules
 5. If chart is inside a card: subtract card padding and card title
-6. Give the chart most of the remaining space, leave ~20px margin
+6. The final result goes directly into h-[Npx] — use at least 85% of remaining space
 7. Minimum 100px. If budget < 100px, the slide has too many modules — cut content.
-
-Do not skip the budget comment. Do not guess — always calculate first.
 
 ### 2. JavaScript — always use DOMContentLoaded + PPT.createChart
 

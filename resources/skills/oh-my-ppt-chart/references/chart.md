@@ -52,17 +52,18 @@ Use `PPT.createChart` — never `new Chart(...)`.
 
 The `.ppt-chart-frame` parent must have an explicit `h-[Npx]` height. Chart.js requires a concrete pixel height to render — relative values (`flex-1`, `h-full`, `min-h-*`) are unreliable.
 
-### Mandatory: write a budget comment before the chart
+### Mandatory: calculate then write — numbers must match
 
-Before writing the chart frame div, write an HTML comment showing your height calculation. You MUST do this — it forces you to compute instead of guessing.
+Before writing the chart frame, calculate the remaining height. Write the calculation as a comment, then **use the result directly in h-[Npx]**. The number in h-[Npx] MUST equal the result of your calculation.
 
 ```html
-<!-- budget: 884 - 64(p-8) - 60(title) - 20(gap-5) - 100(metrics) = 640px for chart area -->
-<!-- chart card: 640 - 40(h3+mb-2) - 16(p-2) = 584px → h-[560px] -->
-<div class="ppt-chart-frame relative h-[560px] w-full overflow-hidden">
+<!-- height calc: 884 - 64(p-8) - 60(title) - 20(gap-5) - 100(metrics) - 40(h3) - 16(p-4) = 584 -->
+<div class="ppt-chart-frame relative h-[584px] w-full overflow-hidden">
   <canvas id="my-chart" class="h-full w-full"></canvas>
 </div>
 ```
+
+The comment and h-[Npx] MUST show the same number. If your comment says "= 584" then the div MUST say h-[584px]. Do NOT write a different number in h-[Npx].
 
 Calculation steps:
 1. Start from **884px** (usable height after runtime p-2 padding)
@@ -70,10 +71,8 @@ Calculation steps:
 3. Subtract all modules above the chart: title, subtitle, metrics row, legends
 4. Subtract all gaps between modules
 5. If chart is inside a card: subtract card padding and card title/heading
-6. Give the chart most of the remaining space, leave ~20px margin
+6. The final result goes directly into h-[Npx] — use at least 85% of remaining space
 7. Minimum 100px. If budget < 100px, the slide has too many modules — cut content.
-
-Do not skip the budget comment. Do not guess — always calculate first.
 
 ### What not to use for height
 
