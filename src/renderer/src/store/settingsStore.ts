@@ -7,6 +7,7 @@ interface Settings {
   locale: 'zh' | 'en'
   storagePath: string
   timeouts: Record<ConfigurableModelTimeoutProfile, number>
+  proxyUrl: string
 }
 
 interface SettingsStore {

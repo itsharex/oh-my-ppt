@@ -318,7 +318,12 @@ export const en = {
     verifyFailed: 'API Key verification failed',
     verifyFailedDescription: 'Check model / api_key / base_url',
     choosePathFailed: 'Failed to choose folder',
-    storagePathUpdated: 'Storage path updated'
+    storagePathUpdated: 'Storage path updated',
+    proxySection: 'Network Proxy',
+    proxyLabel: 'Proxy address',
+    proxyPlaceholder: 'e.g. http://127.0.0.1:7890',
+    proxyHint: 'Supports HTTP and SOCKS5 proxies for accessing services like Gemini. Leave empty to disable.',
+    proxySavedDescription: 'Proxy settings saved. Takes effect immediately.'
   },
   styles: {
     eyebrow: 'Style Lab',

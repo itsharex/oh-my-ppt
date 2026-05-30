@@ -310,7 +310,12 @@ export const zh = {
     verifyFailed: 'API Key 验证失败',
     verifyFailedDescription: '请检查 model / api_key / base_url',
     choosePathFailed: '选择目录失败',
-    storagePathUpdated: '存储路径已更新'
+    storagePathUpdated: '存储路径已更新',
+    proxySection: '网络代理',
+    proxyLabel: '代理地址',
+    proxyPlaceholder: '例如：http://127.0.0.1:7890',
+    proxyHint: '支持 HTTP 和 SOCKS5 代理，用于访问 Gemini 等需要代理的服务。留空则不使用代理。',
+    proxySavedDescription: '代理设置已写入本地，立即生效。'
   },
   styles: {
     eyebrow: 'Style Lab',

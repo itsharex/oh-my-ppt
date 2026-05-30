@@ -15,6 +15,7 @@ import {
   resolveInstalledSkillsPath,
   setSkillsRuntime,
 } from './skills'
+import { applyProxy } from './utils/proxy'
 import { createTray, destroyTray, showTrayHideBalloon } from './tray'
 import type { UpdateAvailablePayload } from '@shared/app-update'
 
@@ -337,6 +338,18 @@ if (gotSingleInstanceLock) {
     if (window && db && agentManager) {
       setupIPC(window, db, agentManager)
       scheduleUpdateNotification(window)
+
+      // Apply proxy from saved settings
+      try {
+        const savedSettings = await db.getAllSettings()
+        if (typeof savedSettings.proxy_url === 'string' && savedSettings.proxy_url.trim()) {
+          applyProxy(savedSettings.proxy_url.trim())
+        }
+      } catch (proxyError) {
+        log.warn('[app] failed to apply saved proxy', {
+          message: proxyError instanceof Error ? proxyError.message : String(proxyError)
+        })
+      }
     }
 
     app.on('browser-window-created', (_, window) => {

@@ -90,6 +90,9 @@ export function SettingsPage(): React.JSX.Element {
   >(() => createTimeoutSeconds(useSettingsStore.getState().settings?.timeouts))
   const [savingModel, setSavingModel] = useState(false)
   const [savingTimeouts, setSavingTimeouts] = useState(false)
+  const [proxyUrl, setProxyUrl] = useState(
+    () => useSettingsStore.getState().settings?.proxyUrl || ''
+  )
   const [verifying, setVerifying] = useState(false)
   const [activatingId, setActivatingId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
@@ -102,6 +105,7 @@ export function SettingsPage(): React.JSX.Element {
       const nextSettings = useSettingsStore.getState().settings
       setStoragePath(nextSettings?.storagePath || '')
       setTimeoutSeconds(createTimeoutSeconds(nextSettings?.timeouts))
+      setProxyUrl(nextSettings?.proxyUrl || '')
     }
     void loadSettings()
     return () => {
@@ -215,14 +219,17 @@ export function SettingsPage(): React.JSX.Element {
   }
 
   const handleTimeoutChange = (profile: ConfigurableModelTimeoutProfile, value: string): void => {
-    setTimeoutSeconds((current) => ({
-      ...current,
-      [profile]: modelTimeoutMsToSeconds(Number(value) * 1000, profile)
-    }))
+    const num = Number(value)
+    if (Number.isFinite(num) && num >= 0) {
+      setTimeoutSeconds((current) => ({
+        ...current,
+        [profile]: num
+      }))
+    }
     setVerificationMessage(null)
   }
 
-  const handleSaveTimeouts = async (): Promise<void> => {
+  const handleSaveAdvanced = async (): Promise<void> => {
     setSavingTimeouts(true)
     setVerificationMessage(null)
     try {
@@ -232,14 +239,17 @@ export function SettingsPage(): React.JSX.Element {
             profile,
             timeoutSeconds[profile] * 1000
           ])
-        ) as Record<ConfigurableModelTimeoutProfile, number>
+        ) as Record<ConfigurableModelTimeoutProfile, number>,
+        proxyUrl: proxyUrl.trim()
       })
       const saveError = useSettingsStore.getState().verificationMessage
       if (saveError) {
         error(t('settings.saveFailed'), { description: saveError })
         return
       }
-      success(t('settings.saved'), { description: t('settings.timeoutSavedDescription') })
+      success(t('settings.saved'), {
+        description: t('settings.savedDescription')
+      })
     } finally {
       setSavingTimeouts(false)
     }
@@ -510,8 +520,31 @@ export function SettingsPage(): React.JSX.Element {
             </CardContent>
           </Card>
 
+          <Card className="mb-4">
+            <CardHeader className="p-5 pb-3">
+              <CardTitle className="text-base">{t('settings.proxySection')}</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 p-5 pt-0">
+              <div>
+                <label className="mb-1.5 block text-sm font-medium">
+                  {t('settings.proxyLabel')}
+                </label>
+                <Input
+                  value={proxyUrl}
+                  onChange={(e) => {
+                    setProxyUrl(e.target.value)
+                    setVerificationMessage(null)
+                  }}
+                  placeholder={t('settings.proxyPlaceholder')}
+                  className="h-10"
+                />
+                <p className="mt-2 text-xs text-muted-foreground">{t('settings.proxyHint')}</p>
+              </div>
+            </CardContent>
+          </Card>
+
           <div className="flex justify-end">
-            <Button onClick={handleSaveTimeouts} disabled={savingTimeouts}>
+            <Button onClick={handleSaveAdvanced} disabled={savingTimeouts}>
               {savingTimeouts ? t('common.saving') : t('settings.saveTimeouts')}
             </Button>
           </div>
