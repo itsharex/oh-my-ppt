@@ -10,6 +10,7 @@ import {
   DropdownMenuTrigger
 } from '../components/ui/DropdownMenu'
 import { Input, Textarea } from '../components/ui/Input'
+import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/Popover'
 import { ScrollArea } from '../components/ui/ScrollArea'
 import { useToastStore } from '../store'
 import { useSettingsStore } from '../store'
@@ -19,6 +20,7 @@ import {
   ArrowLeft,
   Check,
   ChevronDown,
+  CircleHelp,
   Eye,
   Import,
   Loader2,
@@ -478,7 +480,25 @@ export function StyleEditorPage(): React.JSX.Element {
               </div>
             </div>
             <div className="rounded-lg border border-[#d9ccb4]/70 bg-[#f8f0e2]/72 p-2.5">
-              <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#5d6f4d]">{t('styleEditor.writingTips')}</p>
+              <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#5d6f4d]">
+                {t('styleEditor.writingTips')}
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <CircleHelp className="ml-1 inline h-3.5 w-3.5 cursor-pointer text-[#5d6f4d]/60 hover:text-[#5d6f4d]" />
+                  </PopoverTrigger>
+                  <PopoverContent align="start" side="bottom" className="w-80 border-[#d8ccb5]/80 bg-[#fffdf8] p-3">
+                    <p className="mb-1.5 text-[11px] font-semibold text-[#3e4a32]">
+                      {t('styleEditor.promptReferenceTitle')}
+                      <span className="ml-1 font-normal text-[#5b6b4d]/70">{t('styleEditor.promptReferenceSubtitle')}</span>
+                    </p>
+                    <ul className="list-disc space-y-1 pl-4 text-[11px] leading-5 text-[#5b6b4d]">
+                      {[1, 2, 3, 4, 5, 6, 7].map((i) => (
+                        <li key={i}>{t(`styleEditor.promptRef${i}` as Parameters<typeof t>[0])}</li>
+                      ))}
+                    </ul>
+                  </PopoverContent>
+                </Popover>
+              </p>
               <ul className="list-disc space-y-0.5 pl-5 text-[11px] leading-5 text-[#5b6b4d]">
                 <li>{t('styleEditor.tipStructure')}</li>
                 <li>{t('styleEditor.tipAnimation')}</li>

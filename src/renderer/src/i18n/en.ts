@@ -358,6 +358,9 @@ export const en = {
     refreshedDescription: '{count} styles total',
     loadFailed: 'Failed to load styles',
     sourceBuiltin: 'builtin',
+    deleted: 'Style deleted',
+    deleteFailed: 'Failed to delete style',
+    cannotDelete: 'This style cannot be deleted',
     pagesCount: 'Pages · {count}'
   },
   styleEditor: {
@@ -412,6 +415,15 @@ export const en = {
       'Describe fonts by their character (handwritten, rounded, warm) — not just family names or specs.',
     tipReadable:
       'State the target audience and use case (e.g. "youth mental health PPT") so the model understands context.',
+    promptReferenceTitle: 'Style Extraction Prompt Reference',
+    promptReferenceSubtitle: '(can be used for generation elsewhere)',
+    promptRef1: 'Open with a natural-language paragraph describing the overall visual mood, e.g. "clean, bright, light-toned with generous whitespace"',
+    promptRef2: '## Colors: List primary, background, text colors with hex values, e.g. "background #FFFFFF, text dark gray #1F2937"',
+    promptRef3: '## Typography: Describe font style, weight, size hierarchy, line height, e.g. "bold sans-serif titles, regular body, line height 1.6+"',
+    promptRef4: '## Layout: Specify alignment, information hierarchy, whitespace and density, e.g. "modular sections, centered or left-aligned, moderate density"',
+    promptRef5: '## Animation: Describe entrance animations, duration, easing, e.g. "fade-in or gentle slide-up, 0.4s–0.6s, ease-out"',
+    promptRef6: '## Use case: Define target audience and scenario, e.g. "business reports, product intros, project summaries — formal but not dull"',
+    promptRef7: '## Avoid: List elements to avoid, e.g. "no high-saturation clashing colors, no heavy gradients and shadows"',
     emptyMarkdown: '_No Markdown content_',
     saveStyle: 'Save style',
     currentMode: 'Current mode: {mode}',
