@@ -102,7 +102,7 @@ export function StylesPage(): React.JSX.Element {
                           className="h-7 gap-1 px-2 text-[11px] transition-all duration-200 group-hover:-translate-y-0.5"
                         >
                           <Eye className="h-3 w-3" />
-                          预览
+                          {t('common.preview')}
                         </Button>
                       </PopoverTrigger>
                     )}

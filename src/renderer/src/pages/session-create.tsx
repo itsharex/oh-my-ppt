@@ -12,13 +12,6 @@ import {
   SelectValue
 } from '../components/ui/Select'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../components/ui/Tooltip'
-import { ButtonGroup, ButtonGroupSeparator } from '../components/ui/ButtonGroup'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger
-} from '../components/ui/DropdownMenu'
 import {
   Dialog,
   DialogContent,
@@ -27,10 +20,12 @@ import {
   DialogHeader,
   DialogTitle
 } from '../components/ui/Dialog'
-import { Check, ChevronDown, CircleAlert, FileText, Loader2, Sparkles, X } from 'lucide-react'
+import { CircleAlert, FileText, Loader2, Sparkles, X } from 'lucide-react'
 import { useSessionStore } from '../store'
 import { useSettingsStore } from '../store'
 import { useToastStore } from '../store'
+import { ModelSplitButton } from '../components/model/ModelActionButton'
+import { useModelAction } from '../hooks/useModelAction'
 import { ipc, type FontListItem } from '@renderer/lib/ipc'
 import type { FontSelection, ParsedDocumentPlanResult } from '@shared/generation'
 import { useT } from '../i18n'
@@ -56,8 +51,6 @@ const compactInputClass = 'h-8 px-3 py-1.5 text-xs'
 const compactSelectTriggerClass = 'h-8 px-2.5 py-1.5 text-xs'
 const compactSelectContentClass = 'text-xs'
 const compactSelectItemClass = 'px-2.5 py-1.5 text-xs'
-const compactModelDropdownClass = 'w-64'
-
 const delay = (ms: number): Promise<void> =>
   new Promise((resolve) => window.setTimeout(resolve, ms))
 
@@ -81,15 +74,16 @@ const resolvePageCount = (raw: string): number => {
 export function SessionCreatePage(): ReactElement {
   const navigate = useNavigate()
   const { createSession, loading } = useSessionStore()
-  const { settings, modelConfigs, fetchSettings, setActiveModelConfig } = useSettingsStore()
+  const { settings } = useSettingsStore()
   const { success, error, warning } = useToastStore()
+  const modelAction = useModelAction()
+  const { modelConfigs, selectedModelConfigId, ensureModelActive } = modelAction
   const t = useT()
   const [submitting, setSubmitting] = useState(false)
   const [topic, setTopic] = useState('')
   const [brief, setBrief] = useState('')
   const [pageCount, setPageCount] = useState(String(DEFAULT_PAGE_COUNT))
   const [selectedStyleId, setSelectedStyleId] = useState('')
-  const [selectedModelConfigId, setSelectedModelConfigId] = useState('')
   const [selectedTitleFontId, setSelectedTitleFontId] = useState('auto')
   const [selectedBodyFontId, setSelectedBodyFontId] = useState('auto')
   const [styleOptions, setStyleOptions] = useState<
@@ -209,7 +203,6 @@ export function SessionCreatePage(): ReactElement {
   }, [loadFontOptions])
 
   const handleSubmit = async (modelConfigId: string): Promise<void> => {
-    setSelectedModelConfigId(modelConfigId)
     const validationError = validateForm(modelConfigId)
     if (validationError) {
       if (validationError === t('home.settingsRequired')) {
@@ -367,7 +360,6 @@ export function SessionCreatePage(): ReactElement {
 
   const handleAnalyzeReference = async (modelConfigId: string): Promise<void> => {
     if (!attachedReferenceFile || parsingDocument) return
-    setSelectedModelConfigId(modelConfigId)
     if (!(await ensureModelActive(modelConfigId))) return
     const safePageCount = /^\d+$/.test(pageCount.trim())
       ? resolvePageCount(pageCount.trim())
@@ -407,32 +399,6 @@ export function SessionCreatePage(): ReactElement {
     }
   }
 
-  useEffect(() => {
-    void fetchSettings()
-  }, [fetchSettings])
-
-  useEffect(() => {
-    setSelectedModelConfigId((current) => {
-      if (current && modelConfigs.some((config) => config.id === current)) return current
-      return modelConfigs.find((config) => config.active)?.id || modelConfigs[0]?.id || ''
-    })
-  }, [modelConfigs])
-
-  const ensureModelActive = async (modelConfigId: string): Promise<boolean> => {
-    if (!modelConfigId) return false
-    const selected = modelConfigs.find((config) => config.id === modelConfigId)
-    if (!selected) return false
-    if (selected.active) return true
-
-    await setActiveModelConfig(modelConfigId)
-    const activateError = useSettingsStore.getState().verificationMessage
-    if (activateError) {
-      error(t('settings.activateModelFailed'), { description: activateError })
-      return false
-    }
-    return true
-  }
-
   const applyDocumentSuggestion = (mode: 'empty' | 'selected'): void => {
     if (!documentPlanSuggestion) return
     const shouldApplyTopic = mode === 'empty' ? !topic.trim() : applyTopicSuggestion
@@ -450,7 +416,6 @@ export function SessionCreatePage(): ReactElement {
   const bodyFontOptions = fontOptions.filter((font) => font.role.includes('body'))
   const availableTitleFonts = titleFontOptions.length > 0 ? titleFontOptions : fontOptions
   const availableBodyFonts = bodyFontOptions.length > 0 ? bodyFontOptions : fontOptions
-  const hasMultipleModelConfigs = modelConfigs.length > 1
   const fontSelectHint =
     selectedTitleFontId === 'auto' && selectedBodyFontId === 'auto'
       ? t('home.fontSchemeAutoHint')
@@ -703,74 +668,23 @@ export function SessionCreatePage(): ReactElement {
                       {attachedReferenceFile && (
                         <Tooltip>
                           <TooltipTrigger asChild>
-                            <ButtonGroup
-                              aria-label={t('home.analyzeReference')}
-                              className="box-border h-8 rounded-lg border-0 bg-gradient-to-r from-[#7f965f] to-[#5f7448] shadow-[0_8px_18px_rgba(93,107,77,0.18)]"
-                            >
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  void handleAnalyzeReference(selectedModelConfigId)
-                                }}
-                                disabled={parsingDocument || !selectedModelConfigId}
-                                className={`inline-flex h-full shrink-0 items-center justify-center gap-1.5 border-0 bg-transparent px-2.5 text-xs font-medium leading-none text-white transition-colors hover:bg-white/10 disabled:pointer-events-none disabled:text-white/60 ${
-                                  hasMultipleModelConfigs ? 'rounded-none' : 'rounded-lg'
-                                }`}
-                              >
-                                {parsingDocument ? (
-                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                ) : (
-                                  <Sparkles className="h-3.5 w-3.5" />
-                                )}
-                                {parsingDocument
-                                  ? t('home.analyzingReference')
-                                  : t('home.analyzeReference')}
-                              </button>
-                            {hasMultipleModelConfigs && (
-                              <>
-                                <ButtonGroupSeparator className="my-2 bg-white/22" />
-                                <DropdownMenu>
-                                  <DropdownMenuTrigger asChild>
-                                    <button
-                                      type="button"
-                                      disabled={parsingDocument}
-                                      className="inline-flex h-full w-8 shrink-0 items-center justify-center rounded-none border-0 bg-transparent text-white transition-colors hover:bg-white/10 disabled:pointer-events-none disabled:text-white/60"
-                                      aria-label={t('settings.generationModel')}
-                                    >
-                                      <ChevronDown className="h-3.5 w-3.5" />
-                                      </button>
-                                    </DropdownMenuTrigger>
-                                    <DropdownMenuContent align="start" className={compactModelDropdownClass}>
-                                      {modelConfigs.map((config) => (
-                                        <DropdownMenuItem
-                                          key={config.id}
-                                          className="py-1.5 text-xs"
-                                          onSelect={() => {
-                                            void handleAnalyzeReference(config.id)
-                                          }}
-                                        >
-                                          <Check
-                                            className={`h-4 w-4 shrink-0 ${
-                                              config.id === selectedModelConfigId
-                                                ? 'opacity-100'
-                                                : 'opacity-0'
-                                            }`}
-                                          />
-                                          <span className="min-w-0 flex-1">
-                                            <span className="block truncate text-xs text-[#33402a]">
-                                              {config.name}
-                                            </span>
-                                            <span className="mt-0.5 block truncate text-[10px] text-muted-foreground">
-                                              {config.provider} · {config.model}
-                                            </span>
-                                          </span>
-                                        </DropdownMenuItem>
-                                      ))}
-                                    </DropdownMenuContent>
-                                  </DropdownMenu>
-                                </>
-                              )}
-                            </ButtonGroup>
+                            <span>
+                              <ModelSplitButton
+                                modelAction={modelAction}
+                                ariaLabel={t('home.analyzeReference')}
+                                label={t('home.analyzeReference')}
+                                loadingLabel={t('home.analyzingReference')}
+                                loading={parsingDocument}
+                                disabled={!attachedReferenceFile}
+                                icon={Sparkles}
+                                tone="primary"
+                                dropdownAlign="start"
+                                className="box-border h-8 rounded-lg border-0 bg-gradient-to-r from-[#7f965f] to-[#5f7448] shadow-[0_8px_18px_rgba(93,107,77,0.18)]"
+                                mainClassName="h-full bg-transparent px-2.5 text-xs text-white shadow-none hover:bg-white/10 hover:text-white hover:shadow-none"
+                                triggerClassName="h-full w-8 px-0"
+                                onRun={handleAnalyzeReference}
+                              />
+                            </span>
                           </TooltipTrigger>
                           <TooltipContent side="bottom" align="start" className="max-w-xs">
                             {t('home.analyzeReferenceTooltip')}
@@ -786,78 +700,19 @@ export function SessionCreatePage(): ReactElement {
         </Card>
 
         <div className="flex justify-end">
-          <ButtonGroup
-            aria-label={t('home.createAndStart')}
-            className={`w-full rounded-full border-0 md:w-auto ${
-              hasMultipleModelConfigs
-                ? 'bg-gradient-to-r from-[#6f8159] to-[#4f613f] shadow-[0_10px_22px_rgba(93,107,77,0.24)]'
-                : 'bg-transparent'
-            }`}
-          >
-            <Button
-              type="button"
-              variant={hasMultipleModelConfigs ? 'ghost' : 'default'}
-              onClick={() => {
-                void handleSubmit(selectedModelConfigId)
-              }}
-              className={`min-w-0 flex-1 md:flex-none ${
-                hasMultipleModelConfigs
-                  ? 'rounded-none bg-transparent px-4 text-white shadow-none hover:bg-white/10 hover:text-white hover:shadow-none md:min-w-[156px]'
-                  : 'rounded-full'
-              }`}
-              disabled={submitting || loading || !requiredReady}
-            >
-              {submitting || loading ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <Sparkles className="mr-2 h-4 w-4" />
-              )}
-              {submitting || loading ? t('home.creating') : t('home.createAndStart')}
-            </Button>
-            {hasMultipleModelConfigs && (
-              <>
-                <ButtonGroupSeparator className="bg-white/20" />
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      disabled={submitting || loading || !requiredReady}
-                      className="shrink-0 rounded-none border-0 bg-transparent px-2.5 text-white shadow-none hover:bg-white/10 hover:text-white hover:shadow-none"
-                      aria-label={t('settings.generationModel')}
-                    >
-                      <ChevronDown className="h-4 w-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className={compactModelDropdownClass}>
-                    {modelConfigs.map((config) => (
-                      <DropdownMenuItem
-                        key={config.id}
-                        className="py-1.5 text-xs"
-                        onSelect={() => {
-                          void handleSubmit(config.id)
-                        }}
-                      >
-                        <Check
-                          className={`h-4 w-4 shrink-0 ${
-                            config.id === selectedModelConfigId ? 'opacity-100' : 'opacity-0'
-                          }`}
-                        />
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-xs text-[#33402a]">
-                            {config.name}
-                          </span>
-                          <span className="mt-0.5 block truncate text-[10px] text-muted-foreground">
-                            {config.provider} · {config.model}
-                          </span>
-                        </span>
-                      </DropdownMenuItem>
-                    ))}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </>
-            )}
-          </ButtonGroup>
+          <ModelSplitButton
+            modelAction={modelAction}
+            ariaLabel={t('home.createAndStart')}
+            label={t('home.createAndStart')}
+            loadingLabel={t('home.creating')}
+            loading={submitting || loading}
+            disabled={!requiredReady}
+            icon={Sparkles}
+            tone="primary"
+            className="w-full md:w-auto"
+            mainClassName="min-w-0 flex-1 md:flex-none md:min-w-[156px]"
+            onRun={handleSubmit}
+          />
         </div>
       </div>
 

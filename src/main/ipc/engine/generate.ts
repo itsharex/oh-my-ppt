@@ -1052,6 +1052,9 @@ export const runDeepAgentDeckGeneration = async (args: {
     }
     const pageStartedAt = Date.now()
     const currentPagePath = args.pageFileMap[page.pageId]
+    const writeToolName = args.requireTemplatePageRead
+      ? 'update_template_page_file'
+      : 'update_single_page_file'
 
     emitPageStatus({
       pageId: page.pageId,
@@ -1160,11 +1163,12 @@ export const runDeepAgentDeckGeneration = async (args: {
                 args.requireTemplatePageRead
                   ? [
                       'Template inspection is mandatory before writing.',
-                      `1. First call read_file(path="/${page.pageId}.html", offset=0, limit=260) to inspect the copied template page.`,
+                      `1. First call read_file(path="/${page.pageId}.html", offset=0, limit=1200) to inspect the copied template page.`,
                       '2. Identify every template-skeleton asset and wrapper: background images, texture images, decorative images, masks, overlays, CSS background-image/url(...) references, <img src>, SVG image href, font scale, spacing rhythm, color language, and reusable structural wrappers from that file.',
                       '3. These background/decorative assets are not old business content. Do not delete them when replacing text, metrics, logos, or content images.',
-                      '4. update_single_page_file rebuilds the page from your content fragment, so the fragment you write must explicitly include the required background/decorative layers or exact local asset references from the template page.',
-                      '5. Only after reading the file, call update_single_page_file with the new content while preserving the template visual system unless the user explicitly asks for a redesign.'
+                      '4. update_template_page_file rebuilds the page from your content fragment and rejects writes that drop template skeleton resources, so the fragment you write must explicitly include the required background/decorative layers or exact local asset references from the template page.',
+                      '5. Only after reading the file, call update_template_page_file with the new content while preserving the template visual system unless the user explicitly asks for a redesign.',
+                      '6. Do not call update_single_page_file in this template run.'
                     ].join('\n')
                   : '',
                 buildSinglePageGenerationPrompt({
@@ -1178,6 +1182,7 @@ export const runDeepAgentDeckGeneration = async (args: {
                   sourceDocumentPaths: args.sourceDocumentPaths,
                   referenceDocumentSnippets,
                   isRetryMode: args.generationMode === 'retry',
+                  writeToolName,
                   designContract: args.designContract,
                   retryContext
                 })
@@ -1254,8 +1259,8 @@ export const runDeepAgentDeckGeneration = async (args: {
       ) {
         throw new Error(
           [
-            `页面未写入 (${page.pageId})：模型没有成功调用 update_single_page_file 写入目标 page 文件。`,
-            `必须调用 update_single_page_file(pageId="${page.pageId}", content=完整创意页面片段)，不要只在最终回复里描述 HTML。`
+            `页面未写入 (${page.pageId})：模型没有成功调用 ${writeToolName} 写入目标 page 文件。`,
+            `必须调用 ${writeToolName}(pageId="${page.pageId}", content=完整创意页面片段)，不要只在最终回复里描述 HTML。`
           ].join(' ')
         )
       }

@@ -176,6 +176,7 @@ export function ThinkingDetailPage(): ReactElement {
     styleId: string
     fontSelection: import('@shared/generation').FontSelection
     referenceDocumentPath: string
+    modelConfigId?: string
   }): Promise<void> => {
     if (generating || !prepared) return
     setGenerating(true)

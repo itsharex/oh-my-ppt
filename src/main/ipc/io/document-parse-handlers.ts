@@ -623,7 +623,8 @@ const normalizeGeneratedPlan = (
     pageCountKeys.map((key) => object[key]).find((value) => value !== undefined) ??
     extractLooseFieldFromText(rawText, pageCountKeys)
   const rawPageCount = Number(rawPageCountValue)
-  const normalizedPageCount = Number.isFinite(rawPageCount)
+  const hasExplicitPageCount = Number.isFinite(rawPageCount)
+  const normalizedPageCount = hasExplicitPageCount
     ? Math.min(MAX_PAGE_COUNT, Math.max(1, Math.round(rawPageCount)))
     : fallback.pageCount || 5
   // When JSON parsed successfully and has a briefText-family key, prefer it directly.
@@ -638,7 +639,11 @@ const normalizeGeneratedPlan = (
       stripLikelyJsonWrappers(rawText)
   const briefText = looseBriefText.trim()
   const impliedPageCount = extractImpliedPageCount(`${briefText}\n${rawText}`)
-  const pageCount = impliedPageCount >= 2 ? impliedPageCount : normalizedPageCount
+  const pageCount = hasExplicitPageCount
+    ? normalizedPageCount
+    : impliedPageCount >= 2
+      ? impliedPageCount
+      : normalizedPageCount
 
   if (!readFirstLooseString(object, ['briefText']) || pageCount !== normalizedPageCount) {
     log.info('[documents:parsePlan] normalized with fallback fields', {
@@ -648,6 +653,7 @@ const normalizeGeneratedPlan = (
       topicFound: Boolean(topic.trim()),
       briefTextFound: Boolean(briefText),
       rawPageCount: Number.isFinite(rawPageCount) ? rawPageCount : null,
+      hasExplicitPageCount,
       normalizedPageCount,
       impliedPageCount,
       finalPageCount: pageCount
@@ -693,18 +699,22 @@ const buildDocumentPlanPrompt = (args: {
     '- briefText: a concise but structured outline suitable for the creation form detailed-brief input, in the selected output language.',
     '- briefText should establish generation direction and page structure; it does not need to expand every source detail.',
     '- briefText should include these sections in the selected output language: presentation goal, audience/context, core argument, recommended outline, per-page points, facts/metrics/terms to preserve, and style/expression notes when useful.',
-    '- The recommended outline and per-page points should align with the source document structure and be close to pageCount.',
+    '- Decide pageCount before writing briefText by estimating how many slides are needed to faithfully cover the document at presentation density.',
+    '- Base pageCount on the document structure, information density, major sections, narrative flow, and required cover/closing pages when useful.',
+    '- The recommended outline must contain exactly pageCount numbered items.',
+    '- The per-page points section must contain exactly pageCount page entries.',
     '- Per-page points must be specific to the source content; avoid vague placeholders such as background/goals/value.',
     '- Before returning, silently check consistency: pageCount must match the number of recommended outline items and per-page point entries.',
     '- If pageCount, recommended outline, and per-page points are inconsistent, fix them before returning the final JSON. Do not include the self-check.',
-    '- If the user-provided page count conflicts with the document structure, prefer a complete and internally consistent page-level outline.',
+    '- If no page count is provided by the user, infer it only from the document. Do not copy an example pageCount.',
+    '- If a page count is provided by the user, treat it as a hard target: pageCount must equal that number, and outline/per-page entries must be adapted to exactly that number.',
     '- Later PPT generation will read the source document again, so briefText should focus on clear direction and structure.',
     '- Preserve key facts, numbers, proper nouns, conclusions, product names, systems, timelines, roles, risks, and terminology from the document.',
     '- Compress the source; do not paste long passages verbatim.',
     '- Do not invent exact data that is not present in the document.',
     args.pageCount
-      ? `- Prefer pageCount=${args.pageCount} unless the document structure strongly suggests otherwise.`
-      : '- Infer pageCount from the document structure.',
+      ? `- User-provided page count: ${args.pageCount}. Return pageCount=${args.pageCount} exactly.`
+      : '- No page count was provided. Infer pageCount from the document structure and information density.',
     '',
     'Reading requirements:',
     `- Document path: ${args.file.virtualPath}`,
@@ -712,7 +722,7 @@ const buildDocumentPlanPrompt = (args: {
     '- If the file is long, call read_file multiple times in sections and summarize progressively. Do not only read the beginning.',
     '- If the document is a Word file, it has already been converted to Markdown for reading.',
     args.retryHint
-      ? `\nRetry requirement: the previous output failed validation because: ${args.retryHint}. Fix this issue. Ensure briefText is non-empty and pageCount matches the page-level outline.`
+      ? `\nRetry requirement: the previous output failed validation because: ${args.retryHint}. Fix this issue. Ensure briefText is non-empty and pageCount exactly matches the page-level outline and per-page points.`
       : '',
     args.topic
       ? `\nUser-provided topic: ${args.topic}`
@@ -757,7 +767,7 @@ const runDocumentPlanAgent = async (args: {
       virtualMode: true
     }),
     systemPrompt:
-      'You are a document-to-PPT-creation-form parsing agent. You must use read_file to read the uploaded document, in sections when needed, and extract topic, pageCount, and a structured briefText outline. Keep topic and briefText in the dominant language of the source document unless the user explicitly asks for another language. The section labels inside briefText must also use that language. If the source document is primarily Chinese, do not use English template labels. If the source document is primarily English, do not translate the outline into Chinese. Before returning, silently verify that pageCount, recommended outline count, and per-page point count are consistent. Return strict JSON only: topic, pageCount, briefText.'
+      'You are a document-to-PPT-creation-form parsing agent. You must use read_file to read the uploaded document, in sections when needed, and extract topic, pageCount, and a structured briefText outline. If no page count is provided, infer pageCount from the document structure and information density. If a page count is provided, return that exact pageCount. Keep topic and briefText in the dominant language of the source document unless the user explicitly asks for another language. The section labels inside briefText must also use that language. If the source document is primarily Chinese, do not use English template labels. If the source document is primarily English, do not translate the outline into Chinese. Before returning, silently verify that pageCount, recommended outline count, and per-page point count are consistent. Return strict JSON only: topic, pageCount, briefText.'
   })
   const stream = await agent.stream(
     {
