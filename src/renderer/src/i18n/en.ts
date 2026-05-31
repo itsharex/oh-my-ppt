@@ -125,6 +125,27 @@ export const en = {
     description:
       'Built-in 30+ styles, custom style support, Chart.js charts, anime.js animation, and a progressive workflow from task brief to session refinement.',
     uploadDocument: 'Upload document/image',
+    uploadReference: 'Upload reference file',
+    processingReference: 'Processing...',
+    uploadReferenceTooltip:
+      'Supports txt, md, csv, docx (≤{maxSize}MB), and png/jpg/webp images (≤{imageMaxSize}MB). Uploaded material will be used as an important reference source for generation.',
+    referenceAttached: 'Reference file attached',
+    referenceAttachFailed: 'Failed to attach reference file',
+    removeReference: 'Remove reference file',
+    analyzeReference: 'AI analyze and fill',
+    analyzeReferenceTooltip:
+      'Use the selected model to analyze the reference file and suggest a title, page count, and brief. Nothing is written to the form until you confirm.',
+    analyzingReference: 'Analyzing...',
+    referenceAttachHint:
+      'Upload only attaches source material; AI analysis consumes model tokens and suggests form values.',
+    analysisSuggestionTitle: 'AI analysis suggestions',
+    analysisSuggestionDescription:
+      'Choose which fields to apply to the creation form. Unchecked fields will not overwrite your input.',
+    currentValue: 'Current',
+    suggestedValue: 'AI Suggested',
+    emptyValue: 'Empty',
+    applyEmptyFields: 'Fill empty fields',
+    applySelectedFields: 'Apply selected',
     parsingDocument: 'Parsing...',
     uploadDocumentTooltip:
       'Supports txt, md, csv, docx (≤{maxSize}MB), and png/jpg/webp images (≤{imageMaxSize}MB). Parsing fills in the topic, page count, and detailed brief; documents remain available as generation references, while images are turned into an editable creation brief and a custom style.',
@@ -263,6 +284,7 @@ export const en = {
     modelName: 'Model name (alias)',
     modelNamePlaceholder: 'Example: DeepSeek / Local Ollama',
     noModels: 'No model configs yet. Add a model first.',
+    generationModel: 'Run model',
     currentActiveModel: 'Default model: {name}',
     activeModel: 'Default model',
     activateModel: 'Set default',

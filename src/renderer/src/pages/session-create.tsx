@@ -12,14 +12,29 @@ import {
   SelectValue
 } from '../components/ui/Select'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../components/ui/Tooltip'
-import { CircleAlert, FileText, Loader2, Sparkles } from 'lucide-react'
+import { ButtonGroup, ButtonGroupSeparator } from '../components/ui/ButtonGroup'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger
+} from '../components/ui/DropdownMenu'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle
+} from '../components/ui/Dialog'
+import { Check, ChevronDown, CircleAlert, FileText, Loader2, Sparkles, X } from 'lucide-react'
 import { useSessionStore } from '../store'
 import { useSettingsStore } from '../store'
 import { useToastStore } from '../store'
-import { ipc, type FontListItem, type StyleParseResult } from '@renderer/lib/ipc'
-import type { FontSelection } from '@shared/generation'
+import { ipc, type FontListItem } from '@renderer/lib/ipc'
+import type { FontSelection, ParsedDocumentPlanResult } from '@shared/generation'
 import { useT } from '../i18n'
-import { isSupportedImageMimeType, normalizeImageMimeType } from '@shared/image-mime'
+import { isSupportedImageMimeType } from '@shared/image-mime'
 
 const MIN_PAGE_COUNT = 1
 const MAX_PAGE_COUNT = 40
@@ -28,19 +43,20 @@ const MAX_DOCUMENT_SIZE_MB = 10
 const MAX_DOCUMENT_SIZE_BYTES = MAX_DOCUMENT_SIZE_MB * 1024 * 1024
 const MAX_IMAGE_SIZE_MB = 5
 const MAX_IMAGE_SIZE_BYTES = MAX_IMAGE_SIZE_MB * 1024 * 1024
-const IMAGE_STYLE_PARSE_DELAY_MS = 300
 const isImageFileName = (name: string): boolean => /\.(png|jpe?g|webp)$/i.test(name.trim())
-
-const getImageMimeTypeFromFileName = (name: string): string => {
-  const normalized = name.trim().toLowerCase()
-  if (normalized.endsWith('.png')) return 'image/png'
-  if (normalized.endsWith('.jpg') || normalized.endsWith('.jpeg')) return 'image/jpeg'
-  if (normalized.endsWith('.webp')) return 'image/webp'
-  return ''
-}
 
 const isSupportedImageFile = (file: File): boolean =>
   isSupportedImageMimeType(file.type) || isImageFileName(file.name || '')
+
+type AttachedReferenceFile = ParsedDocumentPlanResult['files'][number]
+
+type DocumentPlanSuggestion = Pick<ParsedDocumentPlanResult, 'topic' | 'pageCount' | 'briefText'>
+
+const compactInputClass = 'h-8 px-3 py-1.5 text-xs'
+const compactSelectTriggerClass = 'h-8 px-2.5 py-1.5 text-xs'
+const compactSelectContentClass = 'text-xs'
+const compactSelectItemClass = 'px-2.5 py-1.5 text-xs'
+const compactModelDropdownClass = 'w-64'
 
 const delay = (ms: number): Promise<void> =>
   new Promise((resolve) => window.setTimeout(resolve, ms))
@@ -65,7 +81,7 @@ const resolvePageCount = (raw: string): number => {
 export function SessionCreatePage(): ReactElement {
   const navigate = useNavigate()
   const { createSession, loading } = useSessionStore()
-  const { settings, modelConfigs, fetchSettings } = useSettingsStore()
+  const { settings, modelConfigs, fetchSettings, setActiveModelConfig } = useSettingsStore()
   const { success, error, warning } = useToastStore()
   const t = useT()
   const [submitting, setSubmitting] = useState(false)
@@ -73,19 +89,28 @@ export function SessionCreatePage(): ReactElement {
   const [brief, setBrief] = useState('')
   const [pageCount, setPageCount] = useState(String(DEFAULT_PAGE_COUNT))
   const [selectedStyleId, setSelectedStyleId] = useState('')
+  const [selectedModelConfigId, setSelectedModelConfigId] = useState('')
   const [selectedTitleFontId, setSelectedTitleFontId] = useState('auto')
   const [selectedBodyFontId, setSelectedBodyFontId] = useState('auto')
   const [styleOptions, setStyleOptions] = useState<
     Array<{ id: string; label: string; description: string; styleCase?: string }>
   >([])
   const [fontOptions, setFontOptions] = useState<FontListItem[]>([])
+  const [attachedReferenceFile, setAttachedReferenceFile] = useState<AttachedReferenceFile | null>(
+    null
+  )
   const [parsingDocument, setParsingDocument] = useState(false)
   const [documentParseError, setDocumentParseError] = useState<string | null>(null)
-  const [hasParsedSource, setHasParsedSource] = useState(false)
   const [referenceDocumentPath, setReferenceDocumentPath] = useState<string | null>(null)
+  const [documentPlanSuggestion, setDocumentPlanSuggestion] =
+    useState<DocumentPlanSuggestion | null>(null)
+  const [suggestionDialogOpen, setSuggestionDialogOpen] = useState(false)
+  const [applyTopicSuggestion, setApplyTopicSuggestion] = useState(false)
+  const [applyPageCountSuggestion, setApplyPageCountSuggestion] = useState(false)
+  const [applyBriefSuggestion, setApplyBriefSuggestion] = useState(false)
   const documentInputRef = useRef<HTMLInputElement | null>(null)
 
-  const validateForm = (): string => {
+  const validateForm = (modelConfigId = selectedModelConfigId): string => {
     const topicText = topic.trim()
     if (!topicText) return t('home.validationTopic')
 
@@ -106,9 +131,9 @@ export function SessionCreatePage(): ReactElement {
     const briefText = brief.trim()
     if (!briefText) return t('home.validationBrief')
 
-    const activeModelConfig = modelConfigs.find((config) => config.active)
-    const resolvedApiKey = (activeModelConfig?.apiKey || '').trim()
-    const resolvedModel = (activeModelConfig?.model || '').trim()
+    const selectedModelConfig = modelConfigs.find((config) => config.id === modelConfigId)
+    const resolvedApiKey = (selectedModelConfig?.apiKey || '').trim()
+    const resolvedModel = (selectedModelConfig?.model || '').trim()
     const resolvedStoragePath = (settings?.storagePath || '').trim()
     if (!resolvedApiKey || !resolvedModel || !resolvedStoragePath) return t('home.settingsRequired')
 
@@ -119,7 +144,7 @@ export function SessionCreatePage(): ReactElement {
     const topicText = topic.trim()
     const pageCountText = pageCount.trim()
     const briefText = brief.trim()
-    if (!topicText || !selectedStyleId || !briefText) return false
+    if (!topicText || !selectedStyleId || !selectedModelConfigId || !briefText) return false
     if (!/^\d+$/.test(pageCountText)) return false
     const n = Number.parseInt(pageCountText, 10)
     return n >= MIN_PAGE_COUNT && n <= MAX_PAGE_COUNT
@@ -183,8 +208,9 @@ export function SessionCreatePage(): ReactElement {
     void loadFontOptions()
   }, [loadFontOptions])
 
-  const handleSubmit = async (): Promise<void> => {
-    const validationError = validateForm()
+  const handleSubmit = async (modelConfigId: string): Promise<void> => {
+    setSelectedModelConfigId(modelConfigId)
+    const validationError = validateForm(modelConfigId)
     if (validationError) {
       if (validationError === t('home.settingsRequired')) {
         warning(t('home.settingsRequiredTitle'), {
@@ -233,6 +259,7 @@ export function SessionCreatePage(): ReactElement {
 
     setSubmitting(true)
     try {
+      if (!(await ensureModelActive(modelConfigId))) return
       const sessionId = await createSession({
         topic: topicText,
         styleId: selectedStyleId,
@@ -260,69 +287,9 @@ export function SessionCreatePage(): ReactElement {
     }
   }
 
-  const ensureUploadPrerequisites = async (): Promise<boolean> => {
-    const validation = await ipc.validateUploadPrerequisites()
-    if (validation.ready) return true
-    warning(t('home.settingsRequiredTitle'), {
-      description: validation.message || t('home.settingsRequired'),
-      action: {
-        label: t('home.goToSettings'),
-        onClick: () => navigate('/settings')
-      }
-    })
-    return false
-  }
-
-  const handleParseDocumentClick = async (): Promise<void> => {
+  const handleChooseReferenceClick = async (): Promise<void> => {
     if (parsingDocument) return
-    if (!(await ensureUploadPrerequisites())) return
     documentInputRef.current?.click()
-  }
-
-  const parseImageStyle = async (file: File): Promise<StyleParseResult> => {
-    const hintedMimeType = normalizeImageMimeType(file.type)
-    const fallbackMimeType = getImageMimeTypeFromFileName(file.name || '')
-    if (!isSupportedImageMimeType(file.type) && !fallbackMimeType) {
-      throw new Error(t('styleEditor.imageFormatInvalid'))
-    }
-    if (file.size > MAX_IMAGE_SIZE_BYTES) {
-      throw new Error(t('home.imageTooLarge', { maxSize: MAX_IMAGE_SIZE_MB }))
-    }
-
-    const dataUrl = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader()
-      reader.onload = () => resolve(String(reader.result || ''))
-      reader.onerror = () => reject(new Error(t('styleEditor.imageReadFailed')))
-      reader.readAsDataURL(file)
-    })
-    const match = dataUrl.match(/^data:([^;]*);base64,(.+)$/)
-    if (!match) throw new Error(t('styleEditor.imageReadFailed'))
-
-    const dataUrlMimeType = normalizeImageMimeType(match[1])
-    const mimeType = isSupportedImageMimeType(match[1])
-      ? dataUrlMimeType
-      : isSupportedImageMimeType(file.type)
-        ? hintedMimeType
-        : fallbackMimeType
-    const imageBase64 = String(match[2] || '').trim()
-    if (!mimeType || !imageBase64) throw new Error(t('styleEditor.imageReadFailed'))
-
-    return await ipc.parseStyleImage({ imageBase64, mimeType })
-  }
-
-  const createParsedImageStyle = async (
-    parsedStyle: StyleParseResult
-  ): Promise<{ id: string; label: string }> => {
-    const createdStyle = await ipc.createStyle({
-      label: parsedStyle.label,
-      description: parsedStyle.description,
-      category: parsedStyle.category,
-      aliases: parsedStyle.aliases,
-      styleSkill: parsedStyle.styleSkill,
-      styleCase: parsedStyle.styleCase || ''
-    })
-    await loadStyleOptions(createdStyle.id)
-    return { id: createdStyle.id, label: parsedStyle.label }
   }
 
   const handleDocumentFilesSelected = async (files: FileList | null): Promise<void> => {
@@ -367,40 +334,71 @@ export function SessionCreatePage(): ReactElement {
       return
     }
 
+    setParsingDocument(true)
+    setDocumentParseError(null)
+    try {
+      const result = await ipc.prepareReferenceDocument({ files: payloadFiles })
+      const referenceFile = result.files[0]
+      setAttachedReferenceFile(referenceFile || null)
+      setReferenceDocumentPath(
+        referenceFile && referenceFile.type !== 'image' ? referenceFile.path : null
+      )
+      setDocumentPlanSuggestion(null)
+      success(t('home.referenceAttached'), {
+        description: referenceFile?.name || selectedFile.name
+      })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : t('common.retryLater')
+      setDocumentParseError(message)
+      error(t('home.referenceAttachFailed'), {
+        description: message
+      })
+    } finally {
+      setParsingDocument(false)
+    }
+  }
+
+  const handleRemoveReferenceFile = (): void => {
+    setAttachedReferenceFile(null)
+    setReferenceDocumentPath(null)
+    setDocumentPlanSuggestion(null)
+    setDocumentParseError(null)
+  }
+
+  const handleAnalyzeReference = async (modelConfigId: string): Promise<void> => {
+    if (!attachedReferenceFile || parsingDocument) return
+    setSelectedModelConfigId(modelConfigId)
+    if (!(await ensureModelActive(modelConfigId))) return
     const safePageCount = /^\d+$/.test(pageCount.trim())
       ? resolvePageCount(pageCount.trim())
       : DEFAULT_PAGE_COUNT
 
     setParsingDocument(true)
     setDocumentParseError(null)
-    setHasParsedSource(false)
     try {
-      const planPromise = ipc.parseDocumentPlan({
-        files: payloadFiles,
+      const result = await ipc.parseDocumentPlan({
+        files: [{ path: attachedReferenceFile.path, name: attachedReferenceFile.name }],
         topic: topic.trim(),
         pageCount: safePageCount,
         existingBrief: brief.trim()
       })
-      const imageStyleParsePromise = isImage
-        ? delay(IMAGE_STYLE_PARSE_DELAY_MS).then(() => parseImageStyle(selectedFile))
-        : Promise.resolve(null)
-      const [result, parsedImageStyle] = await Promise.all([planPromise, imageStyleParsePromise])
-      const imageStyle = parsedImageStyle ? await createParsedImageStyle(parsedImageStyle) : null
-      setTopic(result.topic)
-      setPageCount(String(result.pageCount))
-      setBrief(result.briefText)
-      const referenceFile = result.files.find((file) => file.type !== 'image')
-      setReferenceDocumentPath(referenceFile?.path || null)
-      setHasParsedSource(true)
-      success(t('home.documentParsed'), {
-        description: imageStyle
-          ? t('home.imageParsedWithStyle', { style: imageStyle.label })
-          : t('home.documentParsedDescription', { count: result.files.length })
-      })
+      const nextSuggestion = {
+        topic: result.topic,
+        pageCount: result.pageCount,
+        briefText: result.briefText
+      }
+      const referenceFile = result.files[0] || attachedReferenceFile
+      setAttachedReferenceFile(referenceFile)
+      setReferenceDocumentPath(referenceFile.type !== 'image' ? referenceFile.path : null)
+      setDocumentPlanSuggestion(nextSuggestion)
+      setApplyTopicSuggestion(!topic.trim())
+      setApplyPageCountSuggestion(!pageCount.trim())
+      setApplyBriefSuggestion(!brief.trim())
+      setSuggestionDialogOpen(true)
+      success(t('home.documentParsed'))
     } catch (err) {
       const message = err instanceof Error ? err.message : t('common.retryLater')
       setDocumentParseError(message)
-      setHasParsedSource(false)
       error(t('home.documentParseFailed'), {
         description: message
       })
@@ -413,10 +411,46 @@ export function SessionCreatePage(): ReactElement {
     void fetchSettings()
   }, [fetchSettings])
 
+  useEffect(() => {
+    setSelectedModelConfigId((current) => {
+      if (current && modelConfigs.some((config) => config.id === current)) return current
+      return modelConfigs.find((config) => config.active)?.id || modelConfigs[0]?.id || ''
+    })
+  }, [modelConfigs])
+
+  const ensureModelActive = async (modelConfigId: string): Promise<boolean> => {
+    if (!modelConfigId) return false
+    const selected = modelConfigs.find((config) => config.id === modelConfigId)
+    if (!selected) return false
+    if (selected.active) return true
+
+    await setActiveModelConfig(modelConfigId)
+    const activateError = useSettingsStore.getState().verificationMessage
+    if (activateError) {
+      error(t('settings.activateModelFailed'), { description: activateError })
+      return false
+    }
+    return true
+  }
+
+  const applyDocumentSuggestion = (mode: 'empty' | 'selected'): void => {
+    if (!documentPlanSuggestion) return
+    const shouldApplyTopic = mode === 'empty' ? !topic.trim() : applyTopicSuggestion
+    const shouldApplyPageCount = mode === 'empty' ? !pageCount.trim() : applyPageCountSuggestion
+    const shouldApplyBrief = mode === 'empty' ? !brief.trim() : applyBriefSuggestion
+
+    if (shouldApplyTopic) setTopic(documentPlanSuggestion.topic)
+    if (shouldApplyPageCount)
+      setPageCount(String(resolvePageCount(String(documentPlanSuggestion.pageCount))))
+    if (shouldApplyBrief) setBrief(documentPlanSuggestion.briefText)
+    setSuggestionDialogOpen(false)
+  }
+
   const titleFontOptions = fontOptions.filter((font) => font.role.includes('title'))
   const bodyFontOptions = fontOptions.filter((font) => font.role.includes('body'))
   const availableTitleFonts = titleFontOptions.length > 0 ? titleFontOptions : fontOptions
   const availableBodyFonts = bodyFontOptions.length > 0 ? bodyFontOptions : fontOptions
+  const hasMultipleModelConfigs = modelConfigs.length > 1
   const fontSelectHint =
     selectedTitleFontId === 'auto' && selectedBodyFontId === 'auto'
       ? t('home.fontSchemeAutoHint')
@@ -437,57 +471,14 @@ export function SessionCreatePage(): ReactElement {
       </div>
 
       <div className="space-y-4">
-        <div>
-          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-            <TooltipProvider delayDuration={180}>
-              <div className="flex flex-wrap items-center gap-2">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span className="inline-flex">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          void handleParseDocumentClick()
-                        }}
-                        disabled={parsingDocument}
-                        className="shrink-0"
-                      >
-                        {parsingDocument ? (
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        ) : (
-                          <FileText className="mr-2 h-4 w-4" />
-                        )}
-                        {parsingDocument ? t('home.parsingDocument') : t('home.uploadDocument')}
-                      </Button>
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom" align="start">
-                    {t('home.uploadDocumentTooltip', {
-                      maxSize: MAX_DOCUMENT_SIZE_MB,
-                      imageMaxSize: MAX_IMAGE_SIZE_MB
-                    })}
-                  </TooltipContent>
-                </Tooltip>
-
-                {hasParsedSource && !parsingDocument ? (
-                  <span className="rounded-full bg-[#e8f0df] px-2.5 py-1 text-xs text-[#4f6340]">
-                    {t('home.parsed')}
-                  </span>
-                ) : null}
-              </div>
-            </TooltipProvider>
-          </div>
-          <input
-            ref={documentInputRef}
-            type="file"
-            accept=".md,.txt,.text,.csv,.docx,image/png,image/jpeg,image/webp"
-            multiple={false}
-            className="hidden"
-            onChange={(event) => void handleDocumentFilesSelected(event.target.files)}
-          />
-        </div>
+        <input
+          ref={documentInputRef}
+          type="file"
+          accept=".md,.txt,.text,.csv,.docx,image/png,image/jpeg,image/webp"
+          multiple={false}
+          className="hidden"
+          onChange={(event) => void handleDocumentFilesSelected(event.target.files)}
+        />
         {documentParseError && (
           <div className="flex items-start gap-2 rounded-md border border-[#d58b7f]/45 bg-[#fff2ef] px-3 py-2 text-xs text-[#8a3d33]">
             <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
@@ -496,7 +487,7 @@ export function SessionCreatePage(): ReactElement {
         )}
 
         <Card className="mb-4">
-          <CardContent className="space-y-3 py-4 [&_input]:h-9 [&_button]:h-9 [&_label]:mb-1.5 [&_label]:text-xs">
+          <CardContent className="space-y-3 py-4 [&_label]:mb-1.5 [&_label]:text-xs">
             <div>
               <label className="block font-medium">{t('home.topic')}</label>
               <Input
@@ -504,6 +495,7 @@ export function SessionCreatePage(): ReactElement {
                 value={topic}
                 onChange={(e) => setTopic(e.target.value)}
                 required
+                className={compactInputClass}
               />
             </div>
 
@@ -511,12 +503,16 @@ export function SessionCreatePage(): ReactElement {
               <div>
                 <label className="block font-medium">{t('home.style')}</label>
                 <Select value={selectedStyleId} onValueChange={setSelectedStyleId}>
-                  <SelectTrigger>
+                  <SelectTrigger className={compactSelectTriggerClass}>
                     <SelectValue placeholder={t('home.stylePlaceholder')} />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className={compactSelectContentClass}>
                     {styleOptions.map((option) => (
-                      <SelectItem key={option.id} value={option.id}>
+                      <SelectItem
+                        key={option.id}
+                        value={option.id}
+                        className={compactSelectItemClass}
+                      >
                         <span className="flex items-center gap-1.5">
                           {option.label}
                           {(option.styleCase || option.description) && (
@@ -552,6 +548,7 @@ export function SessionCreatePage(): ReactElement {
                   onBlur={() => {
                     setPageCount(String(resolvePageCount(pageCount)))
                   }}
+                  className={compactInputClass}
                 />
               </div>
             </div>
@@ -560,11 +557,13 @@ export function SessionCreatePage(): ReactElement {
               <label className="block font-medium">{t('home.fontScheme')}</label>
               <div className="mt-2 grid gap-2 sm:grid-cols-2">
                 <Select value={selectedTitleFontId} onValueChange={setSelectedTitleFontId}>
-                  <SelectTrigger>
+                  <SelectTrigger className={compactSelectTriggerClass}>
                     <SelectValue placeholder={t('home.fontSchemeAuto')} />
                   </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="auto">{t('home.fontSchemeAuto')}</SelectItem>
+                  <SelectContent className={compactSelectContentClass}>
+                    <SelectItem value="auto" className={compactSelectItemClass}>
+                      {t('home.fontSchemeAuto')}
+                    </SelectItem>
                     {availableTitleFonts.map((font) => {
                       const isUploaded = font.source === 'uploaded'
                       const sourceLabel = isUploaded
@@ -574,6 +573,7 @@ export function SessionCreatePage(): ReactElement {
                         <SelectItem
                           key={`${font.source}:${font.id}`}
                           value={`${font.source}:${font.id}`}
+                          className={compactSelectItemClass}
                         >
                           <span className="flex items-center gap-2">
                             <span
@@ -595,11 +595,13 @@ export function SessionCreatePage(): ReactElement {
                   </SelectContent>
                 </Select>
                 <Select value={selectedBodyFontId} onValueChange={setSelectedBodyFontId}>
-                  <SelectTrigger>
+                  <SelectTrigger className={compactSelectTriggerClass}>
                     <SelectValue placeholder={t('home.fontSchemeAuto')} />
                   </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="auto">{t('home.fontSchemeAuto')}</SelectItem>
+                  <SelectContent className={compactSelectContentClass}>
+                    <SelectItem value="auto" className={compactSelectItemClass}>
+                      {t('home.fontSchemeAuto')}
+                    </SelectItem>
                     {availableBodyFonts.map((font) => {
                       const isUploaded = font.source === 'uploaded'
                       const sourceLabel = isUploaded
@@ -609,6 +611,7 @@ export function SessionCreatePage(): ReactElement {
                         <SelectItem
                           key={`${font.source}:${font.id}`}
                           value={`${font.source}:${font.id}`}
+                          className={compactSelectItemClass}
                         >
                           <span className="flex items-center gap-2">
                             <span
@@ -635,32 +638,408 @@ export function SessionCreatePage(): ReactElement {
 
             <div>
               <label className="block font-medium">{t('home.brief')}</label>
-              <Textarea
-                placeholder={t('home.briefPlaceholder')}
-                rows={7}
-                value={brief}
-                required
-                onChange={(e) => setBrief(e.target.value)}
-                className="min-h-[150px] resize-y"
-              />
+              <div className="rounded-lg border border-[#d8ccb5]/80 bg-[#fff9ef]/40 p-2">
+                <Textarea
+                  placeholder={t('home.briefPlaceholder')}
+                  rows={7}
+                  value={brief}
+                  required
+                  onChange={(e) => setBrief(e.target.value)}
+                  className="min-h-[150px] resize-y border-0 bg-transparent shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+                />
+                <div className="mt-2 flex flex-col gap-2 border-t border-[#e5dccb] pt-2">
+                  {attachedReferenceFile && (
+                    <div className="flex min-w-0">
+                      <span
+                        className="inline-flex h-6 max-w-[260px] items-center gap-1 rounded-full border border-[#c7d9b4]/70 bg-[#e6f1dc]/80 px-2 text-[10px] text-[#405333]"
+                        title={attachedReferenceFile.path}
+                      >
+                        <FileText className="h-3 w-3 shrink-0" />
+                        <span className="min-w-0 truncate">{attachedReferenceFile.name}</span>
+                        <button
+                          type="button"
+                          onClick={handleRemoveReferenceFile}
+                          className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full text-[#657552] hover:bg-[#c8ddb2]"
+                          aria-label={t('home.removeReference')}
+                        >
+                          <X className="h-2.5 w-2.5" />
+                        </button>
+                      </span>
+                    </div>
+                  )}
+                  <TooltipProvider delayDuration={180}>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="inline-flex">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => {
+                                void handleChooseReferenceClick()
+                              }}
+                              disabled={parsingDocument}
+                              className="h-8 shrink-0 rounded-lg border border-[#d8ccb5]/80 bg-[#fffdf8]/76 px-2.5 text-xs font-medium text-[#405333] shadow-none hover:bg-[#f3f7ed] hover:text-[#2f3b28]"
+                            >
+                              {parsingDocument ? (
+                                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <FileText className="mr-1.5 h-3.5 w-3.5" />
+                              )}
+                              {parsingDocument
+                                ? t('home.processingReference')
+                                : t('home.uploadReference')}
+                            </Button>
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom" align="start">
+                          {t('home.uploadReferenceTooltip', {
+                            maxSize: MAX_DOCUMENT_SIZE_MB,
+                            imageMaxSize: MAX_IMAGE_SIZE_MB
+                          })}
+                        </TooltipContent>
+                      </Tooltip>
+                      {attachedReferenceFile && (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <ButtonGroup
+                              aria-label={t('home.analyzeReference')}
+                              className="box-border h-8 rounded-lg border-0 bg-gradient-to-r from-[#7f965f] to-[#5f7448] shadow-[0_8px_18px_rgba(93,107,77,0.18)]"
+                            >
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  void handleAnalyzeReference(selectedModelConfigId)
+                                }}
+                                disabled={parsingDocument || !selectedModelConfigId}
+                                className={`inline-flex h-full shrink-0 items-center justify-center gap-1.5 border-0 bg-transparent px-2.5 text-xs font-medium leading-none text-white transition-colors hover:bg-white/10 disabled:pointer-events-none disabled:text-white/60 ${
+                                  hasMultipleModelConfigs ? 'rounded-none' : 'rounded-lg'
+                                }`}
+                              >
+                                {parsingDocument ? (
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                  <Sparkles className="h-3.5 w-3.5" />
+                                )}
+                                {parsingDocument
+                                  ? t('home.analyzingReference')
+                                  : t('home.analyzeReference')}
+                              </button>
+                            {hasMultipleModelConfigs && (
+                              <>
+                                <ButtonGroupSeparator className="my-2 bg-white/22" />
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <button
+                                      type="button"
+                                      disabled={parsingDocument}
+                                      className="inline-flex h-full w-8 shrink-0 items-center justify-center rounded-none border-0 bg-transparent text-white transition-colors hover:bg-white/10 disabled:pointer-events-none disabled:text-white/60"
+                                      aria-label={t('settings.generationModel')}
+                                    >
+                                      <ChevronDown className="h-3.5 w-3.5" />
+                                      </button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent align="start" className={compactModelDropdownClass}>
+                                      {modelConfigs.map((config) => (
+                                        <DropdownMenuItem
+                                          key={config.id}
+                                          className="py-1.5 text-xs"
+                                          onSelect={() => {
+                                            void handleAnalyzeReference(config.id)
+                                          }}
+                                        >
+                                          <Check
+                                            className={`h-4 w-4 shrink-0 ${
+                                              config.id === selectedModelConfigId
+                                                ? 'opacity-100'
+                                                : 'opacity-0'
+                                            }`}
+                                          />
+                                          <span className="min-w-0 flex-1">
+                                            <span className="block truncate text-xs text-[#33402a]">
+                                              {config.name}
+                                            </span>
+                                            <span className="mt-0.5 block truncate text-[10px] text-muted-foreground">
+                                              {config.provider} · {config.model}
+                                            </span>
+                                          </span>
+                                        </DropdownMenuItem>
+                                      ))}
+                                    </DropdownMenuContent>
+                                  </DropdownMenu>
+                                </>
+                              )}
+                            </ButtonGroup>
+                          </TooltipTrigger>
+                          <TooltipContent side="bottom" align="start" className="max-w-xs">
+                            {t('home.analyzeReferenceTooltip')}
+                          </TooltipContent>
+                        </Tooltip>
+                      )}
+                    </div>
+                  </TooltipProvider>
+                </div>
+              </div>
             </div>
           </CardContent>
         </Card>
 
         <div className="flex justify-end">
-          <Button
-            type="button"
-            onClick={() => {
-              void handleSubmit()
-            }}
-            className="w-full md:w-auto"
-            disabled={submitting || loading || !requiredReady}
+          <ButtonGroup
+            aria-label={t('home.createAndStart')}
+            className={`w-full rounded-full border-0 md:w-auto ${
+              hasMultipleModelConfigs
+                ? 'bg-gradient-to-r from-[#6f8159] to-[#4f613f] shadow-[0_10px_22px_rgba(93,107,77,0.24)]'
+                : 'bg-transparent'
+            }`}
           >
-            {submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
-            {submitting || loading ? t('home.creating') : t('home.createAndStart')}
-          </Button>
+            <Button
+              type="button"
+              variant={hasMultipleModelConfigs ? 'ghost' : 'default'}
+              onClick={() => {
+                void handleSubmit(selectedModelConfigId)
+              }}
+              className={`min-w-0 flex-1 md:flex-none ${
+                hasMultipleModelConfigs
+                  ? 'rounded-none bg-transparent px-4 text-white shadow-none hover:bg-white/10 hover:text-white hover:shadow-none md:min-w-[156px]'
+                  : 'rounded-full'
+              }`}
+              disabled={submitting || loading || !requiredReady}
+            >
+              {submitting || loading ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Sparkles className="mr-2 h-4 w-4" />
+              )}
+              {submitting || loading ? t('home.creating') : t('home.createAndStart')}
+            </Button>
+            {hasMultipleModelConfigs && (
+              <>
+                <ButtonGroupSeparator className="bg-white/20" />
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      disabled={submitting || loading || !requiredReady}
+                      className="shrink-0 rounded-none border-0 bg-transparent px-2.5 text-white shadow-none hover:bg-white/10 hover:text-white hover:shadow-none"
+                      aria-label={t('settings.generationModel')}
+                    >
+                      <ChevronDown className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className={compactModelDropdownClass}>
+                    {modelConfigs.map((config) => (
+                      <DropdownMenuItem
+                        key={config.id}
+                        className="py-1.5 text-xs"
+                        onSelect={() => {
+                          void handleSubmit(config.id)
+                        }}
+                      >
+                        <Check
+                          className={`h-4 w-4 shrink-0 ${
+                            config.id === selectedModelConfigId ? 'opacity-100' : 'opacity-0'
+                          }`}
+                        />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-xs text-[#33402a]">
+                            {config.name}
+                          </span>
+                          <span className="mt-0.5 block truncate text-[10px] text-muted-foreground">
+                            {config.provider} · {config.model}
+                          </span>
+                        </span>
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </>
+            )}
+          </ButtonGroup>
         </div>
       </div>
+
+      <Dialog open={suggestionDialogOpen} onOpenChange={setSuggestionDialogOpen}>
+        <DialogContent className="max-w-4xl gap-0 overflow-hidden border-[#d8ccb5]/85 bg-[#f7f1e8] p-0">
+          <DialogHeader className="border-b border-[#ded4c1] bg-[#fffaf1] px-5 py-4 pr-12">
+            <div className="flex items-start gap-3">
+              <span className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[#b9cda7]/75 bg-[#e6f1dc] text-[#405333] shadow-[0_4px_10px_rgba(93,107,77,0.08)]">
+                <Sparkles className="h-4 w-4" />
+              </span>
+              <div className="min-w-0">
+                <DialogTitle className="text-sm">{t('home.analysisSuggestionTitle')}</DialogTitle>
+                <DialogDescription className="mt-1 max-w-2xl text-xs leading-5">
+                  {t('home.analysisSuggestionDescription')}
+                </DialogDescription>
+                {attachedReferenceFile && (
+                  <span
+                    className="mt-2 inline-flex max-w-full items-center gap-1.5 rounded-full border border-[#d8ccb5]/72 bg-[#fff9ef]/86 px-2 py-1 text-[11px] font-medium text-[#5d6b4d]"
+                    title={attachedReferenceFile.path}
+                  >
+                    <FileText className="h-3 w-3 shrink-0" />
+                    <span className="min-w-0 truncate">{attachedReferenceFile.name}</span>
+                  </span>
+                )}
+              </div>
+            </div>
+          </DialogHeader>
+
+          {documentPlanSuggestion && (
+            <div className="max-h-[64vh] overflow-y-auto px-5 py-4">
+              <div className="space-y-2.5">
+                <section
+                  className={`overflow-hidden rounded-xl border bg-[#fffdf8] shadow-[0_8px_18px_rgba(74,59,42,0.06)] transition-colors ${
+                    applyTopicSuggestion
+                      ? 'border-[#a9c693] ring-1 ring-[#cfe2c1]'
+                      : 'border-[#e1d7c6]'
+                  }`}
+                >
+                  <div className="grid gap-3 p-3 md:grid-cols-[120px_1fr] md:items-center">
+                    <label className="flex cursor-pointer items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={applyTopicSuggestion}
+                        onChange={(event) => setApplyTopicSuggestion(event.target.checked)}
+                        className="h-4 w-4 accent-[#6f8f64]"
+                      />
+                      <span className="text-sm font-semibold text-[#34402c]">{t('home.topic')}</span>
+                    </label>
+                    <div className="grid gap-2 md:grid-cols-[1fr_auto_1fr] md:items-stretch">
+                      <div className="rounded-lg bg-[#f5efe4]/76 px-3 py-2">
+                        <p className="mb-1 text-[10px] font-medium uppercase text-[#8a7d69]">
+                          {t('home.currentValue')}
+                        </p>
+                        <p className="min-h-5 whitespace-pre-wrap text-xs leading-5 text-[#6d604d]">
+                          {topic.trim() || t('home.emptyValue')}
+                        </p>
+                      </div>
+                      <div className="hidden items-center text-[#b5aa95] md:flex">→</div>
+                      <div className="rounded-lg bg-[#eef6e8] px-3 py-2">
+                        <p className="mb-1 text-[10px] font-medium uppercase text-[#6a8054]">
+                          {t('home.suggestedValue')}
+                        </p>
+                        <p className="min-h-5 whitespace-pre-wrap text-xs leading-5 text-[#405333]">
+                          {documentPlanSuggestion.topic}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+
+                <section
+                  className={`overflow-hidden rounded-xl border bg-[#fffdf8] shadow-[0_8px_18px_rgba(74,59,42,0.06)] transition-colors ${
+                    applyPageCountSuggestion
+                      ? 'border-[#a9c693] ring-1 ring-[#cfe2c1]'
+                      : 'border-[#e1d7c6]'
+                  }`}
+                >
+                  <div className="grid gap-3 p-3 md:grid-cols-[120px_1fr] md:items-center">
+                    <label className="flex cursor-pointer items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={applyPageCountSuggestion}
+                        onChange={(event) => setApplyPageCountSuggestion(event.target.checked)}
+                        className="h-4 w-4 accent-[#6f8f64]"
+                      />
+                      <span className="text-sm font-semibold text-[#34402c]">
+                        {t('home.pageCount')}
+                      </span>
+                    </label>
+                    <div className="grid gap-2 md:grid-cols-[1fr_auto_1fr] md:items-stretch">
+                      <div className="rounded-lg bg-[#f5efe4]/76 px-3 py-2">
+                        <p className="mb-1 text-[10px] font-medium uppercase text-[#8a7d69]">
+                          {t('home.currentValue')}
+                        </p>
+                        <p className="min-h-5 text-xs leading-5 text-[#6d604d]">
+                          {pageCount.trim() || t('home.emptyValue')}
+                        </p>
+                      </div>
+                      <div className="hidden items-center text-[#b5aa95] md:flex">→</div>
+                      <div className="rounded-lg bg-[#eef6e8] px-3 py-2">
+                        <p className="mb-1 text-[10px] font-medium uppercase text-[#6a8054]">
+                          {t('home.suggestedValue')}
+                        </p>
+                        <p className="min-h-5 text-xs leading-5 text-[#405333]">
+                          {documentPlanSuggestion.pageCount}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+
+                <section
+                  className={`overflow-hidden rounded-xl border bg-[#fffdf8] shadow-[0_8px_18px_rgba(74,59,42,0.06)] transition-colors ${
+                    applyBriefSuggestion
+                      ? 'border-[#a9c693] ring-1 ring-[#cfe2c1]'
+                      : 'border-[#e1d7c6]'
+                  }`}
+                >
+                  <div className="grid gap-3 p-3 md:grid-cols-[120px_1fr] md:items-start">
+                    <label className="flex cursor-pointer items-center gap-2 pt-1">
+                      <input
+                        type="checkbox"
+                        checked={applyBriefSuggestion}
+                        onChange={(event) => setApplyBriefSuggestion(event.target.checked)}
+                        className="h-4 w-4 accent-[#6f8f64]"
+                      />
+                      <span className="truncate text-sm font-semibold text-[#34402c]">
+                        {t('home.brief')}
+                      </span>
+                    </label>
+                    <div className="grid gap-2 md:grid-cols-[1fr_auto_1fr] md:items-stretch">
+                      <div className="rounded-lg bg-[#f5efe4]/76 px-3 py-2.5">
+                        <p className="mb-1 text-[10px] font-medium uppercase text-[#8a7d69]">
+                          {t('home.currentValue')}
+                        </p>
+                        <div className="max-h-40 min-h-24 overflow-y-auto whitespace-pre-wrap text-xs leading-5 text-[#6d604d]">
+                          {brief.trim() || t('home.emptyValue')}
+                        </div>
+                      </div>
+                      <div className="hidden items-center text-[#b5aa95] md:flex">→</div>
+                      <div className="rounded-lg bg-[#eef6e8] px-3 py-2.5">
+                        <p className="mb-1 text-[10px] font-medium uppercase text-[#6a8054]">
+                          {t('home.suggestedValue')}
+                        </p>
+                        <div className="max-h-40 min-h-24 overflow-y-auto whitespace-pre-wrap text-xs leading-5 text-[#405333]">
+                          {documentPlanSuggestion.briefText}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="flex-col-reverse gap-1.5 border-t border-[#ded4c1] bg-[#fffaf1] px-5 py-2.5 sm:flex-row">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 px-3 text-xs"
+              onClick={() => setSuggestionDialogOpen(false)}
+            >
+              {t('common.cancel')}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 px-3 text-xs"
+              onClick={() => applyDocumentSuggestion('empty')}
+            >
+              {t('home.applyEmptyFields')}
+            </Button>
+            <Button
+              size="sm"
+              className="h-8 px-3 text-xs"
+              onClick={() => applyDocumentSuggestion('selected')}
+            >
+              {t('home.applySelectedFields')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

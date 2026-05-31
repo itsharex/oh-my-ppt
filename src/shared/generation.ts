@@ -19,6 +19,13 @@ export interface ParseDocumentPlanPayload {
   existingBrief?: string
 }
 
+export interface PrepareReferenceDocumentPayload {
+  files: Array<{
+    path: string
+    name?: string
+  }>
+}
+
 export interface ParsedDocumentPlanResult {
   topic: string
   pageCount: number
@@ -29,6 +36,10 @@ export interface ParsedDocumentPlanResult {
     characterCount: number
     path: string
   }>
+}
+
+export interface PreparedReferenceDocumentResult {
+  files: ParsedDocumentPlanResult['files']
 }
 
 export interface PptxImportPayload {

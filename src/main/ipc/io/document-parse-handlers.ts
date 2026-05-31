@@ -8,7 +8,12 @@ import { resolveModel } from '../../agent'
 import { FilesystemBackend, createDeepAgent } from 'deepagents'
 import { extractJsonBlock, extractModelText } from '../utils'
 import type { IpcContext } from '../context'
-import type { ParseDocumentPlanPayload, ParsedDocumentPlanResult } from '@shared/generation'
+import type {
+  ParseDocumentPlanPayload,
+  ParsedDocumentPlanResult,
+  PrepareReferenceDocumentPayload,
+  PreparedReferenceDocumentResult
+} from '@shared/generation'
 import { resolveModelTimeoutMs } from '@shared/model-timeout'
 import { resolveActiveModelConfig, resolveGlobalModelTimeouts } from '../config/model-config-utils'
 import { assertImageWasRead, isImageUnsupportedError } from '../../utils/style-image-import'
@@ -904,6 +909,28 @@ const runImageDocumentPlanModel = async (args: {
 
 export function registerDocumentParseHandlers(ctx: IpcContext): void {
   const { resolveStoragePath } = ctx
+
+  ipcMain.handle(
+    'documents:prepareReference',
+    async (_event, payload: PrepareReferenceDocumentPayload) => {
+      const input = payload && typeof payload === 'object' ? payload : { files: [] }
+      const files = Array.isArray(input.files) ? input.files.slice(0, MAX_DOCUMENT_FILES) : []
+      if (files.length === 0) throw new Error('请先选择要附加的参考文件')
+
+      const docsDir = path.join(await resolveStoragePath(), 'docs')
+      await fs.promises.mkdir(docsDir, { recursive: true })
+      const preparedFiles = await Promise.all(files.map((file) => prepareSourceFile(file, docsDir)))
+
+      return {
+        files: preparedFiles.map(({ name, type, characterCount, workspacePath }) => ({
+          name,
+          type,
+          characterCount,
+          path: workspacePath
+        }))
+      } satisfies PreparedReferenceDocumentResult
+    }
+  )
 
   ipcMain.handle('documents:parsePlan', async (_event, payload: ParseDocumentPlanPayload) => {
     const input = payload && typeof payload === 'object' ? payload : { files: [] }

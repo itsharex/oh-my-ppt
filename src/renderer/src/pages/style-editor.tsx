@@ -1,21 +1,39 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Button } from '../components/ui/Button'
+import { ButtonGroup, ButtonGroupSeparator } from '../components/ui/ButtonGroup'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger
+} from '../components/ui/DropdownMenu'
 import { Input, Textarea } from '../components/ui/Input'
 import { ScrollArea } from '../components/ui/ScrollArea'
 import { useToastStore } from '../store'
+import { useSettingsStore } from '../store'
 import { ipc, type StyleDetail, type StyleParseResult } from '@renderer/lib/ipc'
 import ReactMarkdown from 'react-markdown'
-import { ArrowLeft, Eye, Import, Loader2, Pencil, Save, Trash2 } from 'lucide-react'
+import {
+  ArrowLeft,
+  Check,
+  ChevronDown,
+  Eye,
+  Import,
+  Loader2,
+  Pencil,
+  Save,
+  Trash2
+} from 'lucide-react'
 import { useT } from '../i18n'
 import {
   isSupportedImageMimeType,
   normalizeImageMimeType
 } from '@shared/image-mime'
 
-const MAX_STYLE_TEXT_FILE_SIZE_MB = 1
-const MAX_STYLE_PPTX_FILE_SIZE_MB = 80
+const MAX_STYLE_TEXT_FILE_SIZE_MB = 10
+const MAX_STYLE_PPTX_FILE_SIZE_MB = 100
 const MAX_STYLE_IMAGE_SIZE_MB = 5
 const MAX_STYLE_TEXT_FILE_SIZE_BYTES = MAX_STYLE_TEXT_FILE_SIZE_MB * 1024 * 1024
 const MAX_STYLE_PPTX_FILE_SIZE_BYTES = MAX_STYLE_PPTX_FILE_SIZE_MB * 1024 * 1024
@@ -46,7 +64,9 @@ export function StyleEditorPage(): React.JSX.Element {
   const [mode, setMode] = useState<'edit' | 'preview'>('edit')
   const styleFileInputRef = useRef<HTMLInputElement | null>(null)
   const { success, error, warning, info } = useToastStore()
+  const { modelConfigs, fetchSettings, setActiveModelConfig } = useSettingsStore()
   const t = useT()
+  const [selectedModelConfigId, setSelectedModelConfigId] = useState('')
 
   useEffect(() => {
     const run = async (): Promise<void> => {
@@ -88,10 +108,22 @@ export function StyleEditorPage(): React.JSX.Element {
     void run()
   }, [error, isNew, styleId, t])
 
+  useEffect(() => {
+    void fetchSettings()
+  }, [fetchSettings])
+
+  useEffect(() => {
+    setSelectedModelConfigId((current) => {
+      if (current && modelConfigs.some((config) => config.id === current)) return current
+      return modelConfigs.find((config) => config.active)?.id || modelConfigs[0]?.id || ''
+    })
+  }, [modelConfigs])
+
   const currentStyleName = useMemo(
     () => (isNew ? t('styleEditor.createTitle') : t('styleEditor.editTitle')),
     [isNew, t]
   )
+  const hasMultipleModelConfigs = modelConfigs.length > 1
 
   const handleSave = async (): Promise<void> => {
     if (!draft) return
@@ -170,8 +202,25 @@ export function StyleEditorPage(): React.JSX.Element {
     return false
   }
 
-  const handleImportStyleClick = async (): Promise<void> => {
+  const ensureModelActive = async (modelConfigId: string): Promise<boolean> => {
+    if (!modelConfigId) return false
+    const selected = modelConfigs.find((config) => config.id === modelConfigId)
+    if (!selected) return false
+    setSelectedModelConfigId(modelConfigId)
+    if (selected.active) return true
+
+    await setActiveModelConfig(modelConfigId)
+    const activateError = useSettingsStore.getState().verificationMessage
+    if (activateError) {
+      error(t('settings.activateModelFailed'), { description: activateError })
+      return false
+    }
+    return true
+  }
+
+  const handleImportStyleClick = async (modelConfigId = selectedModelConfigId): Promise<void> => {
     if (importing) return
+    if (modelConfigId && !(await ensureModelActive(modelConfigId))) return
     if (!(await ensureUploadPrerequisites())) return
     styleFileInputRef.current?.click()
   }
@@ -293,7 +342,7 @@ export function StyleEditorPage(): React.JSX.Element {
         <p className="text-xs uppercase tracking-[0.22em] text-muted-foreground">{t('styleEditor.eyebrow')}</p>
         <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
-            <h1 className="organic-serif text-[32px] font-semibold leading-none text-[#3e4a32]">{currentStyleName}</h1>
+            <h1 className="organic-serif text-[28px] font-semibold leading-none text-[#3e4a32]">{currentStyleName}</h1>
           </div>
           <div className="flex shrink-0 flex-wrap items-center gap-2 sm:justify-end">
             <Button size="sm" variant="secondary" className="min-w-[112px]" onClick={() => navigate('/styles')}>
@@ -312,21 +361,70 @@ export function StyleEditorPage(): React.JSX.Element {
         <>
           {isNew ? (
             <div className="mb-4 space-y-2">
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => {
-                  void handleImportStyleClick()
-                }}
-                disabled={importing}
-              >
-                {importing ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <Import className="mr-2 h-4 w-4" />
+              <ButtonGroup className="h-8 rounded-lg border-[#d8ccb5]/80 bg-[#fffdf8]/76 shadow-none">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    void handleImportStyleClick(selectedModelConfigId)
+                  }}
+                  disabled={importing}
+                  className={`h-full border-0 bg-transparent px-2.5 text-xs text-[#405333] shadow-none hover:bg-[#f3f7ed] hover:text-[#2f3b28] hover:shadow-none ${
+                    hasMultipleModelConfigs ? 'rounded-none' : 'rounded-lg'
+                  }`}
+                >
+                  {importing ? (
+                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Import className="mr-1.5 h-3.5 w-3.5" />
+                  )}
+                  {importing ? t('styleEditor.importing') : t('styleEditor.importStyle')}
+                </Button>
+                {hasMultipleModelConfigs && (
+                  <>
+                    <ButtonGroupSeparator className="my-2 bg-[#d8ccb5]/80" />
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          disabled={importing}
+                          className="h-full w-8 shrink-0 rounded-none border-0 bg-transparent px-0 text-[#405333] shadow-none hover:bg-[#f3f7ed] hover:text-[#2f3b28] hover:shadow-none"
+                          aria-label={t('settings.generationModel')}
+                        >
+                          <ChevronDown className="h-3.5 w-3.5" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="start" className="w-64">
+                        {modelConfigs.map((config) => (
+                          <DropdownMenuItem
+                            key={config.id}
+                            className="py-1.5 text-xs"
+                            onSelect={() => {
+                              void handleImportStyleClick(config.id)
+                            }}
+                          >
+                            <Check
+                              className={`h-4 w-4 shrink-0 ${
+                                config.id === selectedModelConfigId ? 'opacity-100' : 'opacity-0'
+                              }`}
+                            />
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-xs text-[#33402a]">
+                                {config.name}
+                              </span>
+                              <span className="mt-0.5 block truncate text-[10px] text-muted-foreground">
+                                {config.provider} · {config.model}
+                              </span>
+                            </span>
+                          </DropdownMenuItem>
+                        ))}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </>
                 )}
-                {importing ? t('styleEditor.importing') : t('styleEditor.importStyle')}
-              </Button>
+              </ButtonGroup>
               <p className="text-xs text-muted-foreground">
                 {t('styleEditor.importHint', {
                   textMaxSize: MAX_STYLE_TEXT_FILE_SIZE_MB,
@@ -345,37 +443,43 @@ export function StyleEditorPage(): React.JSX.Element {
             onChange={(e) => void handleStyleFileSelected(e.target.files)}
           />
           <Card>
-            <CardHeader>
-              <CardTitle className="text-base">{t('styleEditor.skillMarkdown')}</CardTitle>
+            <CardHeader className="p-4">
+              <CardTitle className="text-sm">{t('styleEditor.skillMarkdown')}</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="space-y-3 p-4 pt-0">
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
               <div>
-                <label className="mb-2 block text-sm font-medium">{t('styleEditor.name')}</label>
-                <Input value={labelInput} onChange={(e) => setLabelInput(e.target.value)} />
+                <label className="mb-1.5 block text-xs font-medium">{t('styleEditor.name')}</label>
+                <Input
+                  value={labelInput}
+                  onChange={(e) => setLabelInput(e.target.value)}
+                  className="h-8 px-3 py-1.5 text-xs"
+                />
               </div>
               <div>
-                <label className="mb-2 block text-sm font-medium">{t('styleEditor.descriptionLabel')}</label>
+                <label className="mb-1.5 block text-xs font-medium">{t('styleEditor.descriptionLabel')}</label>
                 <Input
                   value={descriptionInput}
                   onChange={(e) => setDescriptionInput(e.target.value)}
                   placeholder={t('styleEditor.descriptionPlaceholder')}
+                  className="h-8 px-3 py-1.5 text-xs"
                 />
               </div>
               <div className="md:col-span-2">
-                <label className="mb-2 block text-sm font-medium">{t('styleEditor.styleCaseLabel')}</label>
+                <label className="mb-1.5 block text-xs font-medium">{t('styleEditor.styleCaseLabel')}</label>
                 <Input
                   value={draft.styleCase || ''}
                   onChange={(e) =>
                     setDraft((prev) => (prev ? { ...prev, styleCase: e.target.value } : prev))
                   }
                   placeholder={t('styleEditor.styleCasePlaceholder')}
+                  className="h-8 px-3 py-1.5 text-xs"
                 />
               </div>
             </div>
-            <div className="rounded-lg border border-[#d9ccb4]/70 bg-[#f8f0e2]/72 p-3">
-              <p className="mb-2 text-xs font-semibold uppercase tracking-[0.08em] text-[#5d6f4d]">{t('styleEditor.writingTips')}</p>
-              <ul className="list-disc space-y-1 pl-5 text-xs leading-5 text-[#5b6b4d]">
+            <div className="rounded-lg border border-[#d9ccb4]/70 bg-[#f8f0e2]/72 p-2.5">
+              <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#5d6f4d]">{t('styleEditor.writingTips')}</p>
+              <ul className="list-disc space-y-0.5 pl-5 text-[11px] leading-5 text-[#5b6b4d]">
                 <li>{t('styleEditor.tipStructure')}</li>
                 <li>{t('styleEditor.tipAnimation')}</li>
                 <li>{t('styleEditor.tipNatural')}</li>
@@ -386,7 +490,7 @@ export function StyleEditorPage(): React.JSX.Element {
             {mode === 'edit' ? (
               <div>
                 <div className="mb-2 flex items-center justify-between">
-                  <label className="block text-sm font-medium">Markdown</label>
+                  <label className="block text-xs font-medium">Markdown</label>
                   <div className="flex items-center gap-1 rounded-lg border border-border p-0.5">
                     <button
                       type="button"
@@ -410,13 +514,13 @@ export function StyleEditorPage(): React.JSX.Element {
                   value={markdownInput}
                   onChange={(e) => setMarkdownInput(e.target.value)}
                   rows={24}
-                  className="resize-y font-mono text-sm"
+                  className="resize-y px-3 py-2 font-mono text-xs leading-5"
                 />
               </div>
             ) : (
               <div>
                 <div className="mb-2 flex items-center justify-between">
-                  <label className="block text-sm font-medium">Markdown</label>
+                  <label className="block text-xs font-medium">Markdown</label>
                   <div className="flex items-center gap-1 rounded-lg border border-border p-0.5">
                     <button
                       type="button"
@@ -436,21 +540,21 @@ export function StyleEditorPage(): React.JSX.Element {
                     </button>
                   </div>
                 </div>
-                <ScrollArea className="h-[400px] rounded-lg border border-border/70 bg-background/70" viewportClassName="p-5">
+                <ScrollArea className="h-[400px] rounded-lg border border-border/70 bg-background/70" viewportClassName="p-4">
                   <ReactMarkdown
                     components={{
-                      h1: ({ children }) => <h1 className="mb-3 text-xl font-semibold text-foreground">{children}</h1>,
-                      h2: ({ children }) => <h2 className="mb-2 mt-4 text-lg font-semibold text-foreground">{children}</h2>,
-                      h3: ({ children }) => <h3 className="mb-2 mt-3 text-base font-semibold text-foreground">{children}</h3>,
-                      p: ({ children }) => <p className="mb-2 text-sm leading-relaxed text-muted-foreground">{children}</p>,
-                      ul: ({ children }) => <ul className="mb-2 list-disc space-y-1 pl-5 text-sm text-muted-foreground">{children}</ul>,
-                      ol: ({ children }) => <ol className="mb-2 list-decimal space-y-1 pl-5 text-sm text-muted-foreground">{children}</ol>,
+                      h1: ({ children }) => <h1 className="mb-2 text-lg font-semibold text-foreground">{children}</h1>,
+                      h2: ({ children }) => <h2 className="mb-2 mt-3 text-base font-semibold text-foreground">{children}</h2>,
+                      h3: ({ children }) => <h3 className="mb-1.5 mt-2.5 text-sm font-semibold text-foreground">{children}</h3>,
+                      p: ({ children }) => <p className="mb-2 text-xs leading-5 text-muted-foreground">{children}</p>,
+                      ul: ({ children }) => <ul className="mb-2 list-disc space-y-0.5 pl-5 text-xs text-muted-foreground">{children}</ul>,
+                      ol: ({ children }) => <ol className="mb-2 list-decimal space-y-0.5 pl-5 text-xs text-muted-foreground">{children}</ol>,
                       li: ({ children }) => <li>{children}</li>,
                       code: ({ children }) => (
                         <code className="rounded bg-muted px-1.5 py-0.5 text-xs text-foreground">{children}</code>
                       ),
                       blockquote: ({ children }) => (
-                        <blockquote className="mb-2 border-l-2 border-border pl-3 text-sm text-muted-foreground">{children}</blockquote>
+                        <blockquote className="mb-2 border-l-2 border-border pl-3 text-xs text-muted-foreground">{children}</blockquote>
                       ),
                     }}
                   >
@@ -460,18 +564,24 @@ export function StyleEditorPage(): React.JSX.Element {
               </div>
             )}
 
-            <div className="flex flex-wrap items-center gap-2">
-              <Button onClick={handleSave} disabled={saving}>
-                <Save className="mr-2 h-4 w-4" />
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <Button size="sm" className="h-8 px-3 text-xs" onClick={handleSave} disabled={saving}>
+                <Save className="mr-1.5 h-3.5 w-3.5" />
                 {saving ? t('common.saving') : t('styleEditor.saveStyle')}
               </Button>
-              <Button variant="outline" onClick={handleDelete} disabled={saving}>
-                <Trash2 className="mr-2 h-4 w-4" />
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8 px-3 text-xs"
+                onClick={handleDelete}
+                disabled={saving}
+              >
+                <Trash2 className="mr-1.5 h-3.5 w-3.5" />
                 {t('common.delete')}
               </Button>
             </div>
 
-            <p className="text-xs text-muted-foreground">
+            <p className="text-[11px] text-muted-foreground">
               {t('styleEditor.currentMode', {
                 mode: draft.source === 'builtin' ? t('styleEditor.builtinMode') : draft.source || ''
               })}

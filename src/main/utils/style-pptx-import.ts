@@ -12,7 +12,8 @@ import { extractJsonBlock, extractModelText } from '../ipc/utils'
 import { logAgentToolEvents } from './agent-tool-logger'
 import type { StyleParseResult } from './style-import'
 
-const MAX_PPTX_SIZE = 80 * 1024 * 1024
+const MAX_PPTX_SIZE_MB = 100
+const MAX_PPTX_SIZE = MAX_PPTX_SIZE_MB * 1024 * 1024
 const MAX_IMPORT_PAGES = 40
 
 export async function parseStylePptx(args: {
@@ -31,7 +32,9 @@ export async function parseStylePptx(args: {
   const stat = await fs.promises.stat(sourcePath)
   if (!stat.isFile()) throw new Error(`路径不是文件：${sourcePath}`)
   if (stat.size > MAX_PPTX_SIZE) {
-    throw new Error(`文件过大（${(stat.size / 1024 / 1024).toFixed(1)}MB），PPTX 上限 80MB`)
+    throw new Error(
+      `文件过大（${(stat.size / 1024 / 1024).toFixed(1)}MB），PPTX 上限 ${MAX_PPTX_SIZE_MB}MB`
+    )
   }
 
   await fs.promises.mkdir(args.tmpRootDir, { recursive: true })

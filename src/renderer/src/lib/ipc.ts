@@ -7,6 +7,8 @@ import type {
   GenerateStartPayload,
   ParseDocumentPlanPayload,
   ParsedDocumentPlanResult,
+  PrepareReferenceDocumentPayload,
+  PreparedReferenceDocumentResult,
   PptxImportPayload,
   PptxImportProgressPayload,
   PptxImportResult,
@@ -469,6 +471,8 @@ export const ipc = {
   }) => getIpc().invoke('history:recordSnapshot', payload) as Promise<unknown>,
   uploadAssets: (payload: UploadAssetsPayload) =>
     getIpc().invoke('assets:upload', payload) as Promise<{ assets: UploadedAsset[] }>,
+  prepareReferenceDocument: (payload: PrepareReferenceDocumentPayload) =>
+    getIpc().invoke('documents:prepareReference', payload) as Promise<PreparedReferenceDocumentResult>,
   parseDocumentPlan: (payload: ParseDocumentPlanPayload) =>
     getIpc().invoke('documents:parsePlan', payload) as Promise<ParsedDocumentPlanResult>,
   importPptx: (payload: PptxImportPayload) =>
