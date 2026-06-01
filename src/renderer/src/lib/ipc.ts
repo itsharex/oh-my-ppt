@@ -277,6 +277,7 @@ export const ipc = {
         id: string
         pageNumber: number
         title: string
+        contentOutline?: string | null
         html: string
         htmlPath?: string
         pageId?: string
@@ -297,6 +298,7 @@ export const ipc = {
         pageNumber: number
         pageId: string
         title: string
+        contentOutline?: string | null
         html: string
         htmlPath?: string
         status?: string
@@ -316,6 +318,7 @@ export const ipc = {
         pageNumber: number
         pageId: string
         title: string
+        contentOutline?: string | null
         html: string
         htmlPath?: string
         status?: string
@@ -334,6 +337,7 @@ export const ipc = {
         pageNumber: number
         pageId: string
         title: string
+        contentOutline?: string | null
         html: string
         htmlPath?: string
         status?: string
@@ -353,6 +357,7 @@ export const ipc = {
         pageNumber: number
         pageId: string
         title: string
+        contentOutline?: string | null
         html: string
         htmlPath?: string
         status?: string

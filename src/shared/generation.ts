@@ -147,6 +147,7 @@ export interface GeneratedPagePayload {
   id?: string
   pageNumber: number
   title: string
+  contentOutline?: string | null
   html: string
   htmlPath?: string
   pageId?: string

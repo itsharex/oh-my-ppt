@@ -14,14 +14,14 @@ interface GenerateStore {
   status: GenerateRunStatus
   isGenerating: boolean
   progress: GenerateProgress | null
-  currentPages: { id: string; pageNumber: number; title: string; html: string; htmlPath?: string; pageId?: string; sourceUrl?: string; status?: string; error?: string | null }[]
+  currentPages: { id: string; pageNumber: number; title: string; contentOutline?: string | null; html: string; htmlPath?: string; pageId?: string; sourceUrl?: string; status?: string; error?: string | null }[]
   error: string | null
   cancelReason: string | null
 
   startGeneration: () => void
   updateProgress: (progress: Partial<GenerateProgress>) => void
-  setPages: (pages: { id: string; pageNumber: number; title: string; html: string; htmlPath?: string; pageId?: string; sourceUrl?: string; status?: string; error?: string | null }[]) => void
-  addPage: (page: { id: string; pageNumber: number; title: string; html: string; htmlPath?: string; pageId?: string; sourceUrl?: string; status?: string; error?: string | null }) => void
+  setPages: (pages: { id: string; pageNumber: number; title: string; contentOutline?: string | null; html: string; htmlPath?: string; pageId?: string; sourceUrl?: string; status?: string; error?: string | null }[]) => void
+  addPage: (page: { id: string; pageNumber: number; title: string; contentOutline?: string | null; html: string; htmlPath?: string; pageId?: string; sourceUrl?: string; status?: string; error?: string | null }) => void
   updatePage: (
     pageId: string,
     html: string,

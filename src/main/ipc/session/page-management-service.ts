@@ -2,10 +2,13 @@ import type { IpcContext } from '../context'
 import * as fs from 'fs'
 import path from 'path'
 import * as cheerio from 'cheerio'
+import type { AnyNode } from 'domhandler'
 import { customAlphabet, nanoid } from 'nanoid'
 import { buildProjectIndexHtml } from '../engine/template'
 import { ensureSessionRuntimeCompatible } from './runtime-assets'
 import { validatePersistedPageHtml } from '../../tools/html-utils'
+import type { SessionPageStatus } from '../../db/schema'
+import { resolveOutlinesForPages } from './page-outline-utils'
 
 const pageSlugId = customAlphabet('abcdefghijklmnopqrstuvwxyz0123456789', 10)
 
@@ -32,9 +35,10 @@ export interface ManagedPage {
   pageId: string
   legacyPageId?: string
   title: string
+  contentOutline?: string | null
   htmlPath: string
   html?: string
-  status?: string
+  status?: SessionPageStatus
   error?: string | null
 }
 
@@ -56,12 +60,14 @@ export async function loadEditableSessionPages(
   const deckTitle = (session as unknown as { title?: string }).title || 'Untitled'
 
   const sessionPages = await ctx.db.listSessionPages(sessionId)
+  const outlineBySessionPageId = await resolveOutlinesForPages(ctx.db, sessionId, sessionPages)
   const pages: ManagedPage[] = sessionPages.map((sp) => ({
     id: sp.id,
     pageNumber: sp.page_number,
     pageId: sp.file_slug,
     legacyPageId: sp.legacy_page_id || undefined,
     title: sp.title,
+    contentOutline: outlineBySessionPageId.get(sp.id) || null,
     htmlPath: resolvePageHtmlPath(projectDir, sp.file_slug, sp.html_path),
     status: sp.status,
     error: sp.error
@@ -143,7 +149,7 @@ const replacePageIdentity = (html: string, oldPageId: string, nextPageId: string
   return html.replace(boundaryPattern, `$1${nextPageId}`)
 }
 
-const clearVisibleText = ($: cheerio.CheerioAPI, root: cheerio.Cheerio<unknown>): void => {
+const clearVisibleText = ($: cheerio.CheerioAPI, root: cheerio.Cheerio<AnyNode>): void => {
   root.find('input, textarea').each((_, node) => {
     const el = $(node)
     el.removeAttr('value')
@@ -223,6 +229,7 @@ export async function createBlankSessionPage(
     pageNumber: insertAfterPageNumber + 1,
     pageId: nextPageId,
     title: nextTitle,
+    contentOutline: null,
     htmlPath: nextHtmlPath,
     html: nextHtml,
     status: 'completed',

@@ -1,9 +1,11 @@
 import { useEffect, useRef } from 'react'
 import { FileText, Image as ImageIcon, Loader2, Plus, Send, StopCircle, Video, X } from 'lucide-react'
 import { cn } from '@renderer/lib/utils'
+import { useModelAction } from '@renderer/hooks/useModelAction'
 import { useSessionStore } from '@renderer/store/sessionStore'
 import { useSessionDetailUiStore } from '@renderer/store/sessionDetailStore'
 import { Button } from '../ui/Button'
+import { ModelSplitButton } from '../model/ModelActionButton'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -47,6 +49,7 @@ export function MessagePanel({
   cleanMessageContent: (content: string) => string
 }): React.JSX.Element {
   const t = useT()
+  const modelAction = useModelAction()
   const messages = useSessionStore((state) => state.currentMessages)
   const chatType = useSessionDetailUiStore((state) => state.chatType)
   const input = useSessionDetailUiStore((state) => state.input)
@@ -102,6 +105,20 @@ export function MessagePanel({
         .filter(Boolean)
         .join('\n')
     : undefined
+  const sendDisabled =
+    (!input.trim() && pendingAssets.length === 0) ||
+    ((selectedSelector ? 'page' : chatType) === 'page' && !selectedPageExists)
+
+  const handleSendWithModel = async (modelConfigId?: string): Promise<void> => {
+    if (sendDisabled) return
+    try {
+      const resolvedModelConfigId = await modelAction.ensureModelActive(modelConfigId)
+      if (!resolvedModelConfigId) return
+      onSend()
+    } catch (err) {
+      console.error('[MessagePanel] send model activation failed', err)
+    }
+  }
 
   return (
     <aside className="mr-3 mb-3 mt-1 flex min-h-0 w-[300px] shrink-0 flex-col overflow-hidden rounded-[2rem] border border-[#ded2bd]/60 bg-[#f3ecdf]/76 shadow-[0_14px_32px_rgba(74,59,42,0.11)] backdrop-blur-xl">
@@ -257,7 +274,7 @@ export function MessagePanel({
             if (event.key === 'Enter' && !event.shiftKey) {
               if (composingRef.current || event.nativeEvent.isComposing) return
               event.preventDefault()
-              onSend()
+              void handleSendWithModel()
             }
           }}
           disabled={isGenerating}
@@ -313,18 +330,17 @@ export function MessagePanel({
               {t('sessionDetail.stop')}
             </Button>
           ) : (
-            <Button
-              onClick={onSend}
-              disabled={
-                (!input.trim() && pendingAssets.length === 0) ||
-                ((selectedSelector ? 'page' : chatType) === 'page' && !selectedPageExists)
-              }
+            <ModelSplitButton
+              modelAction={modelAction}
+              label={t('sessionDetail.send')}
+              disabled={sendDisabled}
+              icon={Send}
               size="sm"
-              className="shrink-0 whitespace-nowrap rounded-full bg-[#5d6b4d] px-3 text-xs text-white shadow-[0_8px_18px_rgba(93,107,77,0.24)] hover:bg-[#3e4a32]"
-            >
-              <Send className="mr-1 h-4 w-4" />
-              {t('sessionDetail.send')}
-            </Button>
+              className="shrink-0 whitespace-nowrap"
+              mainClassName="h-8 px-2.5 text-xs"
+              triggerClassName="h-8 px-1.5"
+              onRun={handleSendWithModel}
+            />
           )}
         </div>
       </div>

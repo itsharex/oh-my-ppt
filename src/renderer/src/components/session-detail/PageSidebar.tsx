@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import {
   FilePlus2,
   Home,
@@ -110,6 +110,7 @@ export const PageSidebar = memo(function PageSidebar({
   const thumbnailVersions = useSessionDetailUiStore((state) => state.thumbnailVersions)
   const setSelectedPageId = useSessionDetailUiStore((state) => state.setSelectedPageId)
   const isAddingPage = useSessionDetailUiStore((state) => state.isAddingPage)
+  const [activeView, setActiveView] = useState<'pages' | 'outline'>('pages')
   const wasAddingRef = useRef(false)
   const viewportRef = useRef<HTMLDivElement>(null)
   const resetSessionRuntimeState = useSessionStore((state) => state.resetRuntimeState)
@@ -158,7 +159,9 @@ export const PageSidebar = memo(function PageSidebar({
 
   return (
     <aside
-      className={`relative flex min-h-0 shrink-0 flex-col overflow-hidden bg-[#f5f1e8] pb-3 pt-3 shadow-[inset_-16px_0_30px_rgba(93,107,77,0.045)] transition-[width] duration-300 ${collapsed ? 'w-[48px]' : 'w-[192px]'}`}
+      className={`relative flex min-h-0 shrink-0 flex-col overflow-hidden bg-[#f5f1e8] pb-3 pt-3 shadow-[inset_-16px_0_30px_rgba(93,107,77,0.045)] transition-[width] duration-300 ${
+        collapsed ? 'w-[48px] min-w-[48px] max-w-[48px]' : 'w-[220px] min-w-[220px] max-w-[220px]'
+      }`}
     >
       <div className={`flex min-h-0 flex-1 flex-col ${collapsed ? 'px-1' : 'px-2.5'}`}>
       {collapsed ? (
@@ -185,7 +188,7 @@ export const PageSidebar = memo(function PageSidebar({
           </div>
 
           {/* Middle: page list */}
-          <ScrollArea className="min-h-0 flex-1" viewportClassName="pb-2" viewportRef={viewportRef}>
+          <ScrollArea className="min-h-0 min-w-0 flex-1" viewportClassName="overflow-x-hidden pb-2" viewportRef={viewportRef}>
             <div className="space-y-1.5">
               {pages.map((page) => (
                 <button
@@ -273,11 +276,77 @@ export const PageSidebar = memo(function PageSidebar({
             </div>
           </div>
 
+          <div className="mb-2 grid grid-cols-2 rounded-full border border-[#ded2bd]/60 bg-[#e8e0d0]/46 p-0.5 text-[11px] font-medium text-[#6a705d]">
+            <button
+              type="button"
+              onClick={() => setActiveView('pages')}
+              className={`h-7 rounded-full transition-all ${
+                activeView === 'pages'
+                  ? 'bg-[#fffaf1]/90 text-[#3e4a32] shadow-[0_4px_10px_rgba(93,107,77,0.1)]'
+                  : 'hover:bg-[#fffaf1]/42 hover:text-[#4f6340]'
+              }`}
+            >
+              {t('sessionDetail.pageTab')}
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveView('outline')}
+              className={`h-7 rounded-full transition-all ${
+                activeView === 'outline'
+                  ? 'bg-[#fffaf1]/90 text-[#3e4a32] shadow-[0_4px_10px_rgba(93,107,77,0.1)]'
+                  : 'hover:bg-[#fffaf1]/42 hover:text-[#4f6340]'
+              }`}
+            >
+              {t('sessionDetail.outlineTab')}
+            </button>
+          </div>
+
           {/* Middle: page list */}
-          <ScrollArea className="min-h-0 flex-1" viewportClassName="px-0.5 pb-2" viewportRef={viewportRef}>
+          <ScrollArea className="min-h-0 min-w-0 flex-1" viewportClassName="overflow-x-hidden px-0.5 pb-2" viewportRef={viewportRef}>
             {pages.length === 0 ? (
               <div className="flex min-h-[96px] items-center justify-center rounded-[1.25rem] bg-[#e8e0d0]/54 text-xs text-[#8a9a7b]">
                 {t('sessionDetail.pagesEmpty')}
+              </div>
+            ) : activeView === 'outline' ? (
+              <div className="min-w-0 space-y-1.5 overflow-x-hidden">
+                {pages.map((page) => {
+                  const outlineText = (page.contentOutline || '').replace(/\s+/g, ' ').trim()
+                  const selected = selectedPageId === page.id
+                  return (
+                    <button
+                      key={page.id}
+                      type="button"
+                      data-page-id={page.id}
+                      disabled={disabled}
+                      onClick={() => setSelectedPageId(page.id)}
+                      title={outlineText || page.title}
+                      className={`group block w-full min-w-0 max-w-full whitespace-normal rounded-[1.25rem] p-1.5 text-left transition-all ${
+                        selected
+                          ? 'bg-[#d4e4c1]/86 shadow-[0_14px_26px_rgba(93,107,77,0.18)]'
+                          : 'bg-[#e8e0d0]/34 hover:bg-[#e8e0d0]/68 hover:shadow-[0_8px_18px_rgba(93,107,77,0.09)]'
+                      } disabled:cursor-not-allowed disabled:opacity-45`}
+                    >
+                      <span className="block min-w-0 max-w-full overflow-hidden rounded-[1rem] bg-[#fffaf1]/72 px-2.5 py-2 shadow-[0_5px_14px_rgba(93,107,77,0.08)]">
+                        <span className="block whitespace-normal break-words text-[12px] font-semibold leading-5 text-[#33402a] [overflow-wrap:anywhere]">
+                          {page.title || t('sessionDetail.untitledPage')}
+                        </span>
+                        <span className="mt-1 block whitespace-normal break-words text-[11px] leading-4 text-[#716654] [overflow-wrap:anywhere]">
+                          {outlineText || t('sessionDetail.outlineEmpty')}
+                        </span>
+                      </span>
+                      <span className="relative mt-1.5 flex items-center justify-between gap-1 px-0.5">
+                        <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[#5c6c47]">
+                          P{page.pageNumber}
+                        </span>
+                        {selected ? (
+                          <span className="rounded-full bg-[#5d6b4d] px-1.5 py-0.5 text-[9px] font-semibold text-white shadow-[0_3px_8px_rgba(62,74,50,0.18)]">
+                            {t('sessionDetail.current')}
+                          </span>
+                        ) : null}
+                      </span>
+                    </button>
+                  )
+                })}
               </div>
             ) : (
               <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>

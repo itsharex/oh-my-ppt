@@ -106,6 +106,7 @@ function normalizePagesForSelection(
     id: string
     pageNumber: number
     title: string
+    contentOutline?: string | null
     html: string
     htmlPath?: string
     pageId?: string
@@ -461,6 +462,7 @@ export function SessionDetailPage(): React.JSX.Element {
             id: entityId,
             pageNumber: payload.pageNumber,
             title: payload.title,
+            contentOutline: payload.contentOutline,
             html: payload.html,
             htmlPath: payload.htmlPath,
             pageId: payload.pageId || `page-${payload.pageNumber}`,
@@ -487,6 +489,7 @@ export function SessionDetailPage(): React.JSX.Element {
           id: entityId,
           pageNumber: payload.pageNumber,
           title: payload.title,
+          contentOutline: payload.contentOutline,
           html: payload.html,
           htmlPath: payload.htmlPath,
           pageId: payload.pageId || `page-${payload.pageNumber}`,

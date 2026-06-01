@@ -12,6 +12,7 @@ import { normalizeFontSelection } from '@shared/generation'
 import { ensureSessionRuntimeCompatible } from './runtime-assets'
 import { GitHistoryService } from '../../history/git-history-service'
 import { allowLocalAssetRoot } from '../io/assets-handlers'
+import { resolveOutlinesForPages } from './page-outline-utils'
 
 const THINKING_ID_RE = /^[a-zA-Z0-9_-]{6,32}$/
 const THINKING_IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp'])
@@ -422,6 +423,7 @@ export function registerSessionHandlers(ctx: IpcContext): void {
       id: string
       pageNumber: number
       title: string
+      contentOutline?: string | null
       html: string
       htmlPath?: string
       pageId?: string
@@ -446,6 +448,7 @@ export function registerSessionHandlers(ctx: IpcContext): void {
     }
     const projectDir = await resolveSessionProjectDir(sessionId)
     await ensureSessionRuntimeCompatible(ctx, projectDir)
+    const outlineBySessionPageId = await resolveOutlinesForPages(db, sessionId, sessionPages)
     if (!(await db.hasAnyOperationPageSnapshots(sessionId))) {
       await new GitHistoryService(db).ensureBaseline(sessionId, projectDir).catch((error) => {
         log.warn('[session:get] ensure history baseline failed', {
@@ -468,6 +471,7 @@ export function registerSessionHandlers(ctx: IpcContext): void {
         id: sp.id,
         pageNumber: sp.page_number,
         title: sp.title,
+        contentOutline: outlineBySessionPageId.get(sp.id) || null,
         html,
         htmlPath,
         pageId: sp.file_slug,

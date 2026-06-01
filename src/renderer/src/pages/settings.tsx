@@ -10,9 +10,19 @@ import {
   SelectValue
 } from '../components/ui/Select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/Tabs'
+import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/Popover'
 import { useSettingsStore } from '../store'
 import { useToastStore } from '../store'
-import { CheckCircle2, FolderSearch, Pencil, Plus, ShieldCheck, Trash2, X } from 'lucide-react'
+import {
+  CheckCircle2,
+  CircleHelp,
+  FolderSearch,
+  Pencil,
+  Plus,
+  ShieldCheck,
+  Trash2,
+  X
+} from 'lucide-react'
 import { useLang } from '../i18n'
 import type { ModelConfig } from '../lib/ipc'
 import {
@@ -44,6 +54,19 @@ const createTimeoutSeconds = (
       modelTimeoutMsToSeconds(timeouts?.[profile], profile)
     ])
   ) as Record<ConfigurableModelTimeoutProfile, number>
+
+const MODEL_PROVIDER_LINKS = [
+  { label: 'DeepSeek', url: 'https://platform.deepseek.com' },
+  { label: 'Moonshot (Kimi)', url: 'https://platform.moonshot.cn' },
+  { label: 'GLM (智谱)', url: 'https://open.bigmodel.cn' },
+  { label: 'Qwen (通义千问)', url: 'https://bailian.console.aliyun.com/' },
+  { label: 'Doubao (豆包)', url: 'https://console.volcengine.com/ark' },
+  { label: 'Mimo (小米)', url: 'https://platform.xiaomimimo.com' },
+  { label: 'MiniMax', url: 'https://www.minimaxi.com/' },
+  { label: 'OpenAI', url: 'https://platform.openai.com' },
+  { label: 'Claude (Anthropic)', url: 'https://console.anthropic.com' },
+  { label: 'Google Gemini', url: 'https://ai.google.dev' }
+]
 
 const createEmptyModelForm = (active = false): ModelForm => ({
   name: '',
@@ -418,7 +441,36 @@ export function SettingsPage(): React.JSX.Element {
           <Card className="mb-4">
             <CardHeader className="flex-row items-center justify-between p-5 pb-3">
               <div>
-                <CardTitle className="text-base">{t('settings.modelAccess')}</CardTitle>
+                <CardTitle className="flex items-center gap-1.5 text-base">
+                  {t('settings.modelAccess')}
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <CircleHelp className="h-3.5 w-3.5 cursor-pointer text-muted-foreground/50 hover:text-foreground transition-colors" />
+                    </PopoverTrigger>
+                    <PopoverContent
+                      side="bottom"
+                      align="start"
+                      className="w-auto max-w-xs border-[#d8cfbc]/80 bg-[#fffdf8] p-3"
+                    >
+                      <p className="mb-2 text-[11px] font-semibold text-[#3e4a32]">
+                        {t('settings.modelHelpTitle')}
+                      </p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {MODEL_PROVIDER_LINKS.map((item) => (
+                          <a
+                            key={item.url}
+                            href={item.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="rounded-md border border-[#d8cfbc]/80 bg-[#f5efe2]/60 px-2 py-1 text-[11px] text-[#5b6b4d] transition-colors hover:border-[#96b77f]/60 hover:bg-[#e8f0de] hover:text-[#3e4a32]"
+                          >
+                            {item.label}
+                          </a>
+                        ))}
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+                </CardTitle>
                 {activeModelConfig && (
                   <p className="mt-1 text-xs text-muted-foreground">
                     {t('settings.currentActiveModel', { name: activeModelConfig.name })}
@@ -646,7 +698,11 @@ export function SettingsPage(): React.JSX.Element {
                   max={16384}
                   step={256}
                   value={modelForm.maxTokens}
-                  onChange={(e) => updateModelForm({ maxTokens: Math.max(256, Math.min(16384, Number(e.target.value) || 4096)) })}
+                  onChange={(e) =>
+                    updateModelForm({
+                      maxTokens: Math.max(256, Math.min(16384, Number(e.target.value) || 4096))
+                    })
+                  }
                   className="h-8"
                 />
                 <p className="mt-1 text-xs text-muted-foreground">{t('settings.maxTokensHint')}</p>
