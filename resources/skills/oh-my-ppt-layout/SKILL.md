@@ -62,9 +62,16 @@ Total canvas height: 884px. Before writing HTML, calculate the height budget in 
 3. Gaps between modules (each `gap-4` = 16px, `gap-6` = 24px)
 4. Remaining = maximum space for chart/data modules
 
-Chart frame `h-[Npx]` must fit within the remaining space. Hero chart max 380px. If the total exceeds 884px, reduce chart height first, then reduce padding.
+Chart frame `h-[Npx]` must fit within the remaining space, but it should not blindly consume all leftover height. First calculate the available slot, then choose a role-appropriate chart height: hero 340-420px, standard 280-360px, compact support 220-280px. The chart skill's height comment must end with the chosen frame height, not just the raw leftover space. If the total exceeds 884px, cut support modules first, then reduce chart height/padding.
 
 Charts, tables, timelines, and long lists must share the same budget as titles and notes. Budget the chart frame height before writing HTML — see the chart skill for chart-specific height rules.
+
+For chart slides, decide the chart role before choosing layout density:
+
+- If the chart is the main evidence, give it one dominant zone and keep support modules to 1-3 compact blocks.
+- If the chart is supporting evidence, keep it compact and let the primary claim or comparison own the visual hierarchy.
+- If the page needs more than one chart, use equal chart frames only when the charts are truly comparable; otherwise make one primary and one compact.
+- Do not pair a tall chart with a full metric row, long subtitle, summary cards, and footnotes on the same slide. Split content instead.
 
 ## Density rules
 
@@ -170,7 +177,7 @@ When a slide has overflow, collision, or exceeds the canvas:
 1. **Cut content first**: remove the lowest-value module. Ask: does this card add new information, or just repeat the title / another card? If redundant, cut it.
 2. **Shorten text**: merge related points, use phrases instead of sentences.
 3. **Switch to a tighter structure**: replace asymmetric layout with a grid, reduce columns from 3 to 2.
-4. **Rebudget chart height**: if the page has a chart, reduce its h-[Npx] to make room.
+4. **Rebudget chart height**: if the page has a chart, calculate the available slot and choose a role-appropriate `h-[Npx]`; update the height comment so the final number matches the class.
 5. **Check nesting**: flatten any deep wrapper chains that consume vertical space.
 
 ## Cross-skill references

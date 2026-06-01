@@ -588,6 +588,7 @@ export const PreviewIframe = forwardRef<
           `  if (__u.width !== null) __c.style.width = __u.width + 'px';` +
           `  if (__u.height !== null) __c.style.height = __u.height + 'px';` +
           `}` +
+          `if (window.PPT && typeof window.PPT.resizeCharts === "function") { try { window.PPT.resizeCharts(__parent); } catch(__e) {} }` +
           `})()`
         )
       },

@@ -88,7 +88,7 @@ Grid cells participate in document flow, expand to fit their content, and never 
 - Annotation line = 24px → 252px (spare)
 ```
 
-Chart height (360px) is chosen to fit the remaining budget. If you need a taller chart, reduce padding to `p-6` or use a shorter title area.
+Chart height (360px) is chosen from the remaining budget, not equal to all leftover space. If you need a taller chart, reduce padding to `p-6` or use a shorter title area; if the available slot is large, cap the chart and leave controlled whitespace or a short annotation.
 
 ### Comparison slide: title + two zones
 
@@ -147,7 +147,7 @@ Title area + `grid grid-cols-3` with evidence cards. Each card: `p-5 rounded-xl 
 
 ### High-density
 
-Compact metric row (`grid grid-cols-4`, `p-3 rounded-lg`) + chart or table below. Tighter padding (`p-6`), smaller text sizes. Module count justified by real information volume. Use `ppt-chart-frame h-[220px]` for supporting charts in this mode.
+Compact metric row (`grid grid-cols-4`, `p-3 rounded-lg`) + chart or table below. Tighter padding (`p-6`), smaller text sizes. Module count justified by real information volume. Use `ppt-chart-frame h-[220px]` to `h-[280px]` for supporting charts in this mode, and make the chart height comment's final number match that class.
 
 ## Title placement variations
 

@@ -78,6 +78,74 @@ function SortablePageItem({
   )
 }
 
+const compactOutlineText = (value: string): string => value.replace(/\s+/g, ' ').trim()
+
+const extractNumberedOutlineEntry = (outline: string, pageNumber: number): string | null => {
+  if (!/(建议大纲|推荐大纲|每页要点|页面要点|Recommended outline|Per-page points|Page outline)/i.test(outline)) {
+    return null
+  }
+  const lines = outline.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n')
+  let inOutlineSection = false
+  let collecting = false
+  const collected: string[] = []
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (!trimmed) continue
+    if (/(建议大纲|推荐大纲|每页要点|页面要点|Recommended outline|Per-page points|Page outline)/i.test(trimmed)) {
+      inOutlineSection = true
+      continue
+    }
+    if (!inOutlineSection) continue
+    if (/^(必须保留|风格|表达|注意事项|受众|核心观点|演示目标|Facts\/|Style|Audience|Core argument)\s*[:：]/i.test(trimmed)) {
+      break
+    }
+    const match = trimmed.match(/^(\d{1,2})\s*[.、．)]\s*(.*)$/)
+    if (match) {
+      const n = Number.parseInt(match[1], 10)
+      if (n === pageNumber) {
+        collecting = true
+        collected.push(match[2] || '')
+        continue
+      }
+      if (collecting) break
+      continue
+    }
+    if (collecting) collected.push(trimmed.replace(/^[-•*]\s*/, ''))
+  }
+  return compactOutlineText(collected.join(' ')) || null
+}
+
+const extractOutlineEntryForPage = (outline: string, pageNumber: number): string | null => {
+  const source = outline.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim()
+  if (!source) return null
+  const escapedPage = String(pageNumber).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const startPattern = new RegExp(
+    `(?:^|\\n)\\s*(?:第\\s*${escapedPage}\\s*页|P\\s*${escapedPage}|Page\\s*${escapedPage})\\s*[:：.、\\-]?\\s*`,
+    'i'
+  )
+  const startMatch = source.match(startPattern)
+  if (!startMatch || startMatch.index === undefined) return null
+
+  const start = startMatch.index + startMatch[0].length
+  const rest = source.slice(start)
+  const nextMatch = rest.match(
+    /\n\s*(?:第\s*\d{1,2}\s*页|P\s*\d{1,2}|Page\s*\d{1,2})\s*[:：.、\-]?/i
+  )
+  const entry = (nextMatch ? rest.slice(0, nextMatch.index) : rest)
+    .replace(/^\s*[-•*]\s*/gm, '')
+    .trim()
+  return compactOutlineText(entry) || null
+}
+
+const getPageOutlineText = (page: SessionPreviewPage): string => {
+  const outline = page.contentOutline || ''
+  return (
+    extractOutlineEntryForPage(outline, page.pageNumber) ||
+    extractNumberedOutlineEntry(outline, page.pageNumber) ||
+    compactOutlineText(outline)
+  )
+}
+
 export const PageSidebar = memo(function PageSidebar({
   pages,
   disabled = false,
@@ -310,7 +378,7 @@ export const PageSidebar = memo(function PageSidebar({
             ) : activeView === 'outline' ? (
               <div className="min-w-0 space-y-1.5 overflow-x-hidden">
                 {pages.map((page) => {
-                  const outlineText = (page.contentOutline || '').replace(/\s+/g, ' ').trim()
+                  const outlineText = getPageOutlineText(page)
                   const selected = selectedPageId === page.id
                   return (
                     <button

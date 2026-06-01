@@ -325,6 +325,7 @@ export function patchDraggedElementStyle(
       if (!child || child.length === 0) break
     }
     if (!child || child.length === 0) continue
+    if (String(child.get(0)?.tagName || '').toLowerCase() === 'canvas') continue
     const childStyleMap = parseStyle(child.attr('style') || '')
     if (childUpdate.width !== null) childStyleMap.set('width', `${childUpdate.width}px`)
     if (childUpdate.height !== null) childStyleMap.set('height', `${childUpdate.height}px`)

@@ -592,7 +592,9 @@ export function buildEditModeInjectScript(previewScale = 1): string {
     const seen = new Set();
     target.querySelectorAll("canvas").forEach((canvas) => {
       const parent = canvas.parentElement;
-      const element = parent && parent !== target ? parent : canvas;
+      if (parent === target) return;
+      const element = parent || canvas;
+      if (element === canvas) return;
       if (!element || seen.has(element)) return;
       seen.add(element);
       const rect = element.getBoundingClientRect();
@@ -1830,6 +1832,7 @@ export function buildEditModeInjectScript(previewScale = 1): string {
       }
       if (layout.width !== undefined) el.style.width = Math.max(1, layout.width).toFixed(1) + "px";
       if (layout.height !== undefined) el.style.height = Math.max(1, layout.height).toFixed(1) + "px";
+      if (layout.width !== undefined || layout.height !== undefined) resizeNestedCharts(el);
       updateOverlay();
     } catch (_error) {}
   };

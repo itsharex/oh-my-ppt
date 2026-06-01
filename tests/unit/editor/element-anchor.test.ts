@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   ensureElementAnchorInHtml,
+  patchDraggedElementStyle,
   patchGenericElementProperties
 } from '../../../src/main/ipc/editor/shared'
 
@@ -28,6 +29,33 @@ describe('ensureElementAnchorInHtml', () => {
     expect(result.html).toContain(`<p data-block-id="${result.blockId}">second</p>`)
   })
 
+})
+
+describe('patchDraggedElementStyle chart sizing', () => {
+  it('does not persist canvas child width or height when resizing a chart frame', () => {
+    const html = `
+      <html><body data-page-id="page">
+        <div data-block-id="chart" class="ppt-chart-frame">
+          <canvas id="chart-canvas" class="h-full w-full"></canvas>
+        </div>
+      </body></html>
+    `
+
+    const result = patchDraggedElementStyle(
+      html,
+      'body[data-page-id="page"] [data-block-id="chart"]',
+      0,
+      0,
+      500,
+      320,
+      [{ path: [0], width: 500, height: 300 }],
+      false
+    )
+
+    expect(result).toContain('width: 500px; height: 320px')
+    expect(result).toContain('<canvas id="chart-canvas" class="h-full w-full"></canvas>')
+    expect(result).not.toContain('height: 300px')
+  })
 })
 
 describe('patchGenericElementProperties rich text', () => {

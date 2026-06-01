@@ -7,6 +7,7 @@ Deep-dive examples, layout integration patterns, and Chart.js options that work 
 Copy this pattern for every chart. Adapt the type, data, and options.
 
 ```html
+<!-- height calc: available slot = 884 - 64(p-8) - 80(title/subtitle) - 24(gap-6) = 716; chart height = compact example = 320 -->
 <div class="ppt-chart-frame relative h-[320px] w-full overflow-hidden">
   <canvas id="chart-sales" class="h-full w-full"></canvas>
 </div>
@@ -52,18 +53,18 @@ Use `PPT.createChart` — never `new Chart(...)`.
 
 The `.ppt-chart-frame` parent must have an explicit `h-[Npx]` height. Chart.js requires a concrete pixel height to render — relative values (`flex-1`, `h-full`, `min-h-*`) are unreliable.
 
-### Mandatory: calculate then write — numbers must match
+### Mandatory: calculate slot, choose chart height, then write — numbers must match
 
-Before writing the chart frame, calculate the remaining height. Write the calculation as a comment, then **use the result directly in h-[Npx]**. The number in h-[Npx] MUST equal the result of your calculation.
+Before writing the chart frame, calculate the available slot, choose the actual chart frame height for the slide role, and write both in the comment. The final chart-height number MUST equal `h-[Npx]`.
 
 ```html
-<!-- height calc: 884 - 64(p-8) - 60(title) - 20(gap-5) - 100(metrics) - 40(h3) - 16(p-4) = 584 -->
-<div class="ppt-chart-frame relative h-[584px] w-full overflow-hidden">
+<!-- height calc: available slot = 884 - 64(p-8) - 60(title) - 20(gap-5) - 100(metrics) - 40(h3) - 16(p-4) = 584; chart height = min(584, 380 standard cap) = 380 -->
+<div class="ppt-chart-frame relative h-[380px] w-full overflow-hidden">
   <canvas id="my-chart" class="h-full w-full"></canvas>
 </div>
 ```
 
-The comment and h-[Npx] MUST show the same number. If your comment says "= 584" then the div MUST say h-[584px]. Do NOT write a different number in h-[Npx].
+The final number in the comment and `h-[Npx]` MUST match. Do NOT leave a comment such as `= 584` and then use `h-[380px]`; write the cap decision explicitly.
 
 Calculation steps:
 1. Start from **884px** (usable height after runtime p-2 padding)
@@ -71,8 +72,8 @@ Calculation steps:
 3. Subtract all modules above the chart: title, subtitle, metrics row, legends
 4. Subtract all gaps between modules
 5. If chart is inside a card: subtract card padding and card title/heading
-6. The final result goes directly into h-[Npx] — use at least 85% of remaining space
-7. Minimum 100px. If budget < 100px, the slide has too many modules — cut content.
+6. Choose chart height by role: hero 340-420px, standard 280-360px, compact supporting 220-280px.
+7. Leave spare space for notes, legends, and dense labels. If available space is below 220px, the slide has too many modules — cut content.
 
 ### What not to use for height
 
@@ -82,6 +83,34 @@ Use only `h-[Npx]` for the chart frame. These do not work reliably:
 - `flex-1` — the chart frame is not inside a flex column with bounded height
 - `min-h-*` — sets a minimum but Chart.js needs an exact height to render
 - `h-64` or other Tailwind scale shortcuts — they use rem units which may not match the layout budget
+
+Canvas sizing rule: the `<canvas>` should only use `class="h-full w-full"`. Do not add `width`, `height`, or inline `style` sizes to the canvas in generated HTML; Chart.js and the PPT runtime resize the canvas from the frame.
+
+### Height role guide
+
+Use these as caps, not automatic targets:
+
+- Hero/full-width chart: 340-420px. Use for the main evidence of the slide.
+- Standard chart: 280-360px. Use when the slide also has metrics, comparison cards, or an annotation rail.
+- Compact supporting chart: 220-280px. Use when the chart is one module inside a dense layout.
+
+If the available slot is larger than the role cap, keep the chosen cap and use the spare space for breathing room, annotation, or simply leave it empty. If the available slot is smaller than the role minimum, reduce text/modules before shrinking the chart further.
+
+### Bad examples
+
+Do not generate these patterns:
+
+```html
+<!-- Comment ends at raw available slot, but frame uses a different number -->
+<!-- height calc: 884 - 48(p-6) - 80(title) - 24(gap) = 732 -->
+<div class="ppt-chart-frame relative h-[360px] w-full overflow-hidden"></div>
+
+<!-- Tailwind scale shortcut is not a pixel budget -->
+<div class="ppt-chart-frame relative h-72 w-full overflow-hidden"></div>
+
+<!-- Canvas must not own size -->
+<canvas id="chart" width="600" height="300" style="height: 300px"></canvas>
+```
 
 ## Chart type selection guide
 

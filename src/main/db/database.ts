@@ -625,7 +625,7 @@ export class PPTDatabase {
       .select()
       .from(schema.generationPages)
       .where(eq(schema.generationPages.sessionId, sessionId))
-      .orderBy(asc(schema.generationPages.pageNumber), desc(schema.generationPages.updatedAt))
+      .orderBy(desc(schema.generationPages.updatedAt), desc(schema.generationPages.createdAt))
       .all()
     const latestByPageId = new Map<string, GenerationPageRecord>()
     for (const row of rows) {

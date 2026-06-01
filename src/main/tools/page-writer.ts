@@ -104,7 +104,6 @@ export const BASE_PAGE_STYLE_TAG = `<style id="ppt-page-guard-style">
   .ppt-page-content [data-block-id*="chart"],
   .ppt-page-content [data-block-id*="graph"],
   .ppt-page-content [data-block-id*="plot"] {
-    min-height: 240px;
     min-width: 0;
   }
   [data-role="title"] h1,
@@ -585,6 +584,8 @@ function preprocessPageHtml(html: string): string {
     // 2. Stabilize chart canvases
     $('canvas').each((_, node) => {
       const canvas = $(node)
+      canvas.removeAttr('width')
+      canvas.removeAttr('height')
       const originalCanvasClasses = splitClassNames(canvas.attr('class') || '')
       const wrapperClasses = originalCanvasClasses.filter(isMarginUtilityClass)
       const canvasClassSet = new Set(
