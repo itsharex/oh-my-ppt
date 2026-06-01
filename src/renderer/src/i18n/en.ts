@@ -48,6 +48,7 @@ export const en = {
     documentPathFailedTitle: 'Failed to read document',
     documentPathFailed: 'Cannot read the document path. Please choose again.',
     referenceAttached: 'Reference document attached',
+    referenceProcessingWait: 'The reference file is still processing. Please wait before generating.',
     referenceAttachFailed: 'Failed to attach reference document',
     removeReference: 'Remove reference document',
     documentParsed: 'Document parsed',
@@ -90,10 +91,10 @@ export const en = {
     processingDocument: 'Processing...',
     uploadDocument: 'Upload reference document',
     uploadDocumentTooltip:
-      'Supports txt, md, csv, and docx (≤{maxSize}MB). Uploaded material will be used as an important reference source for generation.',
+      'Supports txt, md, csv, and docx (≤{maxSize}MB). Uploading only attaches a reference document and does not change the form. Use "Parse outline" to analyze it with the selected model and suggest the title, page count, and outline.',
     analyzeDocument: 'Parse outline',
     analyzeDocumentTooltip:
-      'Use the selected model to analyze the reference document and fill the current form with title, page count, and outline suggestions.',
+      'Analyze the uploaded reference document with the selected model and suggest a title, page count, and outline. Nothing is written to the form until you confirm.',
     analyzingDocument: 'Parsing...',
     supportedDocuments: 'Supports md/txt/csv/docx, up to {maxSize}MB',
     creating: 'Creating...',
@@ -138,10 +139,23 @@ export const en = {
     uploadReference: 'Upload reference file',
     processingReference: 'Processing...',
     uploadReferenceTooltip:
-      'Supports txt, md, csv, docx (≤{maxSize}MB), and png/jpg/webp images (≤{imageMaxSize}MB). Uploaded material will be used as an important reference source for generation.',
+      'Supports txt, md, csv, docx (≤{maxSize}MB), and png/jpg/webp images (≤{imageMaxSize}MB). Uploading only attaches source material and does not change the form. Images appear as a red pending tag; click "Parse" on the tag to turn the image into a readable reference document.',
     referenceAttached: 'Reference file attached',
+    imageReferenceAttachedNeedsParse: 'Image uploaded. Parse it into a readable reference document first.',
+    imageReferenceNeedsParse:
+      'The uploaded image cannot be used directly as a reference file. Click "Parse" on the image tag first.',
+    imageReferenceNeedsParseShort: 'Image cannot be used until parsed',
+    imageReferenceTagTooltip:
+      'This image is pending parsing and cannot be passed to generation directly. Click "Parse" to create a readable reference document.',
+    parseImageReference: 'Parse',
+    parsingImageReference: 'Parsing',
+    imageReferenceParsed: 'Image parsed into a readable reference document',
+    referenceProcessingWait: 'The reference file is still processing. Please wait before generating.',
     referenceAttachFailed: 'Failed to attach reference file',
     removeReference: 'Remove reference file',
+    revealReferenceFile: 'Show reference file',
+    revealReferenceFileTooltip: 'Reveal this reference file in its folder without opening it',
+    revealReferenceFileFailed: 'Failed to show reference file',
     analyzeReference: 'AI analyze and fill',
     analyzeReferenceTooltip:
       'Use the selected model to analyze the reference file and suggest a title, page count, and brief. Nothing is written to the form until you confirm.',

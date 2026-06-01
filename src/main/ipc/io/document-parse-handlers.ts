@@ -10,6 +10,7 @@ import { extractJsonBlock, extractModelText } from '../utils'
 import type { IpcContext } from '../context'
 import type {
   ParseDocumentPlanPayload,
+  ParseImageReferencePayload,
   ParsedDocumentPlanResult,
   PrepareReferenceDocumentPayload,
   PreparedReferenceDocumentResult
@@ -871,6 +872,136 @@ const buildImageDocumentPlanPrompt = (args: {
     '{"topic":"Product Launch Readiness Review","pageCount":8,"briefText":"Presentation goal: ...\\nAudience/context: ...\\nCore argument: ...\\nRecommended outline:\\n1. ...\\nPer-page points:\\nPage 1: ...\\nFacts/metrics/terms to preserve: ...\\nStyle or expression notes: ..."}'
   ].join('\n')
 
+const writeImagePlanReferenceFile = async (args: {
+  file: PreparedSourceFile
+  plan: Pick<ParsedDocumentPlanResult, 'topic' | 'pageCount' | 'briefText'>
+}): Promise<PreparedSourceFile> => {
+  const ext = path.extname(args.file.workspacePath).toLowerCase()
+  const mdPath = args.file.workspacePath.replace(/\.[^.]+$/, '.image.md')
+  const briefText = compactText(args.plan.briefText)
+  if (!briefText) throw new Error('图片解析完成，但模型未返回可用参考内容')
+  const useChineseLabels = isMostlyChineseText(`${args.plan.topic}\n${briefText}`)
+  const markdown = [
+    `# ${path.basename(args.file.name, ext) || (useChineseLabels ? '图片参考' : 'Image reference')}`,
+    '',
+    `> Source image: ${args.file.name}`,
+    '> This file was generated after the user explicitly parsed the uploaded image, so later generation can use it as text reference.',
+    '',
+    `## ${useChineseLabels ? '主题' : 'Topic'}`,
+    '',
+    args.plan.topic,
+    '',
+    `## ${useChineseLabels ? '建议页数' : 'Suggested page count'}`,
+    '',
+    String(args.plan.pageCount),
+    '',
+    `## ${useChineseLabels ? '图片解析参考' : 'Image analysis reference'}`,
+    '',
+    briefText
+  ].join('\n')
+  await fs.promises.writeFile(mdPath, markdown, 'utf-8')
+
+  return {
+    ...args.file,
+    name: `${args.file.name}.image.md`,
+    type: 'markdown',
+    characterCount: markdown.length,
+    path: mdPath,
+    workspacePath: mdPath,
+    virtualPath: `/${path.basename(mdPath)}`
+  }
+}
+
+const buildImageReferenceMarkdownPrompt = (fileName: string): string =>
+  [
+    'Analyze the attached image or screenshot and convert it into a readable Markdown reference document.',
+    'The image is attached to this same message as a multimodal image block. Directly inspect the image before answering.',
+    '',
+    'Return Markdown only. Do not return JSON. Do not include task explanations.',
+    'Do not generate a PPT outline, page count, slide plan, or creation-form suggestions. Only organize what can be read or observed from the image.',
+    '',
+    `# 图片参考：${fileName}`,
+    '',
+    'Required sections:',
+    '## 可见文字',
+    '- Transcribe readable text, headings, labels, chart labels, names, metrics, dates, and terminology. Keep the original language.',
+    '- Preserve line breaks or hierarchy when they are visible.',
+    '## 内容整理',
+    '- Organize the observed content into concise Markdown bullets or tables when helpful.',
+    '- Mark uncertain or unreadable items clearly instead of guessing.',
+    '## 视觉信息',
+    '- Briefly describe visible layout, chart/table/UI structure, colors, and other visual cues that may help later generation.',
+    '',
+    'Rules:',
+    '- Do not invent exact numbers or facts that are not visible.',
+    '- If text is unreadable, say it is unreadable.',
+    '- If the image is mainly visual with little text, describe only the observable visual content.'
+  ].join('\n')
+
+const convertImageReferenceToMarkdown = async (args: {
+  file: PreparedSourceFile
+  provider: string
+  apiKey: string
+  model: string
+  baseUrl: string
+  maxTokens?: number
+  modelTimeoutMs: number
+}): Promise<PreparedSourceFile> => {
+  const ext = path.extname(args.file.workspacePath).toLowerCase()
+  const mimeType = IMAGE_MIME_BY_EXTENSION[ext]
+  if (!mimeType) throw new Error('暂只支持 png、jpg、jpeg、webp 图片')
+
+  const imageBase64 = (await fs.promises.readFile(args.file.workspacePath)).toString('base64')
+  let markdown = ''
+  try {
+    markdown = await invokeVisionModelText({
+      imageBase64,
+      mimeType,
+      prompt: buildImageReferenceMarkdownPrompt(args.file.name),
+      provider: args.provider,
+      apiKey: args.apiKey,
+      model: args.model,
+      baseUrl: args.baseUrl,
+      maxTokens: args.maxTokens,
+      modelTimeoutMs: args.modelTimeoutMs,
+      logTag: 'documents:parseImageReference'
+    })
+  } catch (error) {
+    if (isImageUnsupportedError(error)) {
+      throw new Error('当前模型不支持图片解析，请在设置中切换到支持多模态的模型')
+    }
+    throw error
+  }
+
+  const content = compactText(markdown)
+  assertImageWasRead(content)
+  if (!content) throw new Error('图片解析完成，但模型未返回可用内容')
+
+  const mdPath = args.file.workspacePath.replace(/\.[^.]+$/, '.image.md')
+  await fs.promises.writeFile(
+    mdPath,
+    [
+      `# ${path.basename(args.file.name, ext) || '图片参考'}`,
+      '',
+      `> Source image: ${args.file.name}`,
+      '> This file was generated after the user explicitly parsed the uploaded image into a readable Markdown reference.',
+      '',
+      content
+    ].join('\n'),
+    'utf-8'
+  )
+
+  return {
+    ...args.file,
+    name: `${args.file.name}.image.md`,
+    type: 'markdown',
+    characterCount: content.length,
+    path: mdPath,
+    workspacePath: mdPath,
+    virtualPath: `/${path.basename(mdPath)}`
+  }
+}
+
 const runImageDocumentPlanModel = async (args: {
   provider: string
   apiKey: string
@@ -938,6 +1069,43 @@ export function registerDocumentParseHandlers(ctx: IpcContext): void {
           characterCount,
           path: workspacePath
         }))
+      } satisfies PreparedReferenceDocumentResult
+    }
+  )
+
+  ipcMain.handle(
+    'documents:parseImageReference',
+    async (_event, payload: ParseImageReferencePayload) => {
+      const input = payload && typeof payload === 'object' ? payload : { file: null }
+      const rawFile = input.file && typeof input.file === 'object' ? input.file : null
+      if (!rawFile) throw new Error('请先选择要解析的图片')
+
+      const docsDir = path.join(await resolveStoragePath(), 'docs')
+      await fs.promises.mkdir(docsDir, { recursive: true })
+      const sourceFile = await prepareSourceFile(rawFile, docsDir)
+      if (sourceFile.type !== 'image') throw new Error('请选择 png、jpg、jpeg、webp 图片')
+
+      const activeModel = await resolveActiveModelConfig(ctx)
+      const modelTimeouts = await resolveGlobalModelTimeouts(ctx)
+      const referenceFile = await convertImageReferenceToMarkdown({
+        file: sourceFile,
+        provider: activeModel.provider,
+        apiKey: activeModel.apiKey,
+        model: activeModel.model,
+        baseUrl: activeModel.baseUrl,
+        maxTokens: activeModel.maxTokens,
+        modelTimeoutMs: modelTimeouts.document
+      })
+
+      return {
+        files: [
+          {
+            name: referenceFile.name,
+            type: referenceFile.type,
+            characterCount: referenceFile.characterCount,
+            path: referenceFile.workspacePath
+          }
+        ]
       } satisfies PreparedReferenceDocumentResult
     }
   )
@@ -1058,10 +1226,14 @@ export function registerDocumentParseHandlers(ctx: IpcContext): void {
       }
     }
     if (!plan) throw lastError || new Error('文档解析完成，但模型未返回 briefText')
+    const resultFiles =
+      sourceFile.type === 'image'
+        ? [await writeImagePlanReferenceFile({ file: sourceFile, plan })]
+        : preparedFiles
 
     return {
       ...plan,
-      files: preparedFiles.map(({ name, type, characterCount, workspacePath }) => ({
+      files: resultFiles.map(({ name, type, characterCount, workspacePath }) => ({
         name,
         type,
         characterCount,

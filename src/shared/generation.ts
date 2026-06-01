@@ -26,6 +26,13 @@ export interface PrepareReferenceDocumentPayload {
   }>
 }
 
+export interface ParseImageReferencePayload {
+  file: {
+    path: string
+    name?: string
+  }
+}
+
 export interface ParsedDocumentPlanResult {
   topic: string
   pageCount: number

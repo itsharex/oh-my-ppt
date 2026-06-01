@@ -103,6 +103,7 @@ export function SessionCreatePage(): ReactElement {
   const [applyPageCountSuggestion, setApplyPageCountSuggestion] = useState(false)
   const [applyBriefSuggestion, setApplyBriefSuggestion] = useState(false)
   const documentInputRef = useRef<HTMLInputElement | null>(null)
+  const pendingImageReference = attachedReferenceFile?.type === 'image'
 
   const validateForm = (modelConfigId = selectedModelConfigId): string => {
     const topicText = topic.trim()
@@ -203,6 +204,14 @@ export function SessionCreatePage(): ReactElement {
   }, [loadFontOptions])
 
   const handleSubmit = async (modelConfigId: string): Promise<void> => {
+    if (parsingDocument) {
+      warning(t('home.referenceProcessingWait'))
+      return
+    }
+    if (pendingImageReference) {
+      warning(t('home.completeInfoTitle'), { description: t('home.imageReferenceNeedsParse') })
+      return
+    }
     const validationError = validateForm(modelConfigId)
     if (validationError) {
       if (validationError === t('home.settingsRequired')) {
@@ -337,7 +346,7 @@ export function SessionCreatePage(): ReactElement {
         referenceFile && referenceFile.type !== 'image' ? referenceFile.path : null
       )
       setDocumentPlanSuggestion(null)
-      success(t('home.referenceAttached'), {
+      success(isImage ? t('home.imageReferenceAttachedNeedsParse') : t('home.referenceAttached'), {
         description: referenceFile?.name || selectedFile.name
       })
     } catch (err) {
@@ -358,12 +367,46 @@ export function SessionCreatePage(): ReactElement {
     setDocumentParseError(null)
   }
 
+  const handleRevealReferenceFile = async (): Promise<void> => {
+    if (!attachedReferenceFile) return
+    try {
+      await ipc.revealFile(attachedReferenceFile.path)
+    } catch (err) {
+      error(t('home.revealReferenceFileFailed'), {
+        description: err instanceof Error ? err.message : t('common.retryLater')
+      })
+    }
+  }
+
+  const handleParseImageReference = async (modelConfigId = selectedModelConfigId): Promise<void> => {
+    if (!attachedReferenceFile || attachedReferenceFile.type !== 'image' || parsingDocument) return
+    if (!(await ensureModelActive(modelConfigId))) return
+
+    setParsingDocument(true)
+    setDocumentParseError(null)
+    try {
+      const result = await ipc.parseImageReferenceDocument({
+        file: { path: attachedReferenceFile.path, name: attachedReferenceFile.name }
+      })
+      const referenceFile = result.files[0]
+      if (!referenceFile) throw new Error(t('common.retryLater'))
+      setAttachedReferenceFile(referenceFile)
+      setReferenceDocumentPath(referenceFile.path)
+      setDocumentPlanSuggestion(null)
+      setSuggestionDialogOpen(false)
+      success(t('home.imageReferenceParsed'), { description: referenceFile.name })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : t('common.retryLater')
+      setDocumentParseError(message)
+      error(t('home.documentParseFailed'), { description: message })
+    } finally {
+      setParsingDocument(false)
+    }
+  }
+
   const handleAnalyzeReference = async (modelConfigId: string): Promise<void> => {
     if (!attachedReferenceFile || parsingDocument) return
     if (!(await ensureModelActive(modelConfigId))) return
-    const safePageCount = /^\d+$/.test(pageCount.trim())
-      ? resolvePageCount(pageCount.trim())
-      : DEFAULT_PAGE_COUNT
 
     setParsingDocument(true)
     setDocumentParseError(null)
@@ -371,7 +414,6 @@ export function SessionCreatePage(): ReactElement {
       const result = await ipc.parseDocumentPlan({
         files: [{ path: attachedReferenceFile.path, name: attachedReferenceFile.name }],
         topic: topic.trim(),
-        pageCount: safePageCount,
         existingBrief: brief.trim()
       })
       const nextSuggestion = {
@@ -616,15 +658,53 @@ export function SessionCreatePage(): ReactElement {
                   {attachedReferenceFile && (
                     <div className="flex min-w-0">
                       <span
-                        className="inline-flex h-6 max-w-[260px] items-center gap-1 rounded-full border border-[#c7d9b4]/70 bg-[#e6f1dc]/80 px-2 text-[10px] text-[#405333]"
-                        title={attachedReferenceFile.path}
+                        className={`inline-flex h-6 max-w-full items-center gap-1 rounded-full border px-2 text-[10px] ${
+                          pendingImageReference
+                            ? 'border-[#e7a19a]/80 bg-[#fff1ef] text-[#9a3f35]'
+                            : 'border-[#c7d9b4]/70 bg-[#e6f1dc]/80 text-[#405333]'
+                        }`}
+                        title={
+                          pendingImageReference
+                            ? t('home.imageReferenceTagTooltip')
+                            : attachedReferenceFile.path
+                        }
                       >
                         <FileText className="h-3 w-3 shrink-0" />
-                        <span className="min-w-0 truncate">{attachedReferenceFile.name}</span>
+                        <button
+                          type="button"
+                          onClick={() => void handleRevealReferenceFile()}
+                          className="min-w-0 truncate text-left hover:underline"
+                          title={t('home.revealReferenceFileTooltip')}
+                          aria-label={t('home.revealReferenceFile')}
+                        >
+                          {attachedReferenceFile.name}
+                        </button>
+                        {pendingImageReference ? (
+                          <>
+                            <span className="shrink-0 text-[#b24d43]">
+                              {t('home.imageReferenceNeedsParseShort')}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => void handleParseImageReference(selectedModelConfigId)}
+                              disabled={parsingDocument || submitting}
+                              className="ml-1 inline-flex h-4 shrink-0 items-center rounded-full bg-[#c84f45] px-1.5 text-[10px] font-medium text-white hover:bg-[#ad4239] disabled:cursor-not-allowed disabled:opacity-60"
+                              aria-label={t('home.parseImageReference')}
+                            >
+                              {parsingDocument
+                                ? t('home.parsingImageReference')
+                                : t('home.parseImageReference')}
+                            </button>
+                          </>
+                        ) : null}
                         <button
                           type="button"
                           onClick={handleRemoveReferenceFile}
-                          className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full text-[#657552] hover:bg-[#c8ddb2]"
+                          className={`inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full ${
+                            pendingImageReference
+                              ? 'text-[#a04940] hover:bg-[#f2c2bd]'
+                              : 'text-[#657552] hover:bg-[#c8ddb2]'
+                          }`}
                           aria-label={t('home.removeReference')}
                         >
                           <X className="h-2.5 w-2.5" />
@@ -665,7 +745,7 @@ export function SessionCreatePage(): ReactElement {
                           })}
                         </TooltipContent>
                       </Tooltip>
-                      {attachedReferenceFile && (
+                      {attachedReferenceFile && !pendingImageReference && (
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <span>
@@ -706,7 +786,7 @@ export function SessionCreatePage(): ReactElement {
             label={t('home.createAndStart')}
             loadingLabel={t('home.creating')}
             loading={submitting || loading}
-            disabled={!requiredReady}
+            disabled={!requiredReady || parsingDocument}
             icon={Sparkles}
             tone="primary"
             className="w-full md:w-auto"

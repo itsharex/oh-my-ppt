@@ -6,6 +6,7 @@ import type {
   GenerateRetrySinglePagePayload,
   GenerateStartPayload,
   ParseDocumentPlanPayload,
+  ParseImageReferencePayload,
   ParsedDocumentPlanResult,
   PrepareReferenceDocumentPayload,
   PreparedReferenceDocumentResult,
@@ -473,6 +474,8 @@ export const ipc = {
     getIpc().invoke('assets:upload', payload) as Promise<{ assets: UploadedAsset[] }>,
   prepareReferenceDocument: (payload: PrepareReferenceDocumentPayload) =>
     getIpc().invoke('documents:prepareReference', payload) as Promise<PreparedReferenceDocumentResult>,
+  parseImageReferenceDocument: (payload: ParseImageReferencePayload) =>
+    getIpc().invoke('documents:parseImageReference', payload) as Promise<PreparedReferenceDocumentResult>,
   parseDocumentPlan: (payload: ParseDocumentPlanPayload) =>
     getIpc().invoke('documents:parsePlan', payload) as Promise<ParsedDocumentPlanResult>,
   importPptx: (payload: PptxImportPayload) =>
