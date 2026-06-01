@@ -1,5 +1,7 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import {
+  Check,
+  Copy,
   FilePlus2,
   Home,
   Move,
@@ -78,72 +80,27 @@ function SortablePageItem({
   )
 }
 
-const compactOutlineText = (value: string): string => value.replace(/\s+/g, ' ').trim()
-
-const extractNumberedOutlineEntry = (outline: string, pageNumber: number): string | null => {
-  if (!/(建议大纲|推荐大纲|每页要点|页面要点|Recommended outline|Per-page points|Page outline)/i.test(outline)) {
-    return null
-  }
-  const lines = outline.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n')
-  let inOutlineSection = false
-  let collecting = false
-  const collected: string[] = []
-  for (const line of lines) {
-    const trimmed = line.trim()
-    if (!trimmed) continue
-    if (/(建议大纲|推荐大纲|每页要点|页面要点|Recommended outline|Per-page points|Page outline)/i.test(trimmed)) {
-      inOutlineSection = true
-      continue
-    }
-    if (!inOutlineSection) continue
-    if (/^(必须保留|风格|表达|注意事项|受众|核心观点|演示目标|Facts\/|Style|Audience|Core argument)\s*[:：]/i.test(trimmed)) {
-      break
-    }
-    const match = trimmed.match(/^(\d{1,2})\s*[.、．)]\s*(.*)$/)
-    if (match) {
-      const n = Number.parseInt(match[1], 10)
-      if (n === pageNumber) {
-        collecting = true
-        collected.push(match[2] || '')
-        continue
-      }
-      if (collecting) break
-      continue
-    }
-    if (collecting) collected.push(trimmed.replace(/^[-•*]\s*/, ''))
-  }
-  return compactOutlineText(collected.join(' ')) || null
-}
-
-const extractOutlineEntryForPage = (outline: string, pageNumber: number): string | null => {
-  const source = outline.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim()
-  if (!source) return null
-  const escapedPage = String(pageNumber).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const startPattern = new RegExp(
-    `(?:^|\\n)\\s*(?:第\\s*${escapedPage}\\s*页|P\\s*${escapedPage}|Page\\s*${escapedPage})\\s*[:：.、\\-]?\\s*`,
-    'i'
-  )
-  const startMatch = source.match(startPattern)
-  if (!startMatch || startMatch.index === undefined) return null
-
-  const start = startMatch.index + startMatch[0].length
-  const rest = source.slice(start)
-  const nextMatch = rest.match(
-    /\n\s*(?:第\s*\d{1,2}\s*页|P\s*\d{1,2}|Page\s*\d{1,2})\s*[:：.、\-]?/i
-  )
-  const entry = (nextMatch ? rest.slice(0, nextMatch.index) : rest)
-    .replace(/^\s*[-•*]\s*/gm, '')
-    .trim()
-  return compactOutlineText(entry) || null
-}
-
 const getPageOutlineText = (page: SessionPreviewPage): string => {
-  const outline = page.contentOutline || ''
-  return (
-    extractOutlineEntryForPage(outline, page.pageNumber) ||
-    extractNumberedOutlineEntry(outline, page.pageNumber) ||
-    compactOutlineText(outline)
-  )
+  return page.contentOutline?.trim() || ''
+}
+
+const copyTextToClipboard = async (text: string): Promise<void> => {
+  try {
+    await navigator.clipboard.writeText(text)
+    return
+  } catch {
+    const textarea = document.createElement('textarea')
+    textarea.value = text
+    textarea.style.position = 'fixed'
+    textarea.style.opacity = '0'
+    document.body.appendChild(textarea)
+    textarea.select()
+    try {
+      document.execCommand('copy')
+    } finally {
+      document.body.removeChild(textarea)
+    }
+  }
 }
 
 export const PageSidebar = memo(function PageSidebar({
@@ -179,8 +136,10 @@ export const PageSidebar = memo(function PageSidebar({
   const setSelectedPageId = useSessionDetailUiStore((state) => state.setSelectedPageId)
   const isAddingPage = useSessionDetailUiStore((state) => state.isAddingPage)
   const [activeView, setActiveView] = useState<'pages' | 'outline'>('pages')
+  const [copiedOutlinePageId, setCopiedOutlinePageId] = useState<string | null>(null)
   const wasAddingRef = useRef(false)
   const viewportRef = useRef<HTMLDivElement>(null)
+  const copyResetTimerRef = useRef<number | null>(null)
   const resetSessionRuntimeState = useSessionStore((state) => state.resetRuntimeState)
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
   const sortableIds = useMemo(() => pages.map((p) => p.id), [pages])
@@ -204,6 +163,12 @@ export const PageSidebar = memo(function PageSidebar({
     wasAddingRef.current = isAddingPage
   }, [isAddingPage, selectedPageId, pages.length])
 
+  useEffect(() => {
+    return () => {
+      if (copyResetTimerRef.current !== null) window.clearTimeout(copyResetTimerRef.current)
+    }
+  }, [])
+
   const handleBackToSessions = (): void => {
     useGenerateStore.getState().reset()
     useSessionDetailUiStore.getState().resetForSessionChange()
@@ -223,6 +188,20 @@ export const PageSidebar = memo(function PageSidebar({
       next.map((p) => p.id),
       String(active.id)
     )
+  }
+
+  const handleCopyOutline = async (page: SessionPreviewPage, outlineText: string): Promise<void> => {
+    const title = (page.title || t('sessionDetail.untitledPage')).trim()
+    const content = outlineText.trim()
+    const text = [title, content].filter(Boolean).join('\n')
+    if (!text) return
+    await copyTextToClipboard(text)
+    setCopiedOutlinePageId(page.id)
+    if (copyResetTimerRef.current !== null) window.clearTimeout(copyResetTimerRef.current)
+    copyResetTimerRef.current = window.setTimeout(() => {
+      setCopiedOutlinePageId((current) => (current === page.id ? null : current))
+      copyResetTimerRef.current = null
+    }, 1600)
   }
 
   return (
@@ -380,28 +359,64 @@ export const PageSidebar = memo(function PageSidebar({
                 {pages.map((page) => {
                   const outlineText = getPageOutlineText(page)
                   const selected = selectedPageId === page.id
+                  const copied = copiedOutlinePageId === page.id
                   return (
-                    <button
+                    <div
                       key={page.id}
-                      type="button"
                       data-page-id={page.id}
-                      disabled={disabled}
-                      onClick={() => setSelectedPageId(page.id)}
                       title={outlineText || page.title}
-                      className={`group block w-full min-w-0 max-w-full whitespace-normal rounded-[1.25rem] p-1.5 text-left transition-all ${
+                      className={`group relative block w-full min-w-0 max-w-full whitespace-normal rounded-[1.25rem] p-1.5 text-left transition-all ${
                         selected
                           ? 'bg-[#d4e4c1]/86 shadow-[0_14px_26px_rgba(93,107,77,0.18)]'
                           : 'bg-[#e8e0d0]/34 hover:bg-[#e8e0d0]/68 hover:shadow-[0_8px_18px_rgba(93,107,77,0.09)]'
-                      } disabled:cursor-not-allowed disabled:opacity-45`}
+                      } ${disabled ? 'opacity-45' : ''}`}
                     >
-                      <span className="block min-w-0 max-w-full overflow-hidden rounded-[1rem] bg-[#fffaf1]/72 px-2.5 py-2 shadow-[0_5px_14px_rgba(93,107,77,0.08)]">
-                        <span className="block whitespace-normal break-words text-[12px] font-semibold leading-5 text-[#33402a] [overflow-wrap:anywhere]">
-                          {page.title || t('sessionDetail.untitledPage')}
+                      <button
+                        type="button"
+                        disabled={disabled}
+                        onClick={() => setSelectedPageId(page.id)}
+                        className="block w-full min-w-0 cursor-pointer rounded-[1rem] text-left disabled:cursor-not-allowed"
+                      >
+                        <span className="block min-w-0 max-w-full overflow-hidden rounded-[1rem] bg-[#fffaf1]/72 px-2.5 py-2 pr-8 shadow-[0_5px_14px_rgba(93,107,77,0.08)]">
+                          <span className="block whitespace-normal break-words text-[12px] font-semibold leading-5 text-[#33402a] [overflow-wrap:anywhere]">
+                            {page.title || t('sessionDetail.untitledPage')}
+                          </span>
+                          <span className="mt-1 block whitespace-normal break-words text-[11px] leading-4 text-[#716654] [overflow-wrap:anywhere]">
+                            {outlineText || t('sessionDetail.outlineEmpty')}
+                          </span>
                         </span>
-                        <span className="mt-1 block whitespace-normal break-words text-[11px] leading-4 text-[#716654] [overflow-wrap:anywhere]">
-                          {outlineText || t('sessionDetail.outlineEmpty')}
-                        </span>
-                      </span>
+                      </button>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            type="button"
+                            disabled={!outlineText}
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              void handleCopyOutline(page, outlineText)
+                            }}
+                            className={`absolute right-3 top-3 inline-flex h-6 w-6 items-center justify-center rounded-full transition-all ${
+                              copied
+                                ? 'bg-[#5d6b4d] text-white shadow-[0_5px_12px_rgba(62,74,50,0.2)]'
+                                : 'bg-[#f5f1e8]/88 text-[#697659] opacity-0 shadow-[0_4px_10px_rgba(93,107,77,0.12)] hover:bg-[#d4e4c1] hover:text-[#3e4a32] group-hover:opacity-100 focus-visible:opacity-100'
+                            } disabled:cursor-not-allowed disabled:opacity-0`}
+                            aria-label={
+                              copied
+                                ? t('sessionDetail.outlineCopied')
+                                : t('sessionDetail.copyOutline')
+                            }
+                          >
+                            {copied ? (
+                              <Check className="h-3.5 w-3.5" />
+                            ) : (
+                              <Copy className="h-3.5 w-3.5" />
+                            )}
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="right">
+                          {copied ? t('sessionDetail.outlineCopied') : t('sessionDetail.copyOutline')}
+                        </TooltipContent>
+                      </Tooltip>
                       <span className="relative mt-1.5 flex items-center justify-between gap-1 px-0.5">
                         <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[#5c6c47]">
                           P{page.pageNumber}
@@ -412,7 +427,7 @@ export const PageSidebar = memo(function PageSidebar({
                           </span>
                         ) : null}
                       </span>
-                    </button>
+                    </div>
                   )
                 })}
               </div>

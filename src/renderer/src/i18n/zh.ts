@@ -508,6 +508,8 @@ export const zh = {
     pageNumber: '第 {pageNumber} 页',
     pagesEmpty: '暂无页面',
     outlineEmpty: '暂无大纲内容',
+    copyOutline: '复制大纲',
+    outlineCopied: '已复制',
     backToSessions: '返回会话页',
     exportPptx: '导出 PPTX',
     exportImagePdf: '导出图片/PDF',

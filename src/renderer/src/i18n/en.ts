@@ -526,6 +526,8 @@ Business presentations, product introductions, project summaries — formal but 
     pageNumber: 'Page {pageNumber}',
     pagesEmpty: 'No pages yet',
     outlineEmpty: 'No outline yet',
+    copyOutline: 'Copy outline',
+    outlineCopied: 'Copied',
     backToSessions: 'Back to sessions',
     exportPptx: 'Export PPTX',
     exportImagePdf: 'Export Image/PDF',
