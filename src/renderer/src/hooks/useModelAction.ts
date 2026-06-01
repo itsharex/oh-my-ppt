@@ -10,7 +10,7 @@ export interface ModelActionState {
   activatingModelConfigId: string | null
   hasMultipleModelConfigs: boolean
   currentModelConfig: ModelConfig | null
-  ensureModelActive: (modelConfigId?: string) => Promise<boolean>
+  ensureModelActive: (modelConfigId?: string) => Promise<string | null>
 }
 
 export function useModelAction(): ModelActionState {
@@ -33,7 +33,7 @@ export function useModelAction(): ModelActionState {
   }, [modelConfigs])
 
   const ensureModelActive = useCallback(
-    async (modelConfigId = selectedModelConfigId): Promise<boolean> => {
+    async (modelConfigId = selectedModelConfigId): Promise<string | null> => {
       const warnModelSettingsRequired = (): void => {
         toastWarning(t('settings.modelSettingsRequiredTitle'), {
           description: t('settings.modelSettingsRequiredDescription'),
@@ -43,25 +43,40 @@ export function useModelAction(): ModelActionState {
           }
         })
       }
-      const nextModelConfigId = modelConfigId || selectedModelConfigId
-      if (activatingModelConfigId) return false
-      if (!nextModelConfigId) {
-        warnModelSettingsRequired()
-        return false
+      if (activatingModelConfigId) return null
+
+      let latestConfigs = useSettingsStore.getState().modelConfigs
+      if (latestConfigs.length === 0) {
+        await fetchSettings()
+        latestConfigs = useSettingsStore.getState().modelConfigs
       }
 
-      const latestConfigs = useSettingsStore.getState().modelConfigs
+      const nextModelConfigId =
+        modelConfigId ||
+        selectedModelConfigId ||
+        latestConfigs.find((config) => config.active)?.id ||
+        latestConfigs[0]?.id ||
+        ''
+      if (!nextModelConfigId) {
+        warnModelSettingsRequired()
+        return null
+      }
+
       const selected =
         latestConfigs.find((config) => config.id === nextModelConfigId) ||
         modelConfigs.find((config) => config.id === nextModelConfigId)
       if (!selected) {
         warnModelSettingsRequired()
-        return false
+        return null
+      }
+      if (!selected.model.trim() || !selected.apiKey.trim()) {
+        warnModelSettingsRequired()
+        return null
       }
 
       const previousModelConfigId = selectedModelConfigId
       setSelectedModelConfigId(nextModelConfigId)
-      if (selected.active) return true
+      if (selected.active) return nextModelConfigId
 
       setActivatingModelConfigId(nextModelConfigId)
       try {
@@ -70,15 +85,16 @@ export function useModelAction(): ModelActionState {
         if (activateError) {
           setSelectedModelConfigId(previousModelConfigId)
           toastError(t('settings.activateModelFailed'), { description: activateError })
-          return false
+          return null
         }
-        return true
+        return nextModelConfigId
       } finally {
         setActivatingModelConfigId(null)
       }
     },
     [
       activatingModelConfigId,
+      fetchSettings,
       modelConfigs,
       navigate,
       selectedModelConfigId,

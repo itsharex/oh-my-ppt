@@ -139,7 +139,7 @@ export const en = {
     uploadReference: 'Upload reference file',
     processingReference: 'Processing...',
     uploadReferenceTooltip:
-      'Supports txt, md, csv, docx (≤{maxSize}MB), and png/jpg/webp images (≤{imageMaxSize}MB). Uploading only attaches source material and does not change the form. Images appear as a red pending tag; click "Parse" on the tag to turn the image into a readable reference document.',
+      'Supports txt, md, csv, docx (≤{maxSize}MB), and png/jpg/webp images (≤{imageMaxSize}MB). Uploading only attaches source material and does not change the form. For images, click "Parse" on the image tag first so the app can turn them into generation-ready reference content.',
     referenceAttached: 'Reference file attached',
     imageReferenceAttachedNeedsParse: 'Image uploaded. Parse it into a readable reference document first.',
     imageReferenceNeedsParse:

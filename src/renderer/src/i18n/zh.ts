@@ -135,7 +135,7 @@ export const zh = {
     uploadReference: '上传参考文件',
     processingReference: '处理中...',
     uploadReferenceTooltip:
-      '支持 txt、md、csv、docx（≤{maxSize}MB），以及 png、jpg、webp 图片（≤{imageMaxSize}MB）。上传只会附加参考资料，不会自动改表单；图片上传后会以红色待解析标签显示，点击标签上的“解析”后才会生成可读参考文档。',
+      '支持 txt、md、csv、docx（≤{maxSize}MB），以及 png、jpg、webp 图片（≤{imageMaxSize}MB）。上传后仅作为参考素材，不会自动改表单；如上传图片，请先点击图片标签上的“解析”，系统会整理成可用于生成的参考内容。',
     referenceAttached: '参考文件已附加',
     imageReferenceAttachedNeedsParse: '图片已上传，请先解析为可读参考文档',
     imageReferenceNeedsParse: '已上传的图片不能直接作为参考文件，请先点击图片标签上的“解析”。',

@@ -188,7 +188,7 @@ export function TemplateUseDialog({
 
   const handleAnalyzeDocument = async (modelConfigId = selectedModelConfigId): Promise<void> => {
     if (!template || !attachedReferenceFile || parsingDocument) return
-    if (modelConfigId && !(await ensureModelActive(modelConfigId))) return
+    if (!(await ensureModelActive(modelConfigId))) return
 
     setParsingDocument(true)
     setDocumentParseError(null)
@@ -239,7 +239,7 @@ export function TemplateUseDialog({
 
   const handleCreate = async (modelConfigId = selectedModelConfigId): Promise<void> => {
     if (!template || creating) return
-    if (modelConfigId && !(await ensureModelActive(modelConfigId))) return
+    if (!(await ensureModelActive(modelConfigId))) return
     const deckTitle = title.trim() || template.name
     const briefText = brief.trim()
     if (!briefText) {

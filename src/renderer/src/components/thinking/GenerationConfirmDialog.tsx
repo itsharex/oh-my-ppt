@@ -222,7 +222,7 @@ export function GenerationConfirmDialog({
 
   const handleConfirm = async (modelConfigId = selectedModelConfigId): Promise<void> => {
     if (!resolvedConfirmStyleId || confirming) return
-    if (modelConfigId && !(await ensureModelActive(modelConfigId))) return
+    if (!(await ensureModelActive(modelConfigId))) return
     setConfirming(true)
     try {
       onConfirm({

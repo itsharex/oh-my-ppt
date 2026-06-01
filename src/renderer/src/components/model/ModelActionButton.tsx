@@ -39,6 +39,17 @@ interface ModelSelectButtonProps {
   dropdownAlign?: 'start' | 'center' | 'end'
 }
 
+const runModelAction = (
+  modelConfigId: string,
+  onRun: (modelConfigId: string) => void | Promise<void>
+): void => {
+  void Promise.resolve()
+    .then(() => onRun(modelConfigId))
+    .catch((error) => {
+      console.error('[ModelActionButton] model action failed', error)
+    })
+}
+
 function ModelMenuItems({ modelAction }: { modelAction: ModelActionState }): ReactElement {
   return (
     <>
@@ -47,7 +58,9 @@ function ModelMenuItems({ modelAction }: { modelAction: ModelActionState }): Rea
           key={config.id}
           className="py-1.5 text-xs"
           onSelect={() => {
-            void modelAction.ensureModelActive(config.id)
+            void modelAction.ensureModelActive(config.id).catch((error) => {
+              console.error('[ModelActionButton] model activation failed', error)
+            })
           }}
         >
           <Check
@@ -82,7 +95,7 @@ function ModelRunMenuItems({
           key={config.id}
           className="py-1.5 text-xs"
           onSelect={() => {
-            void onRun(config.id)
+            runModelAction(config.id, onRun)
           }}
         >
           <Check
@@ -144,11 +157,19 @@ export function ModelSplitButton({
         variant={isPrimary && !hasMultiple ? 'default' : 'ghost'}
         size={size}
         onClick={() => {
-          if (!modelAction.selectedModelConfigId) {
-            void modelAction.ensureModelActive()
+          const modelConfigId = modelAction.selectedModelConfigId
+          if (!modelConfigId) {
+            void modelAction
+              .ensureModelActive()
+              .then((resolvedModelConfigId) => {
+                if (resolvedModelConfigId) runModelAction(resolvedModelConfigId, onRun)
+              })
+              .catch((error) => {
+                console.error('[ModelActionButton] model activation failed', error)
+              })
             return
           }
-          void onRun(modelAction.selectedModelConfigId)
+          runModelAction(modelConfigId, onRun)
         }}
         disabled={disabledState}
         className={cn(

@@ -185,7 +185,7 @@ export function StyleEditorPage(): React.JSX.Element {
 
   const handleImportStyleClick = async (modelConfigId = selectedModelConfigId): Promise<void> => {
     if (importing) return
-    if (modelConfigId && !(await ensureModelActive(modelConfigId))) return
+    if (!(await ensureModelActive(modelConfigId))) return
     if (!(await ensureUploadPrerequisites())) return
     styleFileInputRef.current?.click()
   }

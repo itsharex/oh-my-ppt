@@ -14,6 +14,7 @@ import { TemplateUseDialog } from '../components/templates/TemplateUseDialog'
 import { useTemplateStore, useToastStore } from '../store'
 import { ipc, type TemplateListItem } from '../lib/ipc'
 import { useT } from '../i18n'
+import { useModelAction } from '@renderer/hooks/useModelAction'
 
 const MAX_PPTX_SIZE_MB = 80
 const MAX_PPTX_SIZE_BYTES = MAX_PPTX_SIZE_MB * 1024 * 1024
@@ -42,6 +43,7 @@ export function TemplatesPage(): React.JSX.Element {
     deleteTemplate
   } = useTemplateStore()
   const { success, error, warning } = useToastStore()
+  const { ensureModelActive } = useModelAction()
   const [useTarget, setUseTarget] = useState<TemplateListItem | null>(null)
   const [previewTarget, setPreviewTarget] = useState<TemplateListItem | null>(null)
   const [editTarget, setEditTarget] = useState<TemplateListItem | null>(null)
@@ -73,7 +75,9 @@ export function TemplatesPage(): React.JSX.Element {
     })
   }, [])
 
-  const openUseDialog = (template: TemplateListItem): void => {
+  const openUseDialog = async (template: TemplateListItem): Promise<void> => {
+    const ready = await ensureModelActive()
+    if (!ready) return
     setUseTarget(template)
   }
 
@@ -264,7 +268,7 @@ export function TemplatesPage(): React.JSX.Element {
               key={template.id}
               template={template}
               onUseDirect={(item) => void handleCreateEditable(item)}
-              onUseGenerate={openUseDialog}
+              onUseGenerate={(item) => void openUseDialog(item)}
               onPreview={setPreviewTarget}
               onEdit={setEditTarget}
               onDelete={setDeleteTarget}
