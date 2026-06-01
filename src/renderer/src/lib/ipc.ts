@@ -23,7 +23,8 @@ import type {
   ThinkingChatMessage,
   ThinkingWorkspace,
   ThinkingChatResult,
-  ThinkingPrepareGenerationResult
+  ThinkingPrepareGenerationResult,
+  ThinkingWorkspaceListItem
 } from '@shared/thinking.js'
 
 type IpcRendererLike = Window['electron']['ipcRenderer']
@@ -748,6 +749,10 @@ export const ipc = {
     getIpc().invoke('thinking:getWorkspace', thinkingId) as Promise<ThinkingWorkspace>,
   thinkingGetLatestWorkspace: () =>
     getIpc().invoke('thinking:getLatestWorkspace') as Promise<ThinkingWorkspace | null>,
+  thinkingListWorkspaces: (payload?: { limit?: number }) =>
+    getIpc().invoke('thinking:listWorkspaces', payload || {}) as Promise<ThinkingWorkspaceListItem[]>,
+  thinkingDeleteWorkspace: (thinkingId: string) =>
+    getIpc().invoke('thinking:deleteWorkspace', thinkingId) as Promise<{ success: boolean }>,
   thinkingRevealWorkspace: (thinkingId: string) =>
     getIpc().invoke('thinking:revealWorkspace', thinkingId) as Promise<{ success: boolean }>,
   thinkingUploadSources: (payload: {
@@ -766,6 +771,7 @@ export const ipc = {
     thinkingId: string
     userMessage: string
     recentMessages?: ThinkingChatMessage[]
+    attachments?: ThinkingChatMessage['attachments']
   }) =>
     getIpc().invoke('thinking:chat', payload) as Promise<ThinkingChatResult>,
   thinkingPrepareGeneration: (payload: { thinkingId: string }) =>

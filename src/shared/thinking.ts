@@ -14,6 +14,7 @@ export interface ThinkingWorkspace {
   contextMd: string
   stage: ThinkingStage
   sources: ThinkingSource[]
+  messages: ThinkingChatMessage[]
 }
 
 export interface ThinkingWorkspaceListItem {

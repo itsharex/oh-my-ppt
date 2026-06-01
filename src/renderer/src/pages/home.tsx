@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useThinkingStore } from '../store/thinkingStore'
 import { useToastStore } from '../store'
 import { useT } from '../i18n'
 import { useModelAction } from '../hooks/useModelAction'
@@ -19,11 +18,9 @@ const MAX_PPTX_SIZE_BYTES = MAX_PPTX_SIZE_MB * 1024 * 1024
 
 export function HomePage(): ReactElement {
   const navigate = useNavigate()
-  const { createWorkspace } = useThinkingStore()
   const { success, error, warning } = useToastStore()
   const { ensureModelActive } = useModelAction()
   const t = useT()
-  const [creating, setCreating] = useState(false)
   const [importingPptx, setImportingPptx] = useState(false)
   const [pptxImportProgress, setPptxImportProgress] = useState<string | null>(null)
   const pptxInputRef = useRef<HTMLInputElement | null>(null)
@@ -38,20 +35,8 @@ export function HomePage(): ReactElement {
   }, [ensureHomeModelReady, navigate])
 
   const handleExplore = useCallback(async () => {
-    if (creating) return
-    if (!(await ensureHomeModelReady())) return
-    setCreating(true)
-    try {
-      const thinkingId = await createWorkspace()
-      navigate(`/thinking/${thinkingId}`)
-    } catch (err) {
-      error(t('thinking.createFailed'), {
-        description: err instanceof Error ? err.message : t('common.retryLater')
-      })
-    } finally {
-      setCreating(false)
-    }
-  }, [creating, createWorkspace, ensureHomeModelReady, navigate, error, t])
+    navigate('/thinking')
+  }, [navigate])
 
   const ensureUploadPrerequisites = useCallback(async (): Promise<boolean> => {
     const validation = await ipc.validateUploadPrerequisites()
@@ -202,8 +187,7 @@ export function HomePage(): ReactElement {
         <button
           type="button"
           onClick={() => void handleExplore()}
-          disabled={creating}
-          className="group relative flex min-h-[240px] flex-col overflow-hidden rounded-[2rem] border border-[#c8d6ba] bg-[#d4e4c1] p-7 text-left shadow-[0_14px_34px_rgba(86,73,54,0.12)] transition-colors hover:border-[#a9bd97] hover:bg-[#cedfb8] disabled:cursor-not-allowed disabled:opacity-65"
+          className="group relative flex min-h-[240px] flex-col overflow-hidden rounded-[2rem] border border-[#c8d6ba] bg-[#d4e4c1] p-7 text-left shadow-[0_14px_34px_rgba(86,73,54,0.12)] transition-colors hover:border-[#a9bd97] hover:bg-[#cedfb8]"
         >
           <div className="pointer-events-none absolute -bottom-12 -left-10 h-36 w-36 rounded-[30%_70%_70%_30%/30%_30%_70%_70%] bg-[#8fbc8f]/28 transition-transform group-hover:scale-110" />
           <div className="pointer-events-none absolute right-8 top-9 h-24 w-32 rounded-[8%_92%_12%_88%/78%_22%_78%_22%] bg-[#f5f1e8]/55" />
@@ -228,17 +212,8 @@ export function HomePage(): ReactElement {
 
           <div className="relative mt-auto pt-7">
             <span className="inline-flex h-11 items-center gap-2 rounded-full bg-[#3e4a32] px-5 text-[13px] font-semibold text-white shadow-[0_10px_22px_rgba(62,74,50,0.20)] transition-colors group-hover:bg-[#5d6b4d]">
-              {creating ? (
-                <>
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  {t('thinking.creatingExplore')}
-                </>
-              ) : (
-                <>
-                  {t('thinking.startExplore')}
-                  <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
-                </>
-              )}
+              {t('thinking.startExplore')}
+              <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
             </span>
           </div>
         </button>

@@ -10,4 +10,4 @@ Stage: REFINE — polish content, style, and coherence.
 - Record style and font preferences in thinking.md via update_thinking_document.
 - When changing pages, pass the complete page list; pages replaces all existing pages.
 - Do not remove role/objective/summary/keyPoints from any page.
-- When satisfied, tell the user: "Looks good! Click **Confirm & Generate** to start."`
+- When satisfied, tell the user in the user's language that the plan looks ready and they can use the confirm-and-generate action to start. Do not quote an English sentence unless the user is using English.`

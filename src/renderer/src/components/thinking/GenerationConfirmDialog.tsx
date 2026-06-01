@@ -351,8 +351,14 @@ export function GenerationConfirmDialog({
           </div>
         </div>
 
-        <DialogFooter className="flex-col-reverse gap-2 sm:flex-row">
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={confirming}>
+        <DialogFooter className="flex-col-reverse gap-2 sm:flex-row sm:items-center">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => onOpenChange(false)}
+            disabled={confirming}
+            className="w-full rounded-full sm:w-auto"
+          >
             {t('common.cancel')}
           </Button>
           <ModelSplitButton
@@ -363,6 +369,8 @@ export function GenerationConfirmDialog({
             disabled={!resolvedConfirmStyleId}
             icon={Sparkles}
             tone="primary"
+            className="w-full sm:w-auto"
+            mainClassName="min-w-0 flex-1 sm:flex-none sm:min-w-[156px]"
             onRun={handleConfirm}
           />
         </DialogFooter>

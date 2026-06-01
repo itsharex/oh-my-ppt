@@ -22,7 +22,7 @@ import type { UpdateAvailablePayload } from '@shared/app-update.js'
 function App(): React.JSX.Element {
   const location = useLocation()
   const isSessionDetailRoute = Boolean(matchPath('/sessions/:id/*', location.pathname))
-  const isThinkingRoute = Boolean(matchPath('/thinking/:thinkingId', location.pathname))
+  const isThinkingRoute = Boolean(matchPath('/thinking', location.pathname))
   const [availableUpdate, setAvailableUpdate] = useState<UpdateAvailablePayload | null>(null)
 
   useEffect(() => {
@@ -64,7 +64,7 @@ function App(): React.JSX.Element {
             {isThinkingRoute ? (
               <div className="min-h-0 flex-1 overflow-hidden">
                 <Routes>
-                  <Route path="/thinking/:thinkingId" element={<ThinkingDetailPage />} />
+                  <Route path="/thinking" element={<ThinkingDetailPage />} />
                   <Route path="*" element={<Navigate to="/" replace />} />
                 </Routes>
               </div>

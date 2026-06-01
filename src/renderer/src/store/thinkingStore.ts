@@ -32,19 +32,94 @@ interface ThinkingStore {
   reset: () => void
 }
 
-export const useThinkingStore = create<ThinkingStore>((set, get) => ({
-  thinkingId: null,
-  stage: 'collect',
-  thinkingMd: '',
-  contextMd: '',
-  sources: [],
-  messages: [],
-  thinkingSteps: [],
-  animatingText: '',
-  loading: false,
-  error: null,
+let streamListenersReady = false
 
-  createWorkspace: async () => {
+function hasAssistantReply(messages: ThinkingChatMessage[], reply: string): boolean {
+  const normalized = reply.trim()
+  if (!normalized) return false
+  return messages.some((message) => message.role === 'assistant' && message.content.trim() === normalized)
+}
+
+function ensureThinkingStreamListeners(
+  set: (
+    partial:
+      | Partial<ThinkingStore>
+      | ((state: ThinkingStore) => Partial<ThinkingStore> | ThinkingStore)
+  ) => void,
+  get: () => ThinkingStore
+): void {
+  if (streamListenersReady) return
+  streamListenersReady = true
+
+  ipc.onThinkingStreamThinking((payload) => {
+    const state = get()
+    if (payload.thinkingId !== state.thinkingId) return
+    state.addThinkingStep({
+      type: payload.type as 'tool_call' | 'tool_result',
+      toolName: payload.toolName,
+      summary: payload.summary
+    })
+  })
+
+  ipc.onThinkingStreamEnd((payload) => {
+    const state = get()
+    if (payload.thinkingId !== state.thinkingId) return
+
+    set({
+      thinkingMd: payload.thinkingMd,
+      contextMd: payload.contextMd,
+      stage: payload.stage
+    })
+
+    const fullText = payload.reply.trim()
+    if (!fullText || hasAssistantReply(get().messages, fullText)) {
+      set({ loading: false, thinkingSteps: [], animatingText: '' })
+      return
+    }
+
+    let index = 0
+    const charsPerTick = 3
+    const tickMs = 20
+    const animate = (): void => {
+      const current = get()
+      if (!current.loading || current.thinkingId !== payload.thinkingId) return
+      index = Math.min(index + charsPerTick, fullText.length)
+      current.setAnimatingText(fullText.slice(0, index))
+      if (index < fullText.length) {
+        setTimeout(animate, tickMs)
+      } else {
+        if (!hasAssistantReply(get().messages, fullText)) {
+          current.addMessage({
+            role: 'assistant',
+            content: fullText,
+            timestamp: Date.now()
+          })
+        }
+        set({
+          loading: false,
+          thinkingSteps: [],
+          animatingText: ''
+        })
+      }
+    }
+    animate()
+  })
+}
+
+export const useThinkingStore = create<ThinkingStore>((set, get) => {
+  return {
+    thinkingId: null,
+    stage: 'collect',
+    thinkingMd: '',
+    contextMd: '',
+    sources: [],
+    messages: [],
+    thinkingSteps: [],
+    animatingText: '',
+    loading: false,
+    error: null,
+
+    createWorkspace: async () => {
     set({
       thinkingId: null,
       stage: 'collect',
@@ -65,7 +140,7 @@ export const useThinkingStore = create<ThinkingStore>((set, get) => ({
         thinkingMd: workspace.thinkingMd,
         contextMd: workspace.contextMd,
         sources: workspace.sources,
-        messages: [],
+        messages: workspace.messages,
         thinkingSteps: [],
         animatingText: '',
         loading: false
@@ -78,9 +153,9 @@ export const useThinkingStore = create<ThinkingStore>((set, get) => ({
       })
       throw err
     }
-  },
+    },
 
-  loadWorkspace: async (thinkingId) => {
+    loadWorkspace: async (thinkingId) => {
     set({
       thinkingId,
       stage: 'collect',
@@ -101,7 +176,7 @@ export const useThinkingStore = create<ThinkingStore>((set, get) => ({
         thinkingMd: workspace.thinkingMd,
         contextMd: workspace.contextMd,
         sources: workspace.sources,
-        messages: [],
+        messages: workspace.messages,
         thinkingSteps: [],
         animatingText: '',
         loading: false
@@ -112,9 +187,9 @@ export const useThinkingStore = create<ThinkingStore>((set, get) => ({
         loading: false
       })
     }
-  },
+    },
 
-  loadLatestWorkspace: async () => {
+    loadLatestWorkspace: async () => {
     try {
       const result = await ipc.thinkingGetLatestWorkspace()
       if (!result) return null
@@ -124,7 +199,7 @@ export const useThinkingStore = create<ThinkingStore>((set, get) => ({
         thinkingMd: result.thinkingMd,
         contextMd: result.contextMd,
         sources: result.sources,
-        messages: [],
+        messages: result.messages,
         thinkingSteps: [],
         animatingText: '',
         loading: false
@@ -133,12 +208,12 @@ export const useThinkingStore = create<ThinkingStore>((set, get) => ({
     } catch {
       return null
     }
-  },
+    },
 
-  addMessage: (message) =>
+    addMessage: (message) =>
     set((state) => ({ messages: [...state.messages, message] })),
 
-  addThinkingStep: (step) =>
+    addThinkingStep: (step) =>
     set((state) => {
       const summary = step.summary.trim()
       if (!summary || step.type === 'tool_result') return state
@@ -162,10 +237,11 @@ export const useThinkingStore = create<ThinkingStore>((set, get) => ({
       }
     }),
 
-  setAnimatingText: (text) =>
+    setAnimatingText: (text) =>
     set({ animatingText: text }),
 
-  sendMessage: (content, attachments) => {
+    sendMessage: (content, attachments) => {
+    ensureThinkingStreamListeners(set, get)
     const { thinkingId, messages } = get()
     if (!thinkingId) return
     const recentMessages = messages.slice(-8)
@@ -184,7 +260,8 @@ export const useThinkingStore = create<ThinkingStore>((set, get) => ({
     ipc.thinkingChat({
       thinkingId,
       userMessage: content,
-      recentMessages
+      recentMessages,
+      ...(attachments && attachments.length > 0 ? { attachments } : {})
     }).catch((err) => {
       set({
         error: err instanceof Error ? err.message : 'Chat failed',
@@ -192,12 +269,12 @@ export const useThinkingStore = create<ThinkingStore>((set, get) => ({
         loading: false
       })
     })
-  },
+    },
 
-  setLoading: (loading) => set({ loading }),
-  setError: (error) => set({ error }),
+    setLoading: (loading) => set({ loading }),
+    setError: (error) => set({ error }),
 
-  reset: () =>
+    reset: () =>
     set({
       thinkingId: null,
       stage: 'collect',
@@ -210,4 +287,5 @@ export const useThinkingStore = create<ThinkingStore>((set, get) => ({
       loading: false,
       error: null
     })
-}))
+  }
+})
