@@ -593,6 +593,11 @@ export const zh = {
     textContent: '文字内容',
     textColor: '文字颜色',
     textStyle: '文字样式',
+    textAlign: '文字对齐',
+    alignLeft: '左对齐',
+    alignCenter: '居中对齐',
+    alignRight: '右对齐',
+    alignJustify: '两端对齐',
     fontSize: '字号',
     fontWeight: '字重',
     appearance: '外观',
@@ -749,6 +754,8 @@ export const zh = {
     deleteFailed: '删除页面失败'
   },
   editMode: {
+    addText: '添加文字',
+    defaultText: '新文字',
     addImage: '添加图片',
     addVideo: '添加视频',
     fromLibrary: '从素材库选择',

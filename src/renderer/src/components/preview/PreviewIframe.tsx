@@ -80,7 +80,7 @@ export interface PreviewIframeHandle {
       html?: string
       text?: string
       textTarget?: EditTextTarget
-      style?: { color?: string; fontSize?: string; fontWeight?: string }
+      style?: { color?: string; fontSize?: string; fontWeight?: string; textAlign?: string }
     }
   ) => void
   applyElementProperties: (
@@ -93,6 +93,7 @@ export interface PreviewIframeHandle {
         color?: string
         fontSize?: string
         fontWeight?: string
+        textAlign?: string
         objectFit?: string
       }
       attrs?: {
@@ -361,7 +362,7 @@ export const PreviewIframe = forwardRef<
           html?: string
           text?: string
           textTarget?: EditTextTarget
-          style?: { color?: string; fontSize?: string; fontWeight?: string }
+          style?: { color?: string; fontSize?: string; fontWeight?: string; textAlign?: string }
           zIndex?: number
         }
       ): void {
@@ -382,6 +383,7 @@ export const PreviewIframe = forwardRef<
             color?: string
             fontSize?: string
             fontWeight?: string
+            textAlign?: string
             objectFit?: string
           }
           attrs?: {

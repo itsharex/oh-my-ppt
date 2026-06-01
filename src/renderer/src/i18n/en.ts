@@ -614,6 +614,11 @@ Business presentations, product introductions, project summaries — formal but 
     textContent: 'Text',
     textColor: 'Color',
     textStyle: 'Text style',
+    textAlign: 'Text alignment',
+    alignLeft: 'Align left',
+    alignCenter: 'Align center',
+    alignRight: 'Align right',
+    alignJustify: 'Justify',
     fontSize: 'Size',
     fontWeight: 'Weight',
     appearance: 'Appearance',
@@ -776,6 +781,8 @@ Business presentations, product introductions, project summaries — formal but 
     deleteFailed: 'Failed to delete page'
   },
   editMode: {
+    addText: 'Add Text',
+    defaultText: 'New text',
     addImage: 'Add Image',
     addVideo: 'Add Video',
     fromLibrary: 'Choose from Library',

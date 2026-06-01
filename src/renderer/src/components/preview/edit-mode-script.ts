@@ -1726,6 +1726,7 @@ export function buildEditModeInjectScript(previewScale = 1): string {
         if (patch.style.color) el.style.setProperty("color", patch.style.color, "important");
         if (patch.style.fontSize) el.style.setProperty("font-size", patch.style.fontSize, "important");
         if (patch.style.fontWeight) el.style.setProperty("font-weight", patch.style.fontWeight, "important");
+        if (patch.style.textAlign) el.style.setProperty("text-align", patch.style.textAlign, "important");
       }
     } catch (_error) {}
   };

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ipc } from '@renderer/lib/ipc'
 import type {
+  EditableElementSnapshot,
   EditModeMovePayload,
   EditSelectionPayload
 } from '../components/preview/edit-mode-script'
@@ -44,9 +45,20 @@ import type { HistoryVersion } from '@shared/history.js'
 import type { SpeechConfig } from '@shared/speech'
 import { useToastStore } from '../store'
 import { getEditorGate, parseSessionMetadata } from '../lib/sessionMetadata'
+import { escapeHtmlText } from '../lib/utils'
 import { useT } from '../i18n'
 import dayjs from 'dayjs'
 import { nanoid } from 'nanoid'
+
+const PPT_PAGE_WIDTH = 1600
+const PPT_PAGE_HEIGHT = 900
+const ADDED_ELEMENT_EDGE_PADDING = 20
+const ADDED_TEXT_WIDTH = 420
+const ADDED_TEXT_MIN_HEIGHT = 96
+const ADDED_TEXT_BASE_LEFT = 590
+const ADDED_TEXT_BASE_TOP = 360
+const ADDED_TEXT_OFFSET_STEP = 28
+const ADDED_MEDIA_OFFSET_STEP = 30
 
 const EMPTY_ELEMENT_DRAFT: ElementEditDraft = {
   html: '',
@@ -54,6 +66,7 @@ const EMPTY_ELEMENT_DRAFT: ElementEditDraft = {
   color: '#34402c',
   fontSize: '',
   fontWeight: '400',
+  textAlign: 'left',
   layoutX: '',
   layoutY: '',
   layoutWidth: '',
@@ -79,6 +92,7 @@ type ElementPropertyStylePatch = {
   color?: string
   fontSize?: string
   fontWeight?: string
+  textAlign?: string
   objectFit?: string
 }
 
@@ -150,9 +164,58 @@ function normalizeFontWeight(value: string | undefined): string {
   return String(Math.max(300, Math.min(800, Math.round(parsed / 100) * 100)))
 }
 
+// Keep in sync with normalizeTextAlign in src/main/ipc/editor/shared.ts.
+function normalizeTextAlign(value: string | undefined): string {
+  const text = String(value || '').trim()
+  if (text === 'center' || text === 'right' || text === 'justify') return text
+  return 'left'
+}
+
 function opacityToInput(value: string | undefined): string {
   const parsed = Number(value)
   return Number.isFinite(parsed) ? String(Math.max(0, Math.min(1, parsed))) : '1'
+}
+
+function buildSelectedElementFromSnapshot(args: {
+  selector: string
+  blockId?: string
+  snapshot: EditableElementSnapshot
+}): EditSelectionPayload {
+  const { selector, blockId, snapshot } = args
+  const rawZIndex = snapshot.computed.zIndex || ''
+  const zIndex = rawZIndex && rawZIndex !== 'auto' ? parseInt(rawZIndex, 10) : undefined
+  return {
+    selector,
+    blockId,
+    label: snapshot.label,
+    elementTag: snapshot.elementTag,
+    elementText: snapshot.elementText,
+    kind: snapshot.kind,
+    capabilities: snapshot.capabilities,
+    snapshot: {
+      ...snapshot,
+      selector,
+      blockId
+    },
+    isText: Boolean(snapshot.text?.editable),
+    text: snapshot.text?.value || '',
+    html: snapshot.text?.html || '',
+    style: {
+      color: snapshot.computed.color || '',
+      fontSize: snapshot.computed.fontSize || '',
+      fontWeight: snapshot.computed.fontWeight || '',
+      textAlign: normalizeTextAlign(snapshot.computed.textAlign),
+      lineHeight: snapshot.computed.lineHeight || '',
+      backgroundColor: snapshot.computed.backgroundColor || ''
+    },
+    bounds: snapshot.metrics.viewport,
+    viewportBounds: snapshot.metrics.viewport,
+    pageBounds: snapshot.metrics.page,
+    translateX: snapshot.metrics.translateX,
+    translateY: snapshot.metrics.translateY,
+    zIndex: Number.isFinite(zIndex) ? zIndex : undefined,
+    editability: { x: true, y: true, width: true, height: true }
+  }
 }
 
 export function SessionDetailPage(): React.JSX.Element {
@@ -1308,6 +1371,7 @@ export function SessionDetailPage(): React.JSX.Element {
         color: rgbToHex(computed.color),
         fontSize: fontSizeToNumber(computed.fontSize),
         fontWeight: normalizeFontWeight(computed.fontWeight),
+        textAlign: normalizeTextAlign(computed.textAlign),
         layoutX: String(Math.round(bounds.x)),
         layoutY: String(Math.round(bounds.y)),
         layoutWidth: String(Math.round(bounds.width)),
@@ -1375,6 +1439,7 @@ export function SessionDetailPage(): React.JSX.Element {
       fields.add('color')
       fields.add('fontSize')
       fields.add('fontWeight')
+      fields.add('textAlign')
     }
     return fields
   }
@@ -1431,6 +1496,12 @@ export function SessionDetailPage(): React.JSX.Element {
       draft.fontWeight !== normalizeFontWeight(initial.computed.fontWeight)
     ) {
       style.fontWeight = draft.fontWeight
+    }
+    if (
+      commitFields.has('textAlign') &&
+      draft.textAlign !== normalizeTextAlign(initial.computed.textAlign)
+    ) {
+      style.textAlign = draft.textAlign
     }
     if (commitFields.has('alt') && draft.alt !== (initial.attrs.alt || '')) attrs.alt = draft.alt
     if (commitFields.has('poster') && draft.poster !== (initial.attrs.poster || '')) {
@@ -1500,6 +1571,7 @@ export function SessionDetailPage(): React.JSX.Element {
       opacity?: number
       backgroundColor?: string
       objectFit?: string
+      textAlign?: string
     } = {}
     const liveAttrs: {
       alt?: string
@@ -1525,6 +1597,9 @@ export function SessionDetailPage(): React.JSX.Element {
     }
     if (draft.objectFit !== textDraft.objectFit) {
       liveStyle.objectFit = draft.objectFit
+    }
+    if (draft.textAlign !== textDraft.textAlign) {
+      liveStyle.textAlign = draft.textAlign
     }
     if (draft.alt !== textDraft.alt) liveAttrs.alt = draft.alt
     if (draft.poster !== textDraft.poster) liveAttrs.poster = draft.poster
@@ -1707,6 +1782,71 @@ export function SessionDetailPage(): React.JSX.Element {
     })
   }
 
+  const handleAddTextElement = async (): Promise<void> => {
+    if (!id || !selectedPage?.pageId || !selectedPage.htmlPath) return
+    const blockId = 'select-arcsin1-' + nanoid(8)
+    const parentSelector = `body[data-page-id="${selectedPage.pageId}"] [data-ppt-guard-root="1"]`
+    const existingCount = editHistory.addElements.filter(
+      (e) => e.pageId === selectedPage.pageId
+    ).length
+    const offset = existingCount * ADDED_TEXT_OFFSET_STEP
+    const w = ADDED_TEXT_WIDTH
+    const h = ADDED_TEXT_MIN_HEIGHT
+    const left = Math.min(
+      ADDED_TEXT_BASE_LEFT + offset,
+      PPT_PAGE_WIDTH - w - ADDED_ELEMENT_EDGE_PADDING
+    )
+    const top = Math.min(
+      ADDED_TEXT_BASE_TOP + offset,
+      PPT_PAGE_HEIGHT - h - ADDED_ELEMENT_EDGE_PADDING
+    )
+    const zIdx = 10 + existingCount
+    const defaultText = t('editMode.defaultText')
+    const textStyle = [
+      'position:absolute',
+      `left:${left}px`,
+      `top:${top}px`,
+      `width:${w}px`,
+      `min-height:${h}px`,
+      'margin:0',
+      'padding:0',
+      `z-index:${zIdx}`,
+      'color:#34402c',
+      'font-size:40px',
+      'font-weight:700',
+      'line-height:1.18',
+      'letter-spacing:0',
+      'white-space:pre-wrap',
+      'overflow-wrap:anywhere',
+      'font-family:inherit'
+    ].join('; ')
+    const htmlFragment = `<p data-block-id="${blockId}" style="${textStyle};">${escapeHtmlText(defaultText)}</p>`
+
+    commitCurrentElementEdit()
+    editHistory.addElement({
+      pageId: selectedPage.pageId,
+      htmlPath: selectedPage.htmlPath,
+      parentSelector,
+      htmlFragment,
+      assignedBlockId: blockId,
+      insertIndex: -1
+    })
+    previewIframeRef.current?.injectElement(parentSelector, htmlFragment)
+
+    const selector = `body[data-page-id="${selectedPage.pageId}"] [data-block-id="${blockId}"]`
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 0))
+    if (useSessionDetailUiStore.getState().selectedPageId !== selectedPage.id) return
+    const snapshot = await previewIframeRef.current?.readElementSnapshot(selector)
+    if (!snapshot) return
+    handleElementSelected(
+      buildSelectedElementFromSnapshot({
+        selector,
+        blockId,
+        snapshot
+      })
+    )
+  }
+
   const handleAddElement = (relativePath: string, _fileName: string): void => {
     if (!id || !selectedPage?.pageId || !selectedPage.htmlPath) return
     const blockId = 'select-arcsin1-' + nanoid(8)
@@ -1716,11 +1856,11 @@ export function SessionDetailPage(): React.JSX.Element {
     const existingCount = editHistory.addElements.filter(
       (e) => e.pageId === selectedPage.pageId
     ).length
-    const offset = existingCount * 30
+    const offset = existingCount * ADDED_MEDIA_OFFSET_STEP
     const w = isVideo ? 640 : 400
     const h = isVideo ? 360 : 300
-    const left = Math.min(400 + offset, 1600 - w - 20)
-    const top = Math.min(200 + offset, 900 - h - 20)
+    const left = Math.min(400 + offset, PPT_PAGE_WIDTH - w - ADDED_ELEMENT_EDGE_PADDING)
+    const top = Math.min(200 + offset, PPT_PAGE_HEIGHT - h - ADDED_ELEMENT_EDGE_PADDING)
     const zIdx = 10 + existingCount
     const htmlFragment = isVideo
       ? `<video src="${relativePath}" data-block-id="${blockId}" style="position:absolute; left:${left}px; top:${top}px; width:${w}px; height:${h}px; z-index:${zIdx}; object-fit:contain;" controls playsinline preload="metadata"></video>`
@@ -1871,6 +2011,7 @@ export function SessionDetailPage(): React.JSX.Element {
               onRedo={handleRedo}
               onSaveAllEdits={() => void handleSaveAllEdits()}
               onDiscardAllEdits={handleDiscardAllEdits}
+              onAddText={() => void handleAddTextElement()}
               onAddFromLibrary={(type) => setAssetPickerOpen(true, type)}
               onAddFromLocal={(type) => void handleUploadAndAdd(type)}
               onOpenSpeechScript={handleOpenSpeechDialog}

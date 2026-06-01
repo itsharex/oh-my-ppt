@@ -432,6 +432,7 @@ export function RichTextBox({
   fallbackText = '',
   defaultColor,
   defaultFontSize,
+  previewScale,
   onChange,
   onCommit,
   className
@@ -440,6 +441,7 @@ export function RichTextBox({
   fallbackText?: string
   defaultColor?: string
   defaultFontSize?: string
+  previewScale?: number
   onChange: (value: RichTextValue) => void
   onCommit?: (value: RichTextValue) => void
   className?: string
@@ -452,7 +454,11 @@ export function RichTextBox({
   const [focused, setFocused] = useState(false)
   const editorColor = normalizeColor(defaultColor)
   const editorFontSize = normalizeFontSize(defaultFontSize)
-  const editorZoom = getEditorZoom(initialValue, editorFontSize)
+  const safePreviewScale =
+    Number.isFinite(previewScale) && previewScale && previewScale > 0
+      ? Math.max(0.1, Math.min(1, previewScale))
+      : undefined
+  const editorZoom = safePreviewScale ?? getEditorZoom(initialValue, editorFontSize)
   const editor = useMemo(
     () => withInlineRichText(withHistory(withReact(createEditor()))),
     [revision]

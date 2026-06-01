@@ -22,7 +22,7 @@ export interface TextEditItem {
   selector: string
   patch: {
     text?: string
-    style: { color?: string; fontSize?: string; fontWeight?: string }
+    style: { color?: string; fontSize?: string; fontWeight?: string; textAlign?: string }
   }
 }
 
@@ -47,6 +47,7 @@ export interface PropertyEditItem {
       color?: string
       fontSize?: string
       fontWeight?: string
+      textAlign?: string
       objectFit?: string
     }
     attrs?: {

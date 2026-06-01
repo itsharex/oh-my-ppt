@@ -194,6 +194,7 @@ export interface UpdateElementPropertiesPayload {
       color?: string
       fontSize?: string
       fontWeight?: string
+      textAlign?: string
     }
   }
 }
