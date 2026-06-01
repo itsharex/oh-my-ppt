@@ -179,6 +179,7 @@ CREATE TABLE IF NOT EXISTS styles (
   style_skill TEXT NOT NULL DEFAULT '',
   version INTEGER NOT NULL DEFAULT 1,
   style_case TEXT NOT NULL DEFAULT '',
+  active INTEGER NOT NULL DEFAULT 1,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );

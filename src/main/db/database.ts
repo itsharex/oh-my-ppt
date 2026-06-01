@@ -178,6 +178,7 @@ export interface StyleRow {
   styleSkill: string // plain markdown
   version: number
   styleCase: string
+  active: boolean
   createdAt: number
   updatedAt: number
 }
@@ -1812,6 +1813,7 @@ export class PPTDatabase {
       styleSkill?: string
       version?: number
       styleCase?: string
+      active?: boolean
     }
   ): Promise<void> {
     const now = Math.floor(Date.now() / 1000)
@@ -1824,6 +1826,7 @@ export class PPTDatabase {
     if (data.styleSkill !== undefined) set.styleSkill = data.styleSkill
     if (data.version !== undefined) set.version = data.version
     if (data.styleCase !== undefined) set.styleCase = data.styleCase
+    if (data.active !== undefined) set.active = data.active
     await this.db.update(schema.styles).set(set).where(eq(schema.styles.id, styleId)).run()
     await this._refreshStylesCache()
   }
