@@ -13,7 +13,8 @@ import { allowLocalAssetRoot } from '../io/assets-handlers'
 const VALID_IMAGE_PROVIDERS = [
   'jimeng',
   'jimeng4',
-  'agnes'
+  'agnes',
+  'siliconflow'
 ] as const
 
 const resolveProvider = (provider: unknown): ImageModelProvider => {

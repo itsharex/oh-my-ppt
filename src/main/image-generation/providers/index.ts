@@ -2,6 +2,7 @@ import type { ImageGenerationProviderAdapter, ResolvedImageModelConfig } from '.
 import { agnesAiAdapter } from './agnes-ai'
 import { jimengAdapter } from './jimeng'
 import { jimengV4Adapter } from './jimeng-v4'
+import { siliconFlowAdapter } from './siliconflow'
 
 const PROVIDER_ADAPTERS: Record<
   ResolvedImageModelConfig['provider'],
@@ -9,7 +10,8 @@ const PROVIDER_ADAPTERS: Record<
 > = {
   agnes: agnesAiAdapter,
   jimeng: jimengAdapter,
-  jimeng4: jimengV4Adapter
+  jimeng4: jimengV4Adapter,
+  siliconflow: siliconFlowAdapter
 }
 
 export function resolveImageGenerationProvider(

@@ -31,7 +31,8 @@ const imageRunStates = new Map<string, ImageRunState>()
 const VALID_IMAGE_PROVIDERS = [
   'jimeng',
   'jimeng4',
-  'agnes'
+  'agnes',
+  'siliconflow'
 ] as const
 
 const resolveProvider = (provider: unknown): ImageModelProvider => {

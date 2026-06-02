@@ -809,9 +809,16 @@ export function buildEditModeInjectScript(previewScale = 1): string {
       const s = el.style;
       const computed = getComputedStyle(el);
       const inlineOpacity = s.opacity.trim();
+      const inlineOpacityNumber = inlineOpacity ? Number(inlineOpacity) : NaN;
+      const hasMotionMarker =
+        el.matches("[data-anim], [data-anime], [data-animate], [data-ppt-anim-initialized='1'], .opacity-0");
+      const hasInitialHiddenOpacity =
+        inlineOpacity &&
+        Number.isFinite(inlineOpacityNumber) &&
+        inlineOpacityNumber <= 0.04;
       const motionMarked =
-        el.matches("[data-anim], [data-anime], [data-animate], [data-ppt-anim-initialized='1'], .opacity-0") ||
-        Boolean(inlineOpacity);
+        hasMotionMarker ||
+        hasInitialHiddenOpacity;
       if (motionMarked && Number(computed.opacity || "1") < 0.98) {
         s.opacity = "1";
       }

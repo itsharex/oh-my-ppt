@@ -311,8 +311,8 @@ export const en = {
     addImageModel: 'Add image model',
     editModel: 'Edit model',
     editImageModel: 'Edit image model',
-    modelName: 'Model name (alias)',
-    modelNamePlaceholder: 'Example: DeepSeek / Local Ollama',
+    modelName: 'Alias',
+    modelNamePlaceholder: 'Model alias, anything you like',
     noModels: 'No model configs yet. Add a model first.',
     noImageModels: 'No image model configs yet. Add a text-to-image model first.',
     modelSettingsRequiredTitle: 'Model setup incomplete',
@@ -336,8 +336,16 @@ export const en = {
     providerPreset: 'Provider preset',
     providerPlaceholder: 'Select Provider',
     modelHint: 'Any compatible model name for this provider is accepted.',
-    imageModelConfigHint:
-      'Enter the full provider JSON. Agnes example: {"model":"agnes-image-2.0-flash","apiKey":"...","responseFormat":"url"}; Jimeng 3.0 example: {"reqKey":"jimeng_t2i_v30","accessKeyId":"...","secretKey":"..."}; Jimeng 4.0 example: {"reqKey":"jimeng_t2i_v40","accessKeyId":"...","secretKey":"...","force_single":true}.',
+    imageModelConfigHint: 'Enter the full provider JSON.',
+    imageModelConfigHintJimeng:
+      'Example: {"reqKey":"jimeng_t2i_v30","accessKeyId":"...","secretKey":"..."}',
+    imageModelConfigHintJimeng4:
+      'Example: {"reqKey":"jimeng_t2i_v40","accessKeyId":"...","secretKey":"...","force_single":true}',
+    imageModelConfigHintAgnes:
+      'Example: {"model":"agnes-image-2.0-flash","apiKey":"...","responseFormat":"url"}',
+    imageModelConfigHintSiliconflow:
+      'Example: {"model":"Tongyi-MAI/Z-Image-Turbo","apiKey":"..."}. Available models: Tongyi-MAI/Z-Image-Turbo, Tongyi-MAI/Z-Image, baidu/ERNIE-Image-Turbo, Qwen/Qwen-Image, Kwai-Kolors/Kolors',
+    imageProviderOfficialDocs: 'Official docs',
     baseUrlHint: 'Enter a service URL compatible with the selected provider protocol.',
     baseUrlHintGoogle: 'Leave empty for official Google API. Fill only if using a proxy.',
     maxTokensHint: 'Max output tokens, default 4096. Generally no need to change. Adjust based on model limits.',
@@ -361,12 +369,12 @@ export const en = {
     imageVerifyHint:
       'Image verification only checks basic fields. The real endpoint is verified on first generation to avoid unnecessary cost.',
     modelPlaceholder: 'Example: deepseek-v4/gpt-5.4',
-    imageModelPlaceholder: 'Example: Jimeng 3.0 / Jimeng 4.0 / Agnes AI',
-    imageModelNamePlaceholder: 'Example: Jimeng 3.0 / Jimeng 4.0 / Agnes AI',
+    imageModelPlaceholder: 'Example: Jimeng 3.0 / Jimeng 4.0 / Agnes AI / SiliconFlow',
+    imageModelNamePlaceholder: 'Model alias, anything you like',
     baseUrlPlaceholder: 'Example: https://api.deepseek.com',
     imageBaseUrlPlaceholder: 'Leave empty for built-in defaults, or enter a compatible service URL',
     imageBaseUrlHint:
-      'Only Jimeng 3.0, Jimeng 4.0, and Agnes AI are available for now. Custom gateways will be added separately.',
+      'Jimeng 3.0, Jimeng 4.0, Agnes AI, and SiliconFlow are available for now. Custom gateways will be added separately.',
     defaultImageSize: 'Default size',
     defaultImageQuality: 'Default quality',
     defaultImageCount: 'Default count',
@@ -389,7 +397,7 @@ export const en = {
     modelSavedDescription: 'Model config has been written locally',
     imageModelSavedDescription: 'Image model config has been written locally',
     timeoutSavedDescription: 'Global timeout settings have been written locally',
-    fillModelName: 'Enter model name first',
+    fillModelName: 'Enter an alias first',
     fillApiKey: 'Enter api_key first',
     fillModel: 'Enter model first',
     verifyPassed: 'API Key verified',
@@ -663,7 +671,7 @@ Business presentations, product introductions, project summaries — formal but 
     imageOutlineTitle: 'Slide title',
     imageOutlineContent: 'Slide outline',
     imageOutlineConstraints:
-      'Do not include readable text, logos, watermarks, or fake chart labels. Keep it suitable for 16:9 slide layout with clean space for typography.',
+      'Use this as a slide background or illustration. Do not include any readable text, titles, logos, watermarks, or fake chart labels. Keep it suitable for 16:9 slide layout with clean space for typography.',
     editText: 'Edit text',
     exitTextEdit: 'Exit edit',
     previewMode: 'Preview',

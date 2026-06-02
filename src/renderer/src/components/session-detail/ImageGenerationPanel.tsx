@@ -54,8 +54,31 @@ const PROVIDER_SIZE_OPTIONS: Record<ImageModelProvider, ImageSizeOption[]> = {
     { value: '16:9', label: '16:9 · 1024x768' },
     { value: '1:1', label: '1:1 · 1024x1024' },
     { value: '4:3', label: '4:3 · 1024x768' }
+  ],
+  siliconflow: [
+    { value: '1024x1024', label: '1:1 · 1024x1024' },
+    { value: '1280x720', label: '16:9 · 1280x720' },
+    { value: '720x1280', label: '9:16 · 720x1280' }
   ]
 }
+
+const SILICONFLOW_QWEN_SIZE_OPTIONS: ImageSizeOption[] = [
+  { value: '1328x1328', label: '1:1 · 1328x1328' },
+  { value: '1664x928', label: '16:9 · 1664x928' },
+  { value: '928x1664', label: '9:16 · 928x1664' },
+  { value: '1472x1140', label: '4:3 · 1472x1140' },
+  { value: '1140x1472', label: '3:4 · 1140x1472' },
+  { value: '1584x1056', label: '3:2 · 1584x1056' },
+  { value: '1056x1584', label: '2:3 · 1056x1584' }
+]
+
+const SILICONFLOW_KOLORS_SIZE_OPTIONS: ImageSizeOption[] = [
+  { value: '1024x1024', label: '1:1 · 1024x1024' },
+  { value: '960x1280', label: '3:4 · 960x1280' },
+  { value: '768x1024', label: '3:4 · 768x1024' },
+  { value: '720x1440', label: '1:2 · 720x1440' },
+  { value: '720x1280', label: '9:16 · 720x1280' }
+]
 
 const readModelConfigObject = (config?: ImageModelConfig): Record<string, unknown> => {
   if (!config?.modelConfig) return {}
@@ -144,6 +167,12 @@ const resolveImageSizeOptions = (config?: ImageModelConfig): ImageSizeOption[] =
   if (Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0) {
     const size = `${Math.floor(width)}x${Math.floor(height)}`
     return [{ value: size, label: size }]
+  }
+
+  const model = readSizeString(modelConfig, 'model')
+  if (config?.provider === 'siliconflow') {
+    if (/qwen\/qwen-image/i.test(model)) return SILICONFLOW_QWEN_SIZE_OPTIONS
+    if (/kolors/i.test(model)) return SILICONFLOW_KOLORS_SIZE_OPTIONS
   }
 
   if (config?.provider) return PROVIDER_SIZE_OPTIONS[config.provider]
@@ -317,7 +346,18 @@ export function ImageGenerationPanel({
                                 {asset.fileName}
                               </div>
                             )}
-                            <div className="mt-1.5 flex items-center justify-center gap-1">
+                            {(() => {
+                              const modelConfig = imageModelConfigs.find(
+                                (c) => c.id === asset.modelConfigId
+                              )
+                              const modelLabel = modelConfig?.name || asset.model
+                              return (
+                                <p className="mt-1 text-center text-[10px] leading-3 text-muted-foreground">
+                                  {modelLabel}
+                                </p>
+                              )
+                            })()}
+                            <div className="mt-1 flex items-center justify-center gap-1">
                               {asset.absolutePath && (
                                 <Tooltip>
                                   <TooltipTrigger asChild>
@@ -398,25 +438,27 @@ export function ImageGenerationPanel({
       </ScrollArea>
 
       <div className="mx-2.5 mb-2.5 rounded-[1.4rem] border border-[#ded2bd]/72 bg-[#fffaf1]/84 px-2.5 pb-3 pt-2 shadow-[0_12px_24px_rgba(74,59,42,0.11)]">
-        <div className="relative">
+        <div className="mb-1.5 flex items-center justify-end">
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            disabled={!selectedPageExists || isGeneratingImage}
+            className="h-6 rounded-full border border-[#8faf7d]/36 bg-[#dcebcf]/74 px-2.5 text-[11px] font-medium text-[#526942] shadow-none hover:bg-[#d2e4c3] disabled:opacity-45"
+            onClick={handleFillFromOutline}
+          >
+            {t('sessionDetail.imagePromptFromOutline')}
+          </Button>
+        </div>
+        <div>
           <Textarea
             placeholder={t('sessionDetail.imagePromptPlaceholder')}
             value={imagePrompt}
             onChange={(event) => setImagePrompt(event.target.value)}
             disabled={isGeneratingImage}
             rows={4}
-            className="min-h-[96px] resize-none rounded-[1.15rem] border border-[#ded2bd]/72 bg-[#fffdf8]/88 px-3 py-2 pr-24 text-[13px] leading-5 text-[#3f4b35] shadow-[inset_0_1px_2px_rgba(74,59,42,0.05)] focus-visible:border-[#9bb98a] focus-visible:ring-0 focus-visible:ring-offset-0"
+            className="min-h-[96px] resize-none rounded-[1.15rem] border border-[#ded2bd]/72 bg-[#fffdf8]/88 px-3 py-2 text-[13px] leading-5 text-[#3f4b35] shadow-[inset_0_1px_2px_rgba(74,59,42,0.05)] focus-visible:border-[#9bb98a] focus-visible:ring-0 focus-visible:ring-offset-0"
           />
-          <Button
-            type="button"
-            size="sm"
-            variant="secondary"
-            disabled={!selectedPageExists || isGeneratingImage}
-            className="absolute right-2 top-2 h-7 rounded-full px-2 text-[11px]"
-            onClick={handleFillFromOutline}
-          >
-            {t('sessionDetail.imagePromptFromOutline')}
-          </Button>
         </div>
         <div className="mt-2 flex items-center justify-between gap-2">
           <Popover>

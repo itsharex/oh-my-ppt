@@ -1,29 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Button } from '../components/ui/Button'
-import { Input, Textarea } from '../components/ui/Input'
-import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue
-} from '../components/ui/Select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/Tabs'
-import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/Popover'
 import { useSettingsStore } from '../store'
 import { useToastStore } from '../store'
-import {
-  CheckCircle2,
-  CircleHelp,
-  FolderSearch,
-  Image as ImageIcon,
-  Pencil,
-  Plus,
-  ShieldCheck,
-  Trash2,
-  X
-} from 'lucide-react'
 import { useLang } from '../i18n'
 import type { ImageModelConfig, ImageModelProvider, ModelConfig } from '../lib/ipc'
 import {
@@ -32,27 +10,23 @@ import {
   modelTimeoutMsToSeconds,
   resolveModelTimeoutMs
 } from '@shared/model-timeout.js'
-
-type ProviderId = 'anthropic' | 'openai' | 'google'
-
-interface ModelForm {
-  id?: string
-  name: string
-  provider: ProviderId
-  model: string
-  apiKey: string
-  baseUrl: string
-  maxTokens: number
-  active: boolean
-}
-
-interface ImageModelForm {
-  id?: string
-  name: string
-  provider: ImageModelProvider
-  modelConfig: string
-  active: boolean
-}
+import { AdvancedSettingsTab } from '../components/settings/AdvancedSettingsTab'
+import { GeneralSettingsTab } from '../components/settings/GeneralSettingsTab'
+import { ImageModelConfigDialog } from '../components/settings/ImageModelConfigDialog'
+import { ImageModelSettingsTab } from '../components/settings/ImageModelSettingsTab'
+import { ModelConfigDialog } from '../components/settings/ModelConfigDialog'
+import { ModelSettingsTab } from '../components/settings/ModelSettingsTab'
+import {
+  IMAGE_PROVIDER_OPTIONS,
+  createDefaultImageModelConfig,
+  createEmptyImageModelForm,
+  createEmptyModelForm,
+  createImageModelForm,
+  createModelForm,
+  readJsonObject,
+  stringifyJsonObject
+} from '../components/settings/model-settings-utils'
+import type { ImageModelForm, ModelForm } from '../components/settings/types'
 
 const createTimeoutSeconds = (
   timeouts?: Partial<Record<ConfigurableModelTimeoutProfile, number>>
@@ -64,119 +38,6 @@ const createTimeoutSeconds = (
     ])
   ) as Record<ConfigurableModelTimeoutProfile, number>
 
-const MODEL_PROVIDER_LINKS = [
-  { label: 'DeepSeek', url: 'https://platform.deepseek.com' },
-  { label: 'Moonshot (Kimi)', url: 'https://platform.moonshot.cn' },
-  { label: 'GLM (智谱)', url: 'https://open.bigmodel.cn' },
-  { label: 'Qwen (通义千问)', url: 'https://bailian.console.aliyun.com/' },
-  { label: 'Doubao (豆包)', url: 'https://console.volcengine.com/ark' },
-  { label: 'Mimo (小米)', url: 'https://platform.xiaomimimo.com' },
-  { label: 'MiniMax', url: 'https://www.minimaxi.com/' },
-  { label: 'OpenAI', url: 'https://platform.openai.com' },
-  { label: 'Claude (Anthropic)', url: 'https://console.anthropic.com' },
-  { label: 'Google Gemini', url: 'https://ai.google.dev' }
-]
-
-const IMAGE_PROVIDER_OPTIONS: Array<{ value: ImageModelProvider; label: string }> = [
-  { value: 'jimeng', label: '即梦3.0' },
-  { value: 'jimeng4', label: '即梦4.0' },
-  { value: 'agnes', label: 'Agnes AI' }
-]
-
-const JIMENG_DEFAULT_REQ_KEY = 'jimeng_t2i_v30'
-const JIMENG_V4_DEFAULT_REQ_KEY = 'jimeng_t2i_v40'
-
-const readJsonObject = (value: string): Record<string, unknown> | null => {
-  const text = value.trim()
-  if (!text) return null
-  try {
-    const parsed = JSON.parse(text)
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : null
-  } catch {
-    return null
-  }
-}
-
-const stringifyJsonObject = (record: Record<string, unknown>): string => {
-  return JSON.stringify(record, null, 2)
-}
-
-const summarizeImageModelConfig = (value: string): string => {
-  const config = readJsonObject(value)
-  if (!config) return 'model_config'
-  const model = typeof config.model === 'string' ? config.model.trim() : ''
-  const reqKey = typeof config.reqKey === 'string' ? config.reqKey.trim() : ''
-  const endpoint =
-    typeof config.endpoint === 'string'
-      ? config.endpoint.trim()
-      : typeof config.baseUrl === 'string'
-        ? config.baseUrl.trim()
-        : ''
-  return [model || reqKey || 'model_config', endpoint].filter(Boolean).join(' · ')
-}
-
-const createDefaultImageModelConfig = (provider: ImageModelProvider): string => {
-  if (provider === 'jimeng') {
-    return stringifyJsonObject({
-      reqKey: JIMENG_DEFAULT_REQ_KEY,
-      accessKeyId: '',
-      secretKey: ''
-    })
-  }
-  if (provider === 'jimeng4') {
-    return stringifyJsonObject({
-      reqKey: JIMENG_V4_DEFAULT_REQ_KEY,
-      accessKeyId: '',
-      secretKey: '',
-      force_single: true
-    })
-  }
-  return stringifyJsonObject({
-    model: 'agnes-image-2.0-flash',
-    apiKey: '',
-    responseFormat: 'url'
-  })
-}
-
-const createEmptyModelForm = (active = false): ModelForm => ({
-  name: '',
-  provider: 'openai',
-  model: '',
-  apiKey: '',
-  baseUrl: '',
-  maxTokens: 4096,
-  active
-})
-
-const createModelForm = (config: ModelConfig): ModelForm => ({
-  id: config.id,
-  name: config.name,
-  provider: config.provider,
-  model: config.model,
-  apiKey: config.apiKey,
-  baseUrl: config.baseUrl,
-  maxTokens: config.maxTokens || 4096,
-  active: config.active
-})
-
-const createEmptyImageModelForm = (active = false): ImageModelForm => ({
-  name: '',
-  provider: 'jimeng',
-  modelConfig: createDefaultImageModelConfig('jimeng'),
-  active
-})
-
-const createImageModelForm = (config: ImageModelConfig): ImageModelForm => {
-  return {
-    id: config.id,
-    name: config.name,
-    provider: config.provider,
-    modelConfig: config.modelConfig || createDefaultImageModelConfig(config.provider),
-    active: config.active
-  }
-}
 
 export function SettingsPage(): React.JSX.Element {
   const {
@@ -619,561 +480,85 @@ export function SettingsPage(): React.JSX.Element {
           <TabsTrigger value="advanced">{t('settings.advancedTab')}</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="general" className="space-y-4">
-          <Card>
-            <CardHeader className="p-5 pb-3">
-              <CardTitle className="text-base">{t('settings.interface')}</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3 p-5 pt-0">
-              <div>
-                <label className="mb-1.5 block text-sm font-medium">{t('settings.language')}</label>
-                <Select value={lang} onValueChange={(v) => setLang(v === 'en' ? 'en' : 'zh')}>
-                  <SelectTrigger className="h-10">
-                    <SelectValue placeholder={t('settings.languagePlaceholder')} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="zh">{t('settings.chinese')}</SelectItem>
-                    <SelectItem value="en">{t('settings.english')}</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="p-5 pb-3">
-              <CardTitle className="text-base">{t('settings.storage')}</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3 p-5 pt-0">
-              <div>
-                <label className="mb-1.5 block text-sm font-medium">
-                  {t('settings.storagePath')}
-                </label>
-                <div className="flex gap-2">
-                  <Input
-                    value={storagePath}
-                    readOnly
-                    placeholder={t('settings.storagePlaceholder')}
-                    className="h-10 min-w-0 flex-1"
-                  />
-                  <Button
-                    variant="secondary"
-                    onClick={handleChoosePath}
-                    className="h-10 min-w-[96px] shrink-0 rounded-lg border border-[#7ea06f]/45 px-4"
-                  >
-                    <FolderSearch className="mr-1.5 h-4 w-4" />
-                    {t('settings.choose')}
-                  </Button>
-                </div>
-                <p className="mt-2 text-xs text-muted-foreground">{t('settings.storageHint')}</p>
-              </div>
-            </CardContent>
-          </Card>
+        <TabsContent value="general">
+          <GeneralSettingsTab
+            lang={lang}
+            storagePath={storagePath}
+            t={t}
+            onChoosePath={() => void handleChoosePath()}
+            onLangChange={setLang}
+          />
         </TabsContent>
 
         <TabsContent value="model">
-          <Card className="mb-4">
-            <CardHeader className="flex-row items-center justify-between p-5 pb-3">
-              <div>
-                <CardTitle className="flex items-center gap-1.5 text-base">
-                  {t('settings.modelAccess')}
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <CircleHelp className="h-3.5 w-3.5 cursor-pointer text-muted-foreground/50 hover:text-foreground transition-colors" />
-                    </PopoverTrigger>
-                    <PopoverContent
-                      side="bottom"
-                      align="start"
-                      className="w-auto max-w-xs border-[#d8cfbc]/80 bg-[#fffdf8] p-3"
-                    >
-                      <p className="mb-2 text-[11px] font-semibold text-[#3e4a32]">
-                        {t('settings.modelHelpTitle')}
-                      </p>
-                      <div className="flex flex-wrap gap-1.5">
-                        {MODEL_PROVIDER_LINKS.map((item) => (
-                          <a
-                            key={item.url}
-                            href={item.url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="rounded-md border border-[#d8cfbc]/80 bg-[#f5efe2]/60 px-2 py-1 text-[11px] text-[#5b6b4d] transition-colors hover:border-[#96b77f]/60 hover:bg-[#e8f0de] hover:text-[#3e4a32]"
-                          >
-                            {item.label}
-                          </a>
-                        ))}
-                      </div>
-                    </PopoverContent>
-                  </Popover>
-                </CardTitle>
-                {activeModelConfig && (
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {t('settings.currentActiveModel', { name: activeModelConfig.name })}
-                  </p>
-                )}
-              </div>
-              <Button size="sm" onClick={openCreateModelDialog}>
-                <Plus className="mr-1.5 h-4 w-4" />
-                {t('settings.addModel')}
-              </Button>
-            </CardHeader>
-            <CardContent className="space-y-2.5 p-5 pt-0">
-              {modelConfigs.length === 0 ? (
-                <div className="rounded-lg border border-dashed border-[#d8ccb5]/85 bg-[#fff9ef]/70 p-6 text-sm text-muted-foreground">
-                  {t('settings.noModels')}
-                </div>
-              ) : (
-                modelConfigs.map((config) => (
-                  <div
-                    key={config.id}
-                    className={
-                      config.active
-                        ? 'flex flex-col gap-3 rounded-lg border border-[#96b77f]/80 bg-[#eef6e8] p-3 shadow-[inset_3px_0_0_#6f8f64] sm:flex-row sm:items-center sm:justify-between'
-                        : 'flex flex-col gap-3 rounded-lg border border-[#d8ccb5]/80 bg-[#fffdf8]/78 p-3 sm:flex-row sm:items-center sm:justify-between'
-                    }
-                  >
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        {config.active && <CheckCircle2 className="h-4 w-4 text-[#5d7b4d]" />}
-                        <p className="font-medium text-[#33402a]">{config.name}</p>
-                        <span className="rounded-full bg-[#e9efde] px-2 py-0.5 text-[11px] uppercase text-[#506141]">
-                          {config.provider}
-                        </span>
-                      </div>
-                      <p className="mt-1 truncate text-xs text-muted-foreground">
-                        {config.model}
-                      </p>
-                      {config.baseUrl && (
-                        <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                          {config.baseUrl}
-                        </p>
-                      )}
-                    </div>
-                    <div className="flex shrink-0 flex-wrap gap-2">
-                      <Button
-                        size="sm"
-                        variant={config.active ? 'secondary' : 'outline'}
-                        disabled={config.active || activatingId === config.id}
-                        onClick={() => void handleActivateModel(config.id)}
-                      >
-                        {config.active ? t('settings.activeModel') : t('settings.activateModel')}
-                      </Button>
-                      <Button size="sm" variant="ghost" onClick={() => openEditModelDialog(config)}>
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        disabled={deletingId === config.id}
-                        onClick={() => void handleDeleteModel(config)}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </div>
-                ))
-              )}
-            </CardContent>
-          </Card>
+          <ModelSettingsTab
+            activeModelConfig={activeModelConfig}
+            activatingId={activatingId}
+            deletingId={deletingId}
+            modelConfigs={modelConfigs}
+            t={t}
+            onActivate={(configId) => void handleActivateModel(configId)}
+            onCreate={openCreateModelDialog}
+            onDelete={(config) => void handleDeleteModel(config)}
+            onEdit={openEditModelDialog}
+          />
         </TabsContent>
 
         <TabsContent value="imageModel">
-          <Card className="mb-4">
-            <CardHeader className="flex-row items-center justify-between p-5 pb-3">
-              <div>
-                <CardTitle className="flex items-center gap-1.5 text-base">
-                  <ImageIcon className="h-4 w-4 text-[#5d7b4d]" />
-                  {t('settings.imageModelAccess')}
-                </CardTitle>
-                {activeImageModelConfig && (
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {t('settings.currentActiveImageModel', { name: activeImageModelConfig.name })}
-                  </p>
-                )}
-              </div>
-              <Button size="sm" onClick={openCreateImageModelDialog}>
-                <Plus className="mr-1.5 h-4 w-4" />
-                {t('settings.addImageModel')}
-              </Button>
-            </CardHeader>
-            <CardContent className="space-y-2.5 p-5 pt-0">
-              {imageModelConfigs.length === 0 ? (
-                <div className="rounded-lg border border-dashed border-[#d8ccb5]/85 bg-[#fff9ef]/70 p-6 text-sm text-muted-foreground">
-                  {t('settings.noImageModels')}
-                </div>
-              ) : (
-                imageModelConfigs.map((config) => (
-                  <div
-                    key={config.id}
-                    className={
-                      config.active
-                        ? 'flex flex-col gap-3 rounded-lg border border-[#96b77f]/80 bg-[#eef6e8] p-3 shadow-[inset_3px_0_0_#6f8f64] sm:flex-row sm:items-center sm:justify-between'
-                        : 'flex flex-col gap-3 rounded-lg border border-[#d8ccb5]/80 bg-[#fffdf8]/78 p-3 sm:flex-row sm:items-center sm:justify-between'
-                    }
-                  >
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        {config.active && <CheckCircle2 className="h-4 w-4 text-[#5d7b4d]" />}
-                        <p className="font-medium text-[#33402a]">{config.name}</p>
-                        <span className="rounded-full bg-[#e9efde] px-2 py-0.5 text-[11px] uppercase text-[#506141]">
-                          {config.provider}
-                        </span>
-                      </div>
-                      <p className="mt-1 truncate text-xs text-muted-foreground">
-                        {summarizeImageModelConfig(config.modelConfig)}
-                      </p>
-                    </div>
-                    <div className="flex shrink-0 flex-wrap gap-2">
-                      <Button
-                        size="sm"
-                        variant={config.active ? 'secondary' : 'outline'}
-                        disabled={config.active || activatingImageId === config.id}
-                        onClick={() => void handleActivateImageModel(config.id)}
-                      >
-                        {config.active
-                          ? t('settings.activeImageModel')
-                          : t('settings.activateImageModel')}
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => openEditImageModelDialog(config)}
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        disabled={deletingImageId === config.id}
-                        onClick={() => void handleDeleteImageModel(config)}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </div>
-                ))
-              )}
-            </CardContent>
-          </Card>
+          <ImageModelSettingsTab
+            activeImageModelConfig={activeImageModelConfig}
+            activatingImageId={activatingImageId}
+            deletingImageId={deletingImageId}
+            imageModelConfigs={imageModelConfigs}
+            t={t}
+            onActivate={(configId) => void handleActivateImageModel(configId)}
+            onCreate={openCreateImageModelDialog}
+            onDelete={(config) => void handleDeleteImageModel(config)}
+            onEdit={openEditImageModelDialog}
+          />
         </TabsContent>
 
         <TabsContent value="advanced">
-          <Card className="mb-4">
-            <CardHeader className="p-5 pb-3">
-              <CardTitle className="text-base">{t('settings.timeoutSection')}</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3 p-5 pt-0">
-              <p className="text-xs text-muted-foreground">{t('settings.timeoutHint')}</p>
-              <div className="grid gap-2.5 sm:grid-cols-2">
-                {timeoutFields.map((field) => (
-                  <div key={field.profile}>
-                    <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                      {field.label}
-                    </label>
-                    <Input
-                      type="number"
-                      min={field.min}
-                      max={3600}
-                      step={30}
-                      placeholder={t('settings.timeoutPlaceholder')}
-                      value={timeoutSeconds[field.profile]}
-                      onChange={(e) => handleTimeoutChange(field.profile, e.target.value)}
-                      className="h-10"
-                    />
-                    <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
-                      {field.hint}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="mb-4">
-            <CardHeader className="p-5 pb-3">
-              <CardTitle className="text-base">{t('settings.proxySection')}</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3 p-5 pt-0">
-              <div>
-                <label className="mb-1.5 block text-sm font-medium">
-                  {t('settings.proxyLabel')}
-                </label>
-                <Input
-                  value={proxyUrl}
-                  onChange={(e) => {
-                    setProxyUrl(e.target.value)
-                    setVerificationMessage(null)
-                  }}
-                  placeholder={t('settings.proxyPlaceholder')}
-                  className="h-10"
-                />
-                <p className="mt-2 text-xs text-muted-foreground">{t('settings.proxyHint')}</p>
-              </div>
-            </CardContent>
-          </Card>
-
-          <div className="flex justify-end">
-            <Button onClick={handleSaveAdvanced} disabled={savingTimeouts}>
-              {savingTimeouts ? t('common.saving') : t('settings.saveTimeouts')}
-            </Button>
-          </div>
+          <AdvancedSettingsTab
+            proxyUrl={proxyUrl}
+            savingTimeouts={savingTimeouts}
+            timeoutFields={timeoutFields}
+            timeoutSeconds={timeoutSeconds}
+            t={t}
+            onProxyUrlChange={(value) => {
+              setProxyUrl(value)
+              setVerificationMessage(null)
+            }}
+            onSaveAdvanced={() => void handleSaveAdvanced()}
+            onTimeoutChange={handleTimeoutChange}
+          />
         </TabsContent>
       </Tabs>
 
-      {modelDialogOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-[#2d291f]/42 p-4"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget && !savingModel) {
-              setModelDialogOpen(false)
-            }
-          }}
-        >
-          <div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-lg border border-[#d8ccb5]/85 bg-[#fffaf1] shadow-[0_24px_70px_rgba(53,44,32,0.28)]">
-            <div className="flex items-center justify-between border-b border-[#e3d8c5] px-5 py-4">
-              <h2 className="text-base font-semibold text-[#33402a]">
-                {modelForm.id ? t('settings.editModel') : t('settings.addModel')}
-              </h2>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => setModelDialogOpen(false)}
-                disabled={savingModel}
-              >
-                <X className="h-4 w-4" />
-              </Button>
-            </div>
+      <ModelConfigDialog
+        form={modelForm}
+        open={modelDialogOpen}
+        saving={savingModel}
+        verifying={verifying}
+        t={t}
+        onClose={() => setModelDialogOpen(false)}
+        onFormChange={updateModelForm}
+        onSave={() => void handleSaveModel()}
+        onVerify={() => void handleVerify()}
+      />
 
-            <div className="space-y-3 p-5">
-              <div className="grid gap-2 sm:grid-cols-2">
-                <div>
-                  <label className="mb-1 block text-sm font-medium">
-                    {t('settings.modelName')}
-                  </label>
-                  <Input
-                    value={modelForm.name}
-                    onChange={(e) => updateModelForm({ name: e.target.value })}
-                    placeholder={t('settings.modelNamePlaceholder')}
-                    className="h-8"
-                  />
-                </div>
-                <div>
-                  <label className="mb-1 block text-sm font-medium">
-                    {t('settings.providerPreset')}
-                  </label>
-                  <Select
-                    value={modelForm.provider}
-                    onValueChange={(value) =>
-                      updateModelForm({
-                        provider: value === 'anthropic' || value === 'google' ? value : 'openai'
-                      })
-                    }
-                  >
-                    <SelectTrigger className="h-8">
-                      <SelectValue placeholder={t('settings.providerPlaceholder')} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="anthropic">Claude (Anthropic)</SelectItem>
-                      <SelectItem value="openai">OpenAI</SelectItem>
-                      <SelectItem value="google">Google Gemini</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
-              <div>
-                <label className="mb-1 block text-sm font-medium">model</label>
-                <Input
-                  placeholder={t('settings.modelPlaceholder')}
-                  value={modelForm.model}
-                  onChange={(e) => updateModelForm({ model: e.target.value })}
-                  className="h-8"
-                />
-                <p className="mt-1 text-xs text-muted-foreground">{t('settings.modelHint')}</p>
-              </div>
-
-              <div>
-                <label className="mb-1 block text-sm font-medium">base_url</label>
-                <Input
-                  placeholder={t('settings.baseUrlPlaceholder')}
-                  value={modelForm.baseUrl}
-                  onChange={(e) => updateModelForm({ baseUrl: e.target.value })}
-                  className="h-8"
-                />
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {modelForm.provider === 'google'
-                    ? t('settings.baseUrlHintGoogle')
-                    : t('settings.baseUrlHint')}
-                </p>
-              </div>
-
-              <div>
-                <label className="mb-1 block text-sm font-medium">max_tokens</label>
-                <Input
-                  type="number"
-                  min={256}
-                  max={16384}
-                  step={256}
-                  value={modelForm.maxTokens}
-                  onChange={(e) =>
-                    updateModelForm({
-                      maxTokens: Math.max(256, Math.min(16384, Number(e.target.value) || 4096))
-                    })
-                  }
-                  className="h-8"
-                />
-                <p className="mt-1 text-xs text-muted-foreground">{t('settings.maxTokensHint')}</p>
-              </div>
-
-              <div>
-                <label className="mb-1 block text-sm font-medium">api_key</label>
-                <div className="flex gap-2">
-                  <Input
-                    type="password"
-                    placeholder={t('settings.apiKeyPlaceholder', {
-                      provider:
-                        modelForm.provider === 'openai'
-                          ? 'OpenAI'
-                          : modelForm.provider === 'google'
-                            ? 'Google'
-                            : 'Claude'
-                    })}
-                    value={modelForm.apiKey}
-                    onChange={(e) => updateModelForm({ apiKey: e.target.value })}
-                    className="h-8 min-w-0 flex-1"
-                  />
-                  <Button
-                    variant="secondary"
-                    onClick={handleVerify}
-                    disabled={verifying}
-                    className="h-8 min-w-[80px] shrink-0 rounded-lg border border-[#7ea06f]/45 px-3 text-xs"
-                  >
-                    <ShieldCheck className="mr-1 h-3.5 w-3.5" />
-                    {verifying ? t('settings.verifying') : t('settings.verify')}
-                  </Button>
-                </div>
-                <p className="mt-1 text-xs text-muted-foreground">{t('settings.verifyHint')}</p>
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-2 border-t border-[#e3d8c5] px-5 py-4">
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => setModelDialogOpen(false)}
-                disabled={savingModel}
-              >
-                {t('common.cancel')}
-              </Button>
-              <Button onClick={handleSaveModel} disabled={savingModel}>
-                {savingModel ? t('common.saving') : t('settings.saveModel')}
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {imageModelDialogOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-[#2d291f]/42 p-4"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget && !savingModel) {
-              setImageModelDialogOpen(false)
-            }
-          }}
-        >
-          <div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-lg border border-[#d8ccb5]/85 bg-[#fffaf1] shadow-[0_24px_70px_rgba(53,44,32,0.28)]">
-            <div className="flex items-center justify-between border-b border-[#e3d8c5] px-5 py-4">
-              <h2 className="text-base font-semibold text-[#33402a]">
-                {imageModelForm.id ? t('settings.editImageModel') : t('settings.addImageModel')}
-              </h2>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => setImageModelDialogOpen(false)}
-                disabled={savingModel}
-              >
-                <X className="h-4 w-4" />
-              </Button>
-            </div>
-
-            <div className="space-y-3 p-5">
-              <div className="grid gap-2 sm:grid-cols-2">
-                <div>
-                  <label className="mb-1 block text-sm font-medium">
-                    {t('settings.modelName')}
-                  </label>
-                  <Input
-                    value={imageModelForm.name}
-                    onChange={(e) => updateImageModelForm({ name: e.target.value })}
-                    placeholder={t('settings.imageModelNamePlaceholder')}
-                    className="h-8"
-                  />
-                </div>
-                <div>
-                  <label className="mb-1 block text-sm font-medium">
-                    {t('settings.providerPreset')}
-                  </label>
-                  <Select
-                    value={imageModelForm.provider}
-                    onValueChange={handleImageProviderChange}
-                  >
-                    <SelectTrigger className="h-8">
-                      <SelectValue placeholder={t('settings.providerPlaceholder')} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {IMAGE_PROVIDER_OPTIONS.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
-              <div>
-                <label className="mb-1 block text-sm font-medium">model_config</label>
-                <Textarea
-                  spellCheck={false}
-                  rows={12}
-                  value={imageModelForm.modelConfig}
-                  onChange={(e) => updateImageModelForm({ modelConfig: e.target.value })}
-                  className="min-h-[240px] resize-y font-mono text-xs leading-5"
-                />
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {t('settings.imageModelConfigHint')}
-                </p>
-              </div>
-
-              <div className="flex justify-end">
-                <Button
-                  variant="secondary"
-                  onClick={handleVerifyImageModel}
-                  disabled={verifyingImageModel}
-                  className="h-8 min-w-[80px] rounded-lg border border-[#7ea06f]/45 px-3 text-xs"
-                >
-                  <ShieldCheck className="mr-1 h-3.5 w-3.5" />
-                  {verifyingImageModel ? t('settings.verifying') : t('settings.verify')}
-                </Button>
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-2 border-t border-[#e3d8c5] px-5 py-4">
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => setImageModelDialogOpen(false)}
-                disabled={savingModel}
-              >
-                {t('common.cancel')}
-              </Button>
-              <Button onClick={handleSaveImageModel} disabled={savingModel}>
-                {savingModel ? t('common.saving') : t('settings.saveImageModel')}
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ImageModelConfigDialog
+        form={imageModelForm}
+        open={imageModelDialogOpen}
+        saving={savingModel}
+        verifying={verifyingImageModel}
+        t={t}
+        onClose={() => setImageModelDialogOpen(false)}
+        onFormChange={updateImageModelForm}
+        onProviderChange={handleImageProviderChange}
+        onSave={() => void handleSaveImageModel()}
+        onVerify={() => void handleVerifyImageModel()}
+      />
     </div>
   )
 }
