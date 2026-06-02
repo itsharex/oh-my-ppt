@@ -651,8 +651,12 @@ Business presentations, product introductions, project summaries — formal but 
     send: 'Send',
     imageModelPlaceholder: 'Select image model',
     imagePromptPlaceholder:
-      'Describe the image to generate, or click "From outline" to fill a prompt from the current page.',
-    imagePromptFromOutline: 'From outline',
+      'Describe the image to generate, or click "Outline prompt" to fill a prompt from the current page.',
+    imagePromptFromOutline: 'Outline prompt',
+    imagePromptFromCurrentPage: 'Style prompt',
+    imagePromptGenerating: 'Generating visual...',
+    imagePromptGenerated: 'Visual description generated',
+    imagePromptGenerateFailed: 'Failed to generate visual description',
     imagePromptRequired: 'Enter an image prompt first',
     generateImage: 'Generate image',
     imageGenerating: 'Generating image...',
@@ -676,7 +680,7 @@ Business presentations, product introductions, project summaries — formal but 
     imageOutlineTitle: 'Slide title',
     imageOutlineContent: 'Slide outline',
     imageOutlineConstraints:
-      'Use this as a slide background or illustration. Do not include any readable text, titles, logos, watermarks, or fake chart labels. Keep it suitable for 16:9 slide layout with clean space for typography.',
+      'Use this as a slide background or illustration. Do not include any readable text, titles, logos, watermarks, or fake chart labels. Leave clean space for typography, and do not mention aspect ratios, sizes, or resolutions.',
     editText: 'Edit text',
     exitTextEdit: 'Exit edit',
     previewMode: 'Preview',

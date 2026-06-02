@@ -30,6 +30,8 @@ import type {
   GeneratedImageAsset,
   ImageGenerateResult,
   ImageGeneratePayload,
+  ImagePromptGeneratePayload,
+  ImagePromptGenerateResult,
   ImageGenerationHistoryRecord,
   ImageModelConfig,
   ImageModelProvider
@@ -603,6 +605,8 @@ export const ipc = {
     }>,
   generateImage: (payload: ImageGeneratePayload) =>
     getIpc().invoke('images:generate', payload) as Promise<ImageGenerateResult>,
+  generateImagePrompt: (payload: ImagePromptGeneratePayload) =>
+    getIpc().invoke('images:generatePrompt', payload) as Promise<ImagePromptGenerateResult>,
   listImageGenerationHistory: (payload: { sessionId: string; pageId: string }) =>
     getIpc().invoke('images:listHistory', payload) as Promise<ImageGenerationHistoryRecord[]>,
   cancelImageGeneration: (sessionId: string) =>

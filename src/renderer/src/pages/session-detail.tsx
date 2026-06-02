@@ -2341,7 +2341,9 @@ export function SessionDetailPage(): React.JSX.Element {
               )}
               {interactionMode === 'ai-inspect' && (
                 <MessagePanel
+                  sessionId={id}
                   selectedPageExists={Boolean(selectedPage?.pageId)}
+                  selectedPageHtmlPath={selectedPage?.htmlPath}
                   selectedPageNumber={selectedPage?.pageNumber}
                   selectedPageTitle={selectedPage?.title}
                   selectedPageOutline={selectedPage?.contentOutline}

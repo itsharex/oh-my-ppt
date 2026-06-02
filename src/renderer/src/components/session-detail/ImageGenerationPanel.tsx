@@ -17,9 +17,12 @@ import type {
   ImageModelProvider
 } from '@shared/image-generation.js'
 import { useT } from '@renderer/i18n'
+import { ipc } from '@renderer/lib/ipc'
 import { cn } from '@renderer/lib/utils'
-import { useSettingsStore } from '@renderer/store'
+import { useSettingsStore, useToastStore } from '@renderer/store'
 import { useSessionDetailUiStore } from '@renderer/store/sessionDetailStore'
+import { useModelAction } from '@renderer/hooks/useModelAction'
+import { ModelSplitButton } from '@renderer/components/model/ModelActionButton'
 import { Button } from '../ui/Button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/Dialog'
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/Popover'
@@ -202,7 +205,9 @@ const resolveImageSizeOptions = (config?: ImageModelConfig): ImageSizeOption[] =
 }
 
 export function ImageGenerationPanel({
+  sessionId,
   selectedPageExists,
+  selectedPageHtmlPath,
   selectedPageNumber,
   selectedPageTitle,
   selectedPageOutline,
@@ -212,7 +217,9 @@ export function ImageGenerationPanel({
   onSetAsBackground,
   onRevealFile
 }: {
+  sessionId?: string
   selectedPageExists: boolean
+  selectedPageHtmlPath?: string
   selectedPageNumber?: number | null
   selectedPageTitle?: string
   selectedPageOutline?: string | null
@@ -223,7 +230,9 @@ export function ImageGenerationPanel({
   onRevealFile: (filePath: string) => void
 }): React.JSX.Element {
   const t = useT()
+  const modelAction = useModelAction()
   const imageModelConfigs = useSettingsStore((state) => state.imageModelConfigs)
+  const { error: toastError, success: toastSuccess } = useToastStore()
   const imagePrompt = useSessionDetailUiStore((state) => state.imagePrompt)
   const imageMessages = useSessionDetailUiStore((state) => state.imageMessages)
   const selectedImageModelConfigId = useSessionDetailUiStore(
@@ -239,6 +248,7 @@ export function ImageGenerationPanel({
   )
   const setImageSize = useSessionDetailUiStore((state) => state.setImageSize)
   const [previewAsset, setPreviewAsset] = useState<GeneratedImageAsset | null>(null)
+  const [isGeneratingPrompt, setIsGeneratingPrompt] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const selectedImageModel =
     imageModelConfigs.find((config) => config.id === selectedImageModelConfigId) ||
@@ -282,8 +292,38 @@ export function ImageGenerationPanel({
     setImagePrompt(parts.join('\n'))
   }
 
+  const handleGeneratePromptFromCurrentPage = async (modelConfigId: string): Promise<void> => {
+    if (!selectedPageExists || !sessionId || !selectedPageHtmlPath || isGeneratingPrompt) return
+    const activeModelConfigId = await modelAction.ensureModelActive(modelConfigId)
+    if (!activeModelConfigId) return
+
+    setIsGeneratingPrompt(true)
+    try {
+      const result = await ipc.generateImagePrompt({
+        sessionId,
+        htmlPath: selectedPageHtmlPath,
+        userPrompt: imagePrompt,
+        pageTitle: selectedPageTitle,
+        pageOutline: selectedPageOutline || undefined,
+        modelConfigId: activeModelConfigId
+      })
+      setImagePrompt(result.prompt)
+      toastSuccess(t('sessionDetail.imagePromptGenerated'))
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : t('sessionDetail.imagePromptGenerateFailed')
+      toastError(t('sessionDetail.imagePromptGenerateFailed'), { description: message })
+    } finally {
+      setIsGeneratingPrompt(false)
+    }
+  }
+
   const generateDisabled =
-    isGeneratingImage || !selectedPageExists || !imagePrompt.trim() || imageModelConfigs.length === 0
+    isGeneratingImage ||
+    isGeneratingPrompt ||
+    !selectedPageExists ||
+    !imagePrompt.trim() ||
+    imageModelConfigs.length === 0
   const optionSummary = selectedImageModel
     ? `${selectedImageModel.name} · ${selectedImageSizeOption?.label || imageSize} · ${imageCount}`
     : t('sessionDetail.imageOptions')
@@ -460,24 +500,41 @@ export function ImageGenerationPanel({
       </ScrollArea>
 
       <div className="mx-2.5 mb-2.5 rounded-[1.4rem] border border-[#ded2bd]/72 bg-[#fffaf1]/84 px-2.5 pb-3 pt-2 shadow-[0_12px_24px_rgba(74,59,42,0.11)]">
-        <div className="mb-1.5 flex items-center justify-end">
+        <div className="mb-1.5 flex items-center justify-end gap-1.5">
           <Button
             type="button"
             size="sm"
             variant="secondary"
-            disabled={!selectedPageExists || isGeneratingImage}
+            disabled={!selectedPageExists || isGeneratingImage || isGeneratingPrompt}
             className="h-6 rounded-full border border-[#8faf7d]/36 bg-[#dcebcf]/74 px-2.5 text-[11px] font-medium text-[#526942] shadow-none hover:bg-[#d2e4c3] disabled:opacity-45"
             onClick={handleFillFromOutline}
           >
             {t('sessionDetail.imagePromptFromOutline')}
           </Button>
+          <ModelSplitButton
+            modelAction={modelAction}
+            label={t('sessionDetail.imagePromptFromCurrentPage')}
+            loadingLabel={t('sessionDetail.imagePromptGenerating')}
+            loading={isGeneratingPrompt}
+            disabled={
+              !selectedPageExists || !sessionId || !selectedPageHtmlPath || isGeneratingImage
+            }
+            icon={Sparkles}
+            tone="subtle"
+            size="sm"
+            dropdownAlign="end"
+            className="h-6 rounded-full border-[#8faf7d]/36 bg-[#dcebcf]/74 shadow-none"
+            mainClassName="h-6 rounded-full px-2.5 text-[11px] font-medium text-[#526942] hover:bg-[#d2e4c3] hover:text-[#526942]"
+            triggerClassName="h-6 text-[#526942] hover:bg-[#d2e4c3] hover:text-[#526942]"
+            onRun={handleGeneratePromptFromCurrentPage}
+          />
         </div>
         <div>
           <Textarea
             placeholder={t('sessionDetail.imagePromptPlaceholder')}
             value={imagePrompt}
             onChange={(event) => setImagePrompt(event.target.value)}
-            disabled={isGeneratingImage}
+            disabled={isGeneratingImage || isGeneratingPrompt}
             rows={4}
             className="min-h-[96px] resize-none rounded-[1.15rem] border border-[#ded2bd]/72 bg-[#fffdf8]/88 px-3 py-2 text-[13px] leading-5 text-[#3f4b35] shadow-[inset_0_1px_2px_rgba(74,59,42,0.05)] focus-visible:border-[#9bb98a] focus-visible:ring-0 focus-visible:ring-offset-0"
           />

@@ -12,7 +12,9 @@ type PanelProgress = {
 }
 
 export function MessagePanel({
+  sessionId,
   selectedPageExists,
+  selectedPageHtmlPath,
   selectedPageNumber,
   selectedPageTitle,
   selectedPageOutline,
@@ -30,7 +32,9 @@ export function MessagePanel({
   onRevealImageFile,
   cleanMessageContent
 }: {
+  sessionId?: string
   selectedPageExists: boolean
+  selectedPageHtmlPath?: string
   selectedPageNumber?: number | null
   selectedPageTitle?: string
   selectedPageOutline?: string | null
@@ -85,7 +89,9 @@ export function MessagePanel({
 
       {aiPanelMode === 'image' ? (
         <ImageGenerationPanel
+          sessionId={sessionId}
           selectedPageExists={selectedPageExists}
+          selectedPageHtmlPath={selectedPageHtmlPath}
           selectedPageNumber={selectedPageNumber}
           selectedPageTitle={selectedPageTitle}
           selectedPageOutline={selectedPageOutline}

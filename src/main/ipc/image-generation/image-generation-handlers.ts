@@ -3,14 +3,23 @@ import fs from 'fs'
 import path from 'path'
 import { nanoid } from 'nanoid'
 import log from 'electron-log/main.js'
+import { HumanMessage, SystemMessage } from '@langchain/core/messages'
 import type {
   GeneratedImageAsset,
   ImageGenerationHistoryRecord,
   ImageModelProvider
 } from '@shared/image-generation'
+import { resolveModelTimeoutMs } from '@shared/model-timeout'
 import type { IpcContext } from '../context'
-import { readAppLocale, uiText } from '../config/locale-utils'
+import { readAppLocale, uiText, type AppLocale } from '../config/locale-utils'
+import {
+  resolveActiveModelConfig,
+  resolveGlobalModelTimeouts,
+  type ActiveModelConfig
+} from '../config/model-config-utils'
+import { extractModelText } from '../utils'
 import { allowLocalAssetRoot } from '../io/assets-handlers'
+import { resolveModel } from '../../agent'
 import { resolveImageGenerationProvider } from '../../image-generation/providers'
 import type { ResolvedImageModelConfig } from '../../image-generation/types'
 
@@ -108,7 +117,202 @@ const resolvePageContext = async (
 const sanitizeExt = (extension: string): string =>
   /^\.[a-z0-9]{2,5}$/i.test(extension) ? extension.toLowerCase() : '.png'
 
+const compactPageHtmlForPrompt = (html: string): string =>
+  html
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 24000)
+
+const normalizeGeneratedImagePrompt = (raw: string): string =>
+  raw
+    .replace(/^```(?:text|markdown|md)?\s*/i, '')
+    .replace(/```$/i, '')
+    .replace(/^\s*(?:prompt|提示词)\s*[:：]\s*/i, '')
+    .trim()
+
+const buildImagePromptGenerationMessages = (args: {
+  locale: AppLocale
+  userPrompt: string
+  pageTitle: string
+  pageOutline: string
+  pageHtml: string
+}): [SystemMessage, HumanMessage] => {
+  const isZh = args.locale.startsWith('zh')
+  const systemPrompt = isZh
+    ? `你是 PPT 生图描述改写助手。你的任务不是总结风格，而是把用户想生成的画面改写成一条可直接发给生图模型的最终配图描述，并让它自然匹配当前页。
+
+规则：
+- 只输出配图描述本身，不要解释、不要 Markdown、不要编号。
+- 如果用户提供了想画的内容，必须保留这个核心画面；当前页只作为风格、氛围、构图和留白参考。
+- 如果用户没有提供想画的内容，再从页面标题、大纲和内容推断一个合适的配图主题。
+- 不要输出“当前页风格是...”这类分析文字，也不要输出模板字段。
+- 用自然、友好的语言写成一小段，不要堆参数词。
+- 最终描述要包含主体、场景、构图、色彩、材质、光影和插画/摄影风格。
+- 图片用于 PPT 背景或插画，必须避免任何可读文字、标题、logo、水印、界面截图、假图表标签。
+- 保留适合幻灯片放文字的留白。
+- 不要写画幅比例、尺寸或分辨率。
+- 不要照抄页面已有文字；把页面内容转化成视觉意象。`
+    : `You are a presentation image-description rewriting assistant. Do not summarize the style. Rewrite the user's desired image into one final description that can be sent directly to an image generation model, naturally matching the current slide.
+
+Rules:
+- Output only the visual description itself. No explanation, Markdown, or numbering.
+- If the user provides desired content, preserve that core image; use the current slide only as style, mood, composition, and whitespace reference.
+- If the user provides no desired content, infer a suitable visual subject from the slide title, outline, and content.
+- Do not output style analysis such as "the current slide style is..." and do not output template fields.
+- Write one short, natural, friendly paragraph instead of a pile of parameter keywords.
+- The final description should include subject, scene, composition, palette, material, lighting, and photography/illustration style.
+- The image is for a slide background or illustration. Avoid readable text, titles, logos, watermarks, UI screenshots, and fake chart labels.
+- Preserve clean negative space for slide typography.
+- Do not mention aspect ratios, sizes, or resolutions.
+- Do not copy slide text literally; translate the slide content into visual imagery.`
+
+  const userPrompt = isZh
+    ? `【页面标题】
+${args.pageTitle || '（无标题）'}
+
+【页面大纲】
+${args.pageOutline || '（无大纲）'}
+
+【用户想生成的画面】
+${args.userPrompt || '（用户未填写，请根据当前页推断配图主题）'}
+
+【当前页 HTML/CSS，供分析视觉风格】
+${args.pageHtml}
+
+请输出一条最终配图描述。它应该能直接填入生图模型，而不是风格总结。`
+    : `[Slide title]
+${args.pageTitle || '(untitled)'}
+
+[Slide outline]
+${args.pageOutline || '(no outline)'}
+
+[User desired image]
+${args.userPrompt || '(User did not provide one. Infer a visual subject from the current slide.)'}
+
+[Current slide HTML/CSS for visual style analysis]
+${args.pageHtml}
+
+Output one final visual description that can be pasted directly into an image model. Do not summarize the style.`
+
+  return [new SystemMessage(systemPrompt), new HumanMessage(userPrompt)]
+}
+
+const resolvePromptModelConfig = async (
+  ctx: IpcContext,
+  locale: AppLocale,
+  modelConfigId?: string
+): Promise<ActiveModelConfig> => {
+  const id = modelConfigId?.trim()
+  if (!id) return resolveActiveModelConfig(ctx)
+
+  const config = (await ctx.db.listModelConfigs()).find((item) => item.id === id)
+  if (!config) {
+    throw new Error(
+      uiText(locale, '所选模型不存在，请重新选择。', 'The selected model no longer exists.')
+    )
+  }
+
+  const provider = String(config.provider || '').trim()
+  const model = String(config.model || '').trim()
+  const apiKey = ctx.decryptApiKey(config.apiKey).trim()
+  if (!provider || !model || !apiKey) {
+    throw new Error(
+      uiText(
+        locale,
+        '所选模型配置未完成，请到设置页检查。',
+        'The selected model is incomplete. Check Settings.'
+      )
+    )
+  }
+
+  return {
+    id: config.id,
+    name: config.name,
+    provider,
+    model,
+    apiKey,
+    baseUrl: String(config.baseUrl || '').trim(),
+    maxTokens: config.maxTokens || 4096
+  }
+}
+
 export function registerImageGenerationHandlers(ctx: IpcContext): void {
+  ipcMain.handle('images:generatePrompt', async (_event, payload) => {
+    const locale = await readAppLocale(ctx)
+    const record =
+      payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {}
+    const sessionId = typeof record.sessionId === 'string' ? record.sessionId.trim() : ''
+    const htmlPath = typeof record.htmlPath === 'string' ? record.htmlPath.trim() : ''
+    if (!sessionId) throw new Error(uiText(locale, '会话 ID 不能为空。', 'Session ID is required.'))
+    if (!htmlPath) {
+      throw new Error(
+        uiText(locale, '当前页文件地址不能为空。', 'Current page file path is required.')
+      )
+    }
+
+    const safeHtmlPath = await ctx.assertPathInAllowedRoots({
+      filePath: htmlPath,
+      mode: 'read',
+      sessionId,
+      htmlOnly: true
+    })
+    const pageHtml = compactPageHtmlForPrompt(await fs.promises.readFile(safeHtmlPath, 'utf-8'))
+    if (!pageHtml) {
+      throw new Error(uiText(locale, '当前页内容为空。', 'Current page content is empty.'))
+    }
+
+    const activeModel = await resolvePromptModelConfig(
+      ctx,
+      locale,
+      typeof record.modelConfigId === 'string' ? record.modelConfigId : undefined
+    )
+    const modelTimeouts = await resolveGlobalModelTimeouts(ctx)
+    const timeoutMs = resolveModelTimeoutMs(modelTimeouts.agent, 'agent')
+    const model = resolveModel(
+      activeModel.provider,
+      activeModel.apiKey,
+      activeModel.model,
+      activeModel.baseUrl,
+      0.45,
+      activeModel.maxTokens
+    )
+    const userPrompt = typeof record.userPrompt === 'string' ? record.userPrompt.trim() : ''
+    const pageTitle = typeof record.pageTitle === 'string' ? record.pageTitle.trim() : ''
+    const pageOutline = typeof record.pageOutline === 'string' ? record.pageOutline.trim() : ''
+    log.info('[images:generatePrompt] start', {
+      sessionId,
+      htmlPath: safeHtmlPath,
+      modelConfigId: activeModel.id,
+      model: activeModel.model,
+      htmlLength: pageHtml.length,
+      userPromptLength: userPrompt.length,
+      pageTitleLength: pageTitle.length,
+      pageOutlineLength: pageOutline.length
+    })
+
+    const response = await model.invoke(
+      buildImagePromptGenerationMessages({
+        locale,
+        userPrompt,
+        pageTitle,
+        pageOutline,
+        pageHtml
+      }),
+      { signal: AbortSignal.timeout(timeoutMs) }
+    )
+    const prompt = normalizeGeneratedImagePrompt(extractModelText(response))
+    if (!prompt) {
+      throw new Error(uiText(locale, '模型未返回提示词。', 'The model returned an empty prompt.'))
+    }
+    log.info('[images:generatePrompt] completed', {
+      sessionId,
+      promptLength: prompt.length
+    })
+    return { prompt }
+  })
+
   ipcMain.handle('images:generate', async (_event, payload) => {
     const locale = await readAppLocale(ctx)
     const record = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {}

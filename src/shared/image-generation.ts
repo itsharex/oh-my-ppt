@@ -30,6 +30,19 @@ export interface ImageGeneratePayload {
   seed?: number
 }
 
+export interface ImagePromptGeneratePayload {
+  sessionId: string
+  htmlPath: string
+  userPrompt?: string
+  pageTitle?: string
+  pageOutline?: string | null
+  modelConfigId?: string
+}
+
+export interface ImagePromptGenerateResult {
+  prompt: string
+}
+
 export interface GeneratedImageAsset {
   id: string
   fileName: string
