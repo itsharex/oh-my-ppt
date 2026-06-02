@@ -38,10 +38,14 @@ import { SaveTemplateDialog } from '../components/templates/SaveTemplateDialog'
 import type { ElementEditDraft } from '../components/session-detail/ElementInspectorPanel'
 import type { ChatType, SessionPreviewPage } from '../components/session-detail/types'
 import { useSessionStore, useGenerateStore, useTemplateStore } from '../store'
-import { useSessionDetailUiStore } from '../store/sessionDetailStore'
+import {
+  useSessionDetailUiStore,
+  type ImageGenerationMessage
+} from '../store/sessionDetailStore'
 import { useEditHistoryStore } from '../store/editHistoryStore'
 import type { GenerateChunkEvent } from '@shared/generation.js'
 import type { HistoryVersion } from '@shared/history.js'
+import type { GeneratedImageAsset, ImageGenerationHistoryRecord } from '@shared/image-generation.js'
 import type { SpeechConfig } from '@shared/speech'
 import { useToastStore } from '../store'
 import { getEditorGate, parseSessionMetadata } from '../lib/sessionMetadata'
@@ -162,6 +166,56 @@ function normalizeFontWeight(value: string | undefined): string {
   const parsed = Number(value)
   if (!Number.isFinite(parsed)) return value === 'bold' ? '700' : '400'
   return String(Math.max(300, Math.min(800, Math.round(parsed / 100) * 100)))
+}
+
+function buildImageMessageCacheKey(sessionId: string, pageId: string): string {
+  return `${sessionId}:${pageId}`
+}
+
+function mergeImageMessages(...groups: ImageGenerationMessage[][]): ImageGenerationMessage[] {
+  const messagesById = new Map<string, ImageGenerationMessage>()
+  for (const message of groups.flat()) {
+    messagesById.set(message.id, message)
+  }
+  return [...messagesById.values()]
+    .sort((a, b) => {
+      const byTime = a.createdAt - b.createdAt
+      if (byTime !== 0) return byTime
+      if (a.role === b.role) return a.id.localeCompare(b.id)
+      return a.role === 'user' ? -1 : 1
+    })
+    .slice(-48)
+}
+
+function imageHistoryToMessages(
+  histories: ImageGenerationHistoryRecord[]
+): ImageGenerationMessage[] {
+  return [...histories]
+    .sort((a, b) => a.createdAt - b.createdAt)
+    .flatMap((history) => [
+      {
+        id: `${history.id}:user`,
+        role: 'user' as const,
+        content: history.prompt,
+        createdAt: history.createdAt
+      },
+      {
+        id: `${history.id}:assistant`,
+        role: 'assistant' as const,
+        content: '',
+        assets: history.assets,
+        createdAt: history.createdAt
+      }
+    ])
+}
+
+function escapeCssString(value: string): string {
+  return value
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/\r?\n/g, ' ')
+    .replace(/</g, '\\3C ')
+    .replace(/>/g, '\\3E ')
 }
 
 // Keep in sync with normalizeTextAlign in src/main/ipc/editor/shared.ts.
@@ -476,6 +530,46 @@ export function SessionDetailPage(): React.JSX.Element {
   }, [id, chatType, selectedPage?.id, loadMessages, setMessages])
 
   useEffect(() => {
+    const pageId = selectedPage?.id
+    if (!id || !pageId) {
+      useSessionDetailUiStore.getState().setImageMessages([])
+      return
+    }
+
+    const cacheKey = buildImageMessageCacheKey(id, pageId)
+    const detailState = useSessionDetailUiStore.getState()
+    if (detailState.loadedImageMessageKeys[cacheKey]) {
+      detailState.setImageMessages(detailState.imageMessageCache[cacheKey] || [])
+      return
+    }
+
+    detailState.setImageMessages(detailState.imageMessageCache[cacheKey] || [])
+    let cancelled = false
+    void ipc
+      .listImageGenerationHistory({ sessionId: id, pageId })
+      .then((histories) => {
+        if (cancelled) return
+        const historyMessages = imageHistoryToMessages(histories)
+        const latestState = useSessionDetailUiStore.getState()
+        const mergedMessages = mergeImageMessages(
+          historyMessages,
+          latestState.imageMessageCache[cacheKey] || []
+        )
+        latestState.setLoadedImageMessages(cacheKey, mergedMessages)
+        latestState.setImageMessages(mergedMessages)
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          toastError(err instanceof Error ? err.message : t('sessionDetail.imageHistoryLoadFailed'))
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [id, selectedPage?.id, t, toastError])
+
+  useEffect(() => {
     if (!id) return
     const handler = (event: GenerateChunkEvent): void => {
       const { type, payload } = event
@@ -745,6 +839,87 @@ export function SessionDetailPage(): React.JSX.Element {
       toastError(message)
     } finally {
       sendingMessageRef.current = false
+    }
+  }
+
+  const handleGenerateImage = async (): Promise<void> => {
+    if (!id || !selectedPage?.id) {
+      toastError(t('sessionDetail.selectPageFirst'))
+      return
+    }
+    const detailState = useSessionDetailUiStore.getState()
+    const prompt = detailState.imagePrompt.trim()
+    if (!prompt) {
+      toastWarning(t('sessionDetail.imagePromptRequired'))
+      return
+    }
+    if (detailState.isGeneratingImage) return
+
+    const pageId = selectedPage.id
+    const selectedPageKey = selectedPage.id
+    const cacheKey = buildImageMessageCacheKey(id, pageId)
+    const pendingUserMessage: ImageGenerationMessage = {
+      id: `pending-image:${nanoid(8)}`,
+      role: 'user',
+      content: prompt,
+      createdAt: Math.floor(Date.now() / 1000)
+    }
+    detailState.setIsGeneratingImage(true)
+    detailState.setImageProgress({ progress: 8, label: t('sessionDetail.imageGenerating') })
+    detailState.setImagePrompt('')
+    detailState.addImageMessage(pendingUserMessage)
+    detailState.addCachedImageMessage(cacheKey, pendingUserMessage)
+    try {
+      const result = await ipc.generateImage({
+        sessionId: id,
+        pageId,
+        prompt,
+        modelConfigId: detailState.selectedImageModelConfigId || undefined,
+        size: detailState.imageSize,
+        count: 1
+      })
+      const latestState = useSessionDetailUiStore.getState()
+      const persistedMessages = imageHistoryToMessages([result.history])
+      const visibleMessages = latestState.selectedPageId === selectedPageKey ? latestState.imageMessages : []
+      const cachedWithoutPending = mergeImageMessages(
+        latestState.imageMessageCache[cacheKey] || [],
+        visibleMessages
+      ).filter((message) => message.id !== pendingUserMessage.id)
+      const nextMessages = mergeImageMessages(cachedWithoutPending, persistedMessages)
+      latestState.cacheImageMessages(cacheKey, nextMessages)
+      if (useSessionDetailUiStore.getState().selectedPageId === selectedPageKey) {
+        latestState.setImageMessages(nextMessages)
+      }
+      detailState.setImageProgress({ progress: 100, label: t('sessionDetail.imageGenerated') })
+      toastSuccess(t('sessionDetail.imageGenerated'), {
+        description: t('sessionDetail.imageGeneratedDescription', {
+          count: result.history.assets.length
+        })
+      })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : t('sessionDetail.imageGenerateFailed')
+      toastError(t('sessionDetail.imageGenerateFailed'), { description: message })
+    } finally {
+      useSessionDetailUiStore.getState().setIsGeneratingImage(false)
+    }
+  }
+
+  const handleCancelImageGeneration = async (): Promise<void> => {
+    if (!id) return
+    try {
+      await ipc.cancelImageGeneration(id)
+    } finally {
+      useSessionDetailUiStore.getState().setIsGeneratingImage(false)
+      useSessionDetailUiStore.getState().setImageProgress(null)
+    }
+  }
+
+  const handleRevealImageFile = async (filePath: string): Promise<void> => {
+    if (!id || !filePath) return
+    try {
+      await ipc.revealFile(filePath, id)
+    } catch (err) {
+      toastError(err instanceof Error ? err.message : t('common.retryLater'))
     }
   }
 
@@ -1197,6 +1372,7 @@ export function SessionDetailPage(): React.JSX.Element {
       }))
     }
 
+    const draftZIndex = parseInt(textDraft.layoutZIndex, 10)
     const nextEdit = {
       pageId: selectedPage.pageId,
       htmlPath: selectedPage.htmlPath,
@@ -1207,7 +1383,7 @@ export function SessionDetailPage(): React.JSX.Element {
       height: payload.height ?? null,
       childUpdates: payload.childUpdates ?? [],
       isAbsoluteMode: payload.layoutMode === 'absolute',
-      zIndex: parseInt(textDraft.layoutZIndex, 10) || undefined
+      zIndex: Number.isFinite(draftZIndex) ? draftZIndex : undefined
     }
     editHistory.upsertDragEdit(nextEdit)
   }
@@ -1653,7 +1829,7 @@ export function SessionDetailPage(): React.JSX.Element {
       iframe.hideElement(d.selector)
     }
     for (const a of snapshot.addElements) {
-      iframe.injectElement(a.parentSelector, a.htmlFragment)
+      iframe.injectElement(a.parentSelector, a.htmlFragment, a.insertIndex)
     }
     for (const d of snapshot.dragEdits) {
       iframe.applyDragStyle(d.selector, {
@@ -1782,6 +1958,19 @@ export function SessionDetailPage(): React.JSX.Element {
     })
   }
 
+  const readElementSnapshotWithRetry = async (
+    selector: string
+  ): Promise<EditableElementSnapshot | null> => {
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      if (attempt > 0) {
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 50))
+      }
+      const snapshot = await previewIframeRef.current?.readElementSnapshot(selector)
+      if (snapshot) return snapshot
+    }
+    return null
+  }
+
   const handleAddTextElement = async (): Promise<void> => {
     if (!id || !selectedPage?.pageId || !selectedPage.htmlPath) return
     const blockId = 'select-arcsin1-' + nanoid(8)
@@ -1834,9 +2023,8 @@ export function SessionDetailPage(): React.JSX.Element {
     previewIframeRef.current?.injectElement(parentSelector, htmlFragment)
 
     const selector = `body[data-page-id="${selectedPage.pageId}"] [data-block-id="${blockId}"]`
-    await new Promise<void>((resolve) => window.setTimeout(resolve, 0))
     if (useSessionDetailUiStore.getState().selectedPageId !== selectedPage.id) return
-    const snapshot = await previewIframeRef.current?.readElementSnapshot(selector)
+    const snapshot = await readElementSnapshotWithRetry(selector)
     if (!snapshot) return
     handleElementSelected(
       buildSelectedElementFromSnapshot({
@@ -1847,49 +2035,143 @@ export function SessionDetailPage(): React.JSX.Element {
     )
   }
 
-  const handleAddElement = (relativePath: string, _fileName: string): void => {
-    if (!id || !selectedPage?.pageId || !selectedPage.htmlPath) return
+  const handleAddElement = async (
+    relativePath: string,
+    _fileName: string,
+    options: { persistImmediately?: boolean; prompt?: string; asBackground?: boolean } = {}
+  ): Promise<boolean> => {
+    if (!id || !selectedPage?.pageId || !selectedPage.htmlPath) return false
+    const selectedHtmlPath = selectedPage.htmlPath
     const blockId = 'select-arcsin1-' + nanoid(8)
     const parentSelector = `body[data-page-id="${selectedPage.pageId}"] [data-ppt-guard-root="1"]`
     const isVideo = /^\.\/videos\//i.test(relativePath)
+    const isBackground = Boolean(options.asBackground && !isVideo)
+    const safeRelativePath = escapeHtmlText(relativePath)
     // Offset each added element so they don't overlap
     const existingCount = editHistory.addElements.filter(
       (e) => e.pageId === selectedPage.pageId
     ).length
     const offset = existingCount * ADDED_MEDIA_OFFSET_STEP
-    const w = isVideo ? 640 : 400
-    const h = isVideo ? 360 : 300
-    const left = Math.min(400 + offset, PPT_PAGE_WIDTH - w - ADDED_ELEMENT_EDGE_PADDING)
-    const top = Math.min(200 + offset, PPT_PAGE_HEIGHT - h - ADDED_ELEMENT_EDGE_PADDING)
-    const zIdx = 10 + existingCount
-    const htmlFragment = isVideo
-      ? `<video src="${relativePath}" data-block-id="${blockId}" style="position:absolute; left:${left}px; top:${top}px; width:${w}px; height:${h}px; z-index:${zIdx}; object-fit:contain;" controls playsinline preload="metadata"></video>`
-      : `<img src="${relativePath}" alt="" data-block-id="${blockId}" style="position:absolute; left:${left}px; top:${top}px; width:${w}px; height:${h}px; z-index:${zIdx}; object-fit:contain;" />`
-    editHistory.addElement({
+    const w = isBackground ? PPT_PAGE_WIDTH : isVideo ? 640 : 400
+    const h = isBackground ? PPT_PAGE_HEIGHT : isVideo ? 360 : 300
+    const left = isBackground
+      ? 0
+      : Math.min(400 + offset, PPT_PAGE_WIDTH - w - ADDED_ELEMENT_EDGE_PADDING)
+    const top = isBackground
+      ? 0
+      : Math.min(200 + offset, PPT_PAGE_HEIGHT - h - ADDED_ELEMENT_EDGE_PADDING)
+    const zIdx = isBackground ? -1 : 10 + existingCount
+    const insertIndex = -1
+    const objectFit = isBackground ? 'cover' : 'contain'
+    const htmlFragment = isBackground
+      ? `<style data-ppt-generated-background-style="1">body[data-page-id="${escapeCssString(selectedPage.pageId)}"] .ppt-page-root[data-ppt-guard-root="1"]{background:transparent !important;background-color:transparent !important;}</style><img src="${safeRelativePath}" alt="" data-block-id="${blockId}" data-ppt-generated-background="1" style="position:absolute; left:${left}px; top:${top}px; width:${w}px; height:${h}px; z-index:${zIdx}; object-fit:${objectFit}; pointer-events:none;" />`
+      : isVideo
+        ? `<video src="${safeRelativePath}" data-block-id="${blockId}" style="position:absolute; left:${left}px; top:${top}px; width:${w}px; height:${h}px; z-index:${zIdx}; object-fit:${objectFit};" controls playsinline preload="metadata"></video>`
+        : `<img src="${safeRelativePath}" alt="" data-block-id="${blockId}" style="position:absolute; left:${left}px; top:${top}px; width:${w}px; height:${h}px; z-index:${zIdx}; object-fit:${objectFit};" />`
+    commitCurrentElementEdit()
+    const addElementItem = {
       pageId: selectedPage.pageId,
       htmlPath: selectedPage.htmlPath,
       parentSelector,
       htmlFragment,
       assignedBlockId: blockId,
-      insertIndex: -1
-    })
-    previewIframeRef.current?.injectElement(parentSelector, htmlFragment)
-    // Auto-select the newly added element and show inspector panel
+      insertIndex
+    }
+    const backgroundSelectors: string[] = [
+      '[data-ppt-generated-background="1"]',
+      '[data-ppt-generated-background-style="1"]'
+    ]
+    if (options.persistImmediately) {
+      const result = await ipc.saveEditBatch({
+        sessionId: id,
+        htmlPath: selectedPage.htmlPath,
+        pageId: selectedPage.pageId,
+        dragEdits: [],
+        textEdits: [],
+        propertyEdits: [],
+        deletes: isBackground
+          ? backgroundSelectors.map((selector) => ({
+              pageId: selectedPage.pageId,
+              htmlPath: selectedPage.htmlPath,
+              selector
+            }))
+          : [],
+        addElements: [addElementItem],
+        prompt: options.prompt || (isVideo ? '添加视频元素' : '添加图片元素')
+      })
+      if (!result.success) throw new Error(t('sessionDetail.layoutSaveFailed'))
+      useSessionDetailUiStore.getState().bumpThumbnailVersion(selectedPage.pageId)
+    } else {
+      if (isBackground) {
+        backgroundSelectors.forEach((selector) => {
+          editHistory.addDelete({
+            pageId: selectedPage.pageId,
+            htmlPath: selectedHtmlPath,
+            selector
+          })
+        })
+      }
+      editHistory.addElement(addElementItem)
+    }
+    if (isBackground) {
+      backgroundSelectors.forEach((selector) => previewIframeRef.current?.hideElement(selector))
+    }
+    previewIframeRef.current?.injectElement(parentSelector, htmlFragment, insertIndex, true)
     const selector = `body[data-page-id="${selectedPage.pageId}"] [data-block-id="${blockId}"]`
-    handleElementSelected({
-      selector,
-      label: selector,
-      elementTag: isVideo ? 'video' : 'img',
-      elementText: '',
-      isText: false,
-      text: '',
-      style: {},
-      bounds: { x: left, y: top, width: w, height: h },
-      translateX: 0,
-      translateY: 0,
-      zIndex: zIdx,
-      editability: { x: true, y: true, width: true, height: true }
-    })
+    if (useSessionDetailUiStore.getState().selectedPageId !== selectedPage.id) return true
+    const snapshot = await readElementSnapshotWithRetry(selector)
+    if (snapshot) {
+      handleElementSelected(
+        buildSelectedElementFromSnapshot({
+          selector,
+          blockId,
+          snapshot
+        })
+      )
+    }
+    return true
+  }
+
+  const handleAddGeneratedImageToCanvas = async (asset: GeneratedImageAsset): Promise<void> => {
+    if (!selectedPage?.pageId) {
+      toastError(t('sessionDetail.selectPageFirst'))
+      return
+    }
+    useSessionDetailUiStore.getState().setInteractionMode('edit')
+    try {
+      const added = await handleAddElement(asset.relativePath, asset.fileName, {
+        persistImmediately: true,
+        prompt: '从生图结果添加图片到画布'
+      })
+      if (added) {
+        toastSuccess(t('sessionDetail.imageAddedToCanvas'))
+      }
+    } catch (err) {
+      toastError(err instanceof Error ? err.message : t('sessionDetail.layoutSaveFailed'))
+    }
+  }
+
+  const handleSetGeneratedImageAsBackground = async (
+    asset: GeneratedImageAsset
+  ): Promise<void> => {
+    if (!selectedPage?.pageId) {
+      toastError(t('sessionDetail.selectPageFirst'))
+      return
+    }
+    useSessionDetailUiStore.getState().setInteractionMode('edit')
+    previewIframeRef.current?.clearEditModeSelection()
+    try {
+      const added = await handleAddElement(asset.relativePath, asset.fileName, {
+        persistImmediately: true,
+        asBackground: true,
+        prompt: '从生图结果设置页面背景'
+      })
+      if (added) {
+        toastSuccess(t('sessionDetail.imageSetAsBackground'))
+      }
+    } catch (err) {
+      toastError(err instanceof Error ? err.message : t('sessionDetail.layoutSaveFailed'))
+    }
   }
 
   const handleUploadAndAdd = async (assetType: 'image' | 'video'): Promise<void> => {
@@ -1897,7 +2179,7 @@ export function SessionDetailPage(): React.JSX.Element {
     const result = await ipc.chooseAndUploadAssets(id, assetType)
     if (result.cancelled || !result.assets?.length) return
     const asset = result.assets[0]
-    handleAddElement(asset.relativePath, asset.originalName || asset.fileName)
+    await handleAddElement(asset.relativePath, asset.originalName || asset.fileName)
   }
 
   const handleSaveTemplate = async (payload: {
@@ -2061,6 +2343,8 @@ export function SessionDetailPage(): React.JSX.Element {
                 <MessagePanel
                   selectedPageExists={Boolean(selectedPage?.pageId)}
                   selectedPageNumber={selectedPage?.pageNumber}
+                  selectedPageTitle={selectedPage?.title}
+                  selectedPageOutline={selectedPage?.contentOutline}
                   isGenerating={isGenerating}
                   progress={progress}
                   error={error}
@@ -2068,6 +2352,13 @@ export function SessionDetailPage(): React.JSX.Element {
                   onChooseAssets={(assetType) => void handleChooseAssets(assetType)}
                   onSend={() => void handleSend()}
                   onCancel={() => void handleCancel()}
+                  onGenerateImage={() => void handleGenerateImage()}
+                  onCancelImageGeneration={() => void handleCancelImageGeneration()}
+                  onAddGeneratedImageToCanvas={(asset) => void handleAddGeneratedImageToCanvas(asset)}
+                  onSetGeneratedImageAsBackground={(asset) =>
+                    void handleSetGeneratedImageAsBackground(asset)
+                  }
+                  onRevealImageFile={(filePath) => void handleRevealImageFile(filePath)}
                   cleanMessageContent={cleanMessageContent}
                 />
               )}

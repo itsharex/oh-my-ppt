@@ -10,6 +10,7 @@ import { registerExportHandlers } from './io/export-handlers'
 import { registerStyleHandlers } from './config/style-handlers'
 import { registerFontHandlers } from './config/font-handlers'
 import { registerSettingsHandlers } from './config/settings-handlers'
+import { registerImageModelHandlers } from './config/image-model-handlers'
 import { registerPreviewHandlers } from './session/preview-handlers'
 import { registerPageManagementHandlers } from './session/page-management-handlers'
 import { registerFileHandlers } from './io/file-handlers'
@@ -21,6 +22,8 @@ import { registerPresentationHandlers } from './session/presentation-handlers'
 import { registerSpeechHandlers } from './speech/speech-handlers'
 import { registerThinkingHandlers } from './thinking/thinking-handlers'
 import { registerTemplateHandlers } from './templates/template-handlers'
+import { registerImageGenerationHandlers } from './image-generation/image-generation-handlers'
+import { registerImageGenerationHistoryHandlers } from './image-generation/image-generation-history-handlers'
 
 export { registerLocalAssetProtocol }
 
@@ -40,6 +43,7 @@ export function setupIPC(
   registerStyleHandlers(context)
   registerFontHandlers(context)
   registerSettingsHandlers(context)
+  registerImageModelHandlers(context)
   registerPreviewHandlers(context)
   registerFileHandlers(context)
   registerEditorHandlers(context)
@@ -50,4 +54,6 @@ export function setupIPC(
   registerSpeechHandlers(context)
   registerThinkingHandlers(context)
   registerTemplateHandlers(context)
+  registerImageGenerationHandlers(context)
+  registerImageGenerationHistoryHandlers(context)
 }

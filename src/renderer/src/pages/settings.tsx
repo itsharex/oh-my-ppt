@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Button } from '../components/ui/Button'
-import { Input } from '../components/ui/Input'
+import { Input, Textarea } from '../components/ui/Input'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
 import {
   Select,
@@ -17,6 +17,7 @@ import {
   CheckCircle2,
   CircleHelp,
   FolderSearch,
+  Image as ImageIcon,
   Pencil,
   Plus,
   ShieldCheck,
@@ -24,7 +25,7 @@ import {
   X
 } from 'lucide-react'
 import { useLang } from '../i18n'
-import type { ModelConfig } from '../lib/ipc'
+import type { ImageModelConfig, ImageModelProvider, ModelConfig } from '../lib/ipc'
 import {
   CONFIGURABLE_MODEL_TIMEOUT_PROFILES,
   type ConfigurableModelTimeoutProfile,
@@ -42,6 +43,14 @@ interface ModelForm {
   apiKey: string
   baseUrl: string
   maxTokens: number
+  active: boolean
+}
+
+interface ImageModelForm {
+  id?: string
+  name: string
+  provider: ImageModelProvider
+  modelConfig: string
   active: boolean
 }
 
@@ -68,6 +77,69 @@ const MODEL_PROVIDER_LINKS = [
   { label: 'Google Gemini', url: 'https://ai.google.dev' }
 ]
 
+const IMAGE_PROVIDER_OPTIONS: Array<{ value: ImageModelProvider; label: string }> = [
+  { value: 'jimeng', label: '即梦3.0' },
+  { value: 'jimeng4', label: '即梦4.0' },
+  { value: 'agnes', label: 'Agnes AI' }
+]
+
+const JIMENG_DEFAULT_REQ_KEY = 'jimeng_t2i_v30'
+const JIMENG_V4_DEFAULT_REQ_KEY = 'jimeng_t2i_v40'
+
+const readJsonObject = (value: string): Record<string, unknown> | null => {
+  const text = value.trim()
+  if (!text) return null
+  try {
+    const parsed = JSON.parse(text)
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null
+  } catch {
+    return null
+  }
+}
+
+const stringifyJsonObject = (record: Record<string, unknown>): string => {
+  return JSON.stringify(record, null, 2)
+}
+
+const summarizeImageModelConfig = (value: string): string => {
+  const config = readJsonObject(value)
+  if (!config) return 'model_config'
+  const model = typeof config.model === 'string' ? config.model.trim() : ''
+  const reqKey = typeof config.reqKey === 'string' ? config.reqKey.trim() : ''
+  const endpoint =
+    typeof config.endpoint === 'string'
+      ? config.endpoint.trim()
+      : typeof config.baseUrl === 'string'
+        ? config.baseUrl.trim()
+        : ''
+  return [model || reqKey || 'model_config', endpoint].filter(Boolean).join(' · ')
+}
+
+const createDefaultImageModelConfig = (provider: ImageModelProvider): string => {
+  if (provider === 'jimeng') {
+    return stringifyJsonObject({
+      reqKey: JIMENG_DEFAULT_REQ_KEY,
+      accessKeyId: '',
+      secretKey: ''
+    })
+  }
+  if (provider === 'jimeng4') {
+    return stringifyJsonObject({
+      reqKey: JIMENG_V4_DEFAULT_REQ_KEY,
+      accessKeyId: '',
+      secretKey: '',
+      force_single: true
+    })
+  }
+  return stringifyJsonObject({
+    model: 'agnes-image-2.0-flash',
+    apiKey: '',
+    responseFormat: 'url'
+  })
+}
+
 const createEmptyModelForm = (active = false): ModelForm => ({
   name: '',
   provider: 'openai',
@@ -89,16 +161,38 @@ const createModelForm = (config: ModelConfig): ModelForm => ({
   active: config.active
 })
 
+const createEmptyImageModelForm = (active = false): ImageModelForm => ({
+  name: '',
+  provider: 'jimeng',
+  modelConfig: createDefaultImageModelConfig('jimeng'),
+  active
+})
+
+const createImageModelForm = (config: ImageModelConfig): ImageModelForm => {
+  return {
+    id: config.id,
+    name: config.name,
+    provider: config.provider,
+    modelConfig: config.modelConfig || createDefaultImageModelConfig(config.provider),
+    active: config.active
+  }
+}
+
 export function SettingsPage(): React.JSX.Element {
   const {
     modelConfigs,
+    imageModelConfigs,
     fetchSettings,
     saveSettings,
     upsertModelConfig,
+    upsertImageModelConfig,
     setActiveModelConfig,
+    setActiveImageModelConfig,
     deleteModelConfig,
+    deleteImageModelConfig,
     setVerificationMessage,
     verifyApiKey,
+    verifyImageModel,
     chooseStoragePath
   } = useSettingsStore()
   const { success, error, warning, info } = useToastStore()
@@ -108,6 +202,10 @@ export function SettingsPage(): React.JSX.Element {
   )
   const [modelDialogOpen, setModelDialogOpen] = useState(false)
   const [modelForm, setModelForm] = useState<ModelForm>(() => createEmptyModelForm())
+  const [imageModelDialogOpen, setImageModelDialogOpen] = useState(false)
+  const [imageModelForm, setImageModelForm] = useState<ImageModelForm>(() =>
+    createEmptyImageModelForm()
+  )
   const [timeoutSeconds, setTimeoutSeconds] = useState<
     Record<ConfigurableModelTimeoutProfile, number>
   >(() => createTimeoutSeconds(useSettingsStore.getState().settings?.timeouts))
@@ -117,8 +215,11 @@ export function SettingsPage(): React.JSX.Element {
     () => useSettingsStore.getState().settings?.proxyUrl || ''
   )
   const [verifying, setVerifying] = useState(false)
+  const [verifyingImageModel, setVerifyingImageModel] = useState(false)
   const [activatingId, setActivatingId] = useState<string | null>(null)
+  const [activatingImageId, setActivatingImageId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [deletingImageId, setDeletingImageId] = useState<string | null>(null)
 
   useEffect(() => {
     let active = true
@@ -150,6 +251,7 @@ export function SettingsPage(): React.JSX.Element {
   }, [modelDialogOpen, savingModel])
 
   const activeModelConfig = modelConfigs.find((config) => config.active)
+  const activeImageModelConfig = imageModelConfigs.find((config) => config.active)
   const timeoutFields: Array<{
     profile: ConfigurableModelTimeoutProfile
     label: string
@@ -202,6 +304,40 @@ export function SettingsPage(): React.JSX.Element {
     setVerificationMessage(null)
   }
 
+  const openCreateImageModelDialog = (): void => {
+    setImageModelForm(createEmptyImageModelForm(imageModelConfigs.length === 0))
+    setVerificationMessage(null)
+    setImageModelDialogOpen(true)
+  }
+
+  const openEditImageModelDialog = (config: ImageModelConfig): void => {
+    setImageModelForm(createImageModelForm(config))
+    setVerificationMessage(null)
+    setImageModelDialogOpen(true)
+  }
+
+  const updateImageModelForm = (patch: Partial<ImageModelForm>): void => {
+    setImageModelForm((form) => ({ ...form, ...patch }))
+    setVerificationMessage(null)
+  }
+
+  const handleImageProviderChange = (value: string): void => {
+    if (!IMAGE_PROVIDER_OPTIONS.some((item) => item.value === value)) return
+    const provider = value as ImageModelProvider
+    setImageModelForm((form) => ({
+      ...form,
+      provider,
+      modelConfig:
+        provider !== form.provider ? createDefaultImageModelConfig(provider) : form.modelConfig
+    }))
+    setVerificationMessage(null)
+  }
+
+  const normalizeImageModelConfigForSave = (): string | null => {
+    const modelConfig = readJsonObject(imageModelForm.modelConfig)
+    return modelConfig ? stringifyJsonObject(modelConfig) : null
+  }
+
   const handleSaveModel = async (): Promise<void> => {
     if (!modelForm.name.trim()) {
       warning(t('settings.fillModelName'))
@@ -236,6 +372,41 @@ export function SettingsPage(): React.JSX.Element {
       }
       setModelDialogOpen(false)
       success(t('settings.modelSaved'), { description: t('settings.modelSavedDescription') })
+    } finally {
+      setSavingModel(false)
+    }
+  }
+
+  const handleSaveImageModel = async (): Promise<void> => {
+    if (!imageModelForm.name.trim()) {
+      warning(t('settings.fillModelName'))
+      return
+    }
+    const modelConfig = normalizeImageModelConfigForSave()
+    if (!modelConfig) {
+      warning(t('settings.fillImageModelConfig'))
+      return
+    }
+
+    setSavingModel(true)
+    setVerificationMessage(null)
+    try {
+      const id = await upsertImageModelConfig({
+        id: imageModelForm.id,
+        name: imageModelForm.name.trim(),
+        provider: imageModelForm.provider,
+        active: imageModelForm.active,
+        modelConfig
+      })
+      const saveError = useSettingsStore.getState().verificationMessage
+      if (!id || saveError) {
+        error(t('settings.saveFailed'), { description: saveError || t('common.retryLater') })
+        return
+      }
+      setImageModelDialogOpen(false)
+      success(t('settings.imageModelSaved'), {
+        description: t('settings.imageModelSavedDescription')
+      })
     } finally {
       setSavingModel(false)
     }
@@ -314,6 +485,35 @@ export function SettingsPage(): React.JSX.Element {
     }
   }
 
+  const handleVerifyImageModel = async (): Promise<void> => {
+    const modelConfig = normalizeImageModelConfigForSave()
+    if (!modelConfig) {
+      warning(t('settings.fillImageModelConfig'))
+      return
+    }
+
+    setVerifyingImageModel(true)
+    setVerificationMessage(null)
+    try {
+      const valid = await verifyImageModel(
+        imageModelForm.provider,
+        modelConfig
+      )
+      const verifyMessage = useSettingsStore.getState().verificationMessage
+      if (valid) {
+        success(t('settings.verifyPassed'), {
+          description: verifyMessage || t('settings.verifyPassedDescription')
+        })
+      } else {
+        error(t('settings.verifyFailed'), {
+          description: verifyMessage || t('settings.verifyFailedDescription')
+        })
+      }
+    } finally {
+      setVerifyingImageModel(false)
+    }
+  }
+
   const handleActivateModel = async (id: string): Promise<void> => {
     setActivatingId(id)
     setVerificationMessage(null)
@@ -344,6 +544,39 @@ export function SettingsPage(): React.JSX.Element {
       info(t('settings.modelDeleted'))
     } finally {
       setDeletingId(null)
+    }
+  }
+
+  const handleActivateImageModel = async (id: string): Promise<void> => {
+    setActivatingImageId(id)
+    setVerificationMessage(null)
+    try {
+      await setActiveImageModelConfig(id)
+      const activateError = useSettingsStore.getState().verificationMessage
+      if (activateError) {
+        error(t('settings.activateImageModelFailed'), { description: activateError })
+        return
+      }
+      success(t('settings.activeImageModelUpdated'))
+    } finally {
+      setActivatingImageId(null)
+    }
+  }
+
+  const handleDeleteImageModel = async (config: ImageModelConfig): Promise<void> => {
+    if (!window.confirm(t('settings.deleteModelConfirm', { name: config.name }))) return
+    setDeletingImageId(config.id)
+    setVerificationMessage(null)
+    try {
+      await deleteImageModelConfig(config.id)
+      const deleteError = useSettingsStore.getState().verificationMessage
+      if (deleteError) {
+        error(t('settings.deleteImageModelFailed'), { description: deleteError })
+        return
+      }
+      info(t('settings.imageModelDeleted'))
+    } finally {
+      setDeletingImageId(null)
     }
   }
 
@@ -382,6 +615,7 @@ export function SettingsPage(): React.JSX.Element {
         <TabsList>
           <TabsTrigger value="general">{t('settings.generalTab')}</TabsTrigger>
           <TabsTrigger value="model">{t('settings.modelTab')}</TabsTrigger>
+          <TabsTrigger value="imageModel">{t('settings.imageModelTab')}</TabsTrigger>
           <TabsTrigger value="advanced">{t('settings.advancedTab')}</TabsTrigger>
         </TabsList>
 
@@ -505,7 +739,9 @@ export function SettingsPage(): React.JSX.Element {
                           {config.provider}
                         </span>
                       </div>
-                      <p className="mt-1 truncate text-xs text-muted-foreground">{config.model}</p>
+                      <p className="mt-1 truncate text-xs text-muted-foreground">
+                        {config.model}
+                      </p>
                       {config.baseUrl && (
                         <p className="mt-0.5 truncate text-xs text-muted-foreground">
                           {config.baseUrl}
@@ -529,6 +765,86 @@ export function SettingsPage(): React.JSX.Element {
                         variant="ghost"
                         disabled={deletingId === config.id}
                         onClick={() => void handleDeleteModel(config)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="imageModel">
+          <Card className="mb-4">
+            <CardHeader className="flex-row items-center justify-between p-5 pb-3">
+              <div>
+                <CardTitle className="flex items-center gap-1.5 text-base">
+                  <ImageIcon className="h-4 w-4 text-[#5d7b4d]" />
+                  {t('settings.imageModelAccess')}
+                </CardTitle>
+                {activeImageModelConfig && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {t('settings.currentActiveImageModel', { name: activeImageModelConfig.name })}
+                  </p>
+                )}
+              </div>
+              <Button size="sm" onClick={openCreateImageModelDialog}>
+                <Plus className="mr-1.5 h-4 w-4" />
+                {t('settings.addImageModel')}
+              </Button>
+            </CardHeader>
+            <CardContent className="space-y-2.5 p-5 pt-0">
+              {imageModelConfigs.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-[#d8ccb5]/85 bg-[#fff9ef]/70 p-6 text-sm text-muted-foreground">
+                  {t('settings.noImageModels')}
+                </div>
+              ) : (
+                imageModelConfigs.map((config) => (
+                  <div
+                    key={config.id}
+                    className={
+                      config.active
+                        ? 'flex flex-col gap-3 rounded-lg border border-[#96b77f]/80 bg-[#eef6e8] p-3 shadow-[inset_3px_0_0_#6f8f64] sm:flex-row sm:items-center sm:justify-between'
+                        : 'flex flex-col gap-3 rounded-lg border border-[#d8ccb5]/80 bg-[#fffdf8]/78 p-3 sm:flex-row sm:items-center sm:justify-between'
+                    }
+                  >
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        {config.active && <CheckCircle2 className="h-4 w-4 text-[#5d7b4d]" />}
+                        <p className="font-medium text-[#33402a]">{config.name}</p>
+                        <span className="rounded-full bg-[#e9efde] px-2 py-0.5 text-[11px] uppercase text-[#506141]">
+                          {config.provider}
+                        </span>
+                      </div>
+                      <p className="mt-1 truncate text-xs text-muted-foreground">
+                        {summarizeImageModelConfig(config.modelConfig)}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 flex-wrap gap-2">
+                      <Button
+                        size="sm"
+                        variant={config.active ? 'secondary' : 'outline'}
+                        disabled={config.active || activatingImageId === config.id}
+                        onClick={() => void handleActivateImageModel(config.id)}
+                      >
+                        {config.active
+                          ? t('settings.activeImageModel')
+                          : t('settings.activateImageModel')}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => openEditImageModelDialog(config)}
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={deletingImageId === config.id}
+                        onClick={() => void handleDeleteImageModel(config)}
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>
@@ -750,6 +1066,109 @@ export function SettingsPage(): React.JSX.Element {
               </Button>
               <Button onClick={handleSaveModel} disabled={savingModel}>
                 {savingModel ? t('common.saving') : t('settings.saveModel')}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {imageModelDialogOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-[#2d291f]/42 p-4"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !savingModel) {
+              setImageModelDialogOpen(false)
+            }
+          }}
+        >
+          <div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-lg border border-[#d8ccb5]/85 bg-[#fffaf1] shadow-[0_24px_70px_rgba(53,44,32,0.28)]">
+            <div className="flex items-center justify-between border-b border-[#e3d8c5] px-5 py-4">
+              <h2 className="text-base font-semibold text-[#33402a]">
+                {imageModelForm.id ? t('settings.editImageModel') : t('settings.addImageModel')}
+              </h2>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setImageModelDialogOpen(false)}
+                disabled={savingModel}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+
+            <div className="space-y-3 p-5">
+              <div className="grid gap-2 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-sm font-medium">
+                    {t('settings.modelName')}
+                  </label>
+                  <Input
+                    value={imageModelForm.name}
+                    onChange={(e) => updateImageModelForm({ name: e.target.value })}
+                    placeholder={t('settings.imageModelNamePlaceholder')}
+                    className="h-8"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium">
+                    {t('settings.providerPreset')}
+                  </label>
+                  <Select
+                    value={imageModelForm.provider}
+                    onValueChange={handleImageProviderChange}
+                  >
+                    <SelectTrigger className="h-8">
+                      <SelectValue placeholder={t('settings.providerPlaceholder')} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {IMAGE_PROVIDER_OPTIONS.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-medium">model_config</label>
+                <Textarea
+                  spellCheck={false}
+                  rows={12}
+                  value={imageModelForm.modelConfig}
+                  onChange={(e) => updateImageModelForm({ modelConfig: e.target.value })}
+                  className="min-h-[240px] resize-y font-mono text-xs leading-5"
+                />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {t('settings.imageModelConfigHint')}
+                </p>
+              </div>
+
+              <div className="flex justify-end">
+                <Button
+                  variant="secondary"
+                  onClick={handleVerifyImageModel}
+                  disabled={verifyingImageModel}
+                  className="h-8 min-w-[80px] rounded-lg border border-[#7ea06f]/45 px-3 text-xs"
+                >
+                  <ShieldCheck className="mr-1 h-3.5 w-3.5" />
+                  {verifyingImageModel ? t('settings.verifying') : t('settings.verify')}
+                </Button>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 border-t border-[#e3d8c5] px-5 py-4">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setImageModelDialogOpen(false)}
+                disabled={savingModel}
+              >
+                {t('common.cancel')}
+              </Button>
+              <Button onClick={handleSaveImageModel} disabled={savingModel}>
+                {savingModel ? t('common.saving') : t('settings.saveImageModel')}
               </Button>
             </div>
           </div>

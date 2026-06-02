@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { ipc, type ModelConfig } from '@renderer/lib/ipc'
+import { ipc, type ImageModelConfig, type ImageModelProvider, type ModelConfig } from '@renderer/lib/ipc'
 import type { ConfigurableModelTimeoutProfile } from '@shared/model-timeout.js'
 
 interface Settings {
@@ -13,6 +13,7 @@ interface Settings {
 interface SettingsStore {
   settings: Settings | null
   modelConfigs: ModelConfig[]
+  imageModelConfigs: ImageModelConfig[]
   verificationMessage: string | null
   storagePathError: string | null
   loading: boolean
@@ -29,8 +30,17 @@ interface SettingsStore {
     maxTokens?: number
     active?: boolean
   }) => Promise<string | null>
+  upsertImageModelConfig: (config: {
+    id?: string
+    name: string
+    provider: ImageModelProvider
+    active?: boolean
+    modelConfig: string
+  }) => Promise<string | null>
   setActiveModelConfig: (id: string) => Promise<void>
+  setActiveImageModelConfig: (id: string) => Promise<void>
   deleteModelConfig: (id: string) => Promise<void>
+  deleteImageModelConfig: (id: string) => Promise<void>
   setVerificationMessage: (message: string | null) => void
   verifyApiKey: (
     provider: string,
@@ -39,6 +49,10 @@ interface SettingsStore {
     baseUrl: string,
     maxTokens: number,
     timeoutMs: number
+  ) => Promise<boolean>
+  verifyImageModel: (
+    provider: ImageModelProvider,
+    modelConfig: string
   ) => Promise<boolean>
   chooseStoragePath: () => Promise<string | null>
 }
@@ -53,15 +67,17 @@ const fallbackMessage = (zh: string, en: string): string => (readStoredLocale() 
 export const useSettingsStore = create<SettingsStore>((set, get) => ({
   settings: null,
   modelConfigs: [],
+  imageModelConfigs: [],
   verificationMessage: null,
   storagePathError: null,
   loading: false,
 
   fetchSettings: async () => {
     try {
-      const [settings, modelConfigs] = await Promise.all([
+      const [settings, modelConfigs, imageModelConfigs] = await Promise.all([
         ipc.getSettings(),
-        ipc.listModelConfigs()
+        ipc.listModelConfigs(),
+        ipc.listImageModelConfigs()
       ])
       const typedSettings = settings as unknown as Settings
       const locale = typedSettings.locale === 'en' ? 'en' : 'zh'
@@ -71,6 +87,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
           locale
         },
         modelConfigs: Array.isArray(modelConfigs) ? modelConfigs : [],
+        imageModelConfigs: Array.isArray(imageModelConfigs) ? imageModelConfigs : [],
         storagePathError: null,
         verificationMessage: null
       })
@@ -129,6 +146,36 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     }
   },
 
+  upsertImageModelConfig: async (config) => {
+    set({ verificationMessage: null })
+    try {
+      const result = await ipc.upsertImageModelConfig(config)
+      await get().fetchSettings()
+      return result.id
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : fallbackMessage('保存生图模型失败。', 'Failed to save image model.')
+      set({ verificationMessage: message })
+      return null
+    }
+  },
+
+  setActiveImageModelConfig: async (id) => {
+    set({ verificationMessage: null })
+    try {
+      await ipc.setActiveImageModelConfig(id)
+      await get().fetchSettings()
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : fallbackMessage('启用生图模型失败。', 'Failed to activate image model.')
+      set({ verificationMessage: message })
+    }
+  },
+
   deleteModelConfig: async (id) => {
     set({ verificationMessage: null })
     try {
@@ -139,6 +186,20 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
         error instanceof Error && error.message
           ? error.message
           : fallbackMessage('删除模型失败。', 'Failed to delete model.')
+      set({ verificationMessage: message })
+    }
+  },
+
+  deleteImageModelConfig: async (id) => {
+    set({ verificationMessage: null })
+    try {
+      await ipc.deleteImageModelConfig(id)
+      await get().fetchSettings()
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : fallbackMessage('删除生图模型失败。', 'Failed to delete image model.')
       set({ verificationMessage: message })
     }
   },
@@ -162,6 +223,24 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
         error instanceof Error && error.message
           ? error.message
           : fallbackMessage('发送验证请求失败。', 'Failed to send verification request.')
+      set({ verificationMessage: message })
+      return false
+    }
+  },
+
+  verifyImageModel: async (provider, modelConfig) => {
+    try {
+      const { valid, message } = await ipc.verifyImageModel({
+        provider,
+        modelConfig
+      })
+      set({ verificationMessage: message || null })
+      return valid
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : fallbackMessage('发送生图验证请求失败。', 'Failed to verify image model.')
       set({ verificationMessage: message })
       return false
     }

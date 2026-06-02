@@ -272,6 +272,8 @@ export function patchDraggedElementStyle(
 
   // zIndexOnly: only update z-index, leave everything else untouched
   if (zIndexOnly && zIndex !== undefined) {
+    const position = String(styleMap.get('position') || '').trim().toLowerCase()
+    if (!position || position === 'static') styleMap.set('position', 'relative')
     styleMap.set('z-index', String(zIndex))
     target.attr('style', serializeStyle(styleMap))
     return $.html()
@@ -580,7 +582,11 @@ export function patchGenericElementProperties(
   const fontWeight = normalizeFontWeight(stylePatch.fontWeight)
   const textAlign = normalizeTextAlign(stylePatch.textAlign)
   const objectFit = normalizeObjectFit(stylePatch.objectFit)
-  if (zIndex !== null && zIndex >= 0 && zIndex <= 9999) styleMap.set('z-index', String(zIndex))
+  if (zIndex !== null && zIndex >= -999 && zIndex <= 9999) {
+    const position = String(styleMap.get('position') || '').trim().toLowerCase()
+    if (!position || position === 'static') styleMap.set('position', 'relative')
+    styleMap.set('z-index', String(zIndex))
+  }
   if (opacity) styleMap.set('opacity', opacity)
   if (backgroundColor) styleMap.set('background-color', backgroundColor)
   if (color) styleMap.set('color', color)

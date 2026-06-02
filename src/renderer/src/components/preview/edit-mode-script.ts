@@ -729,6 +729,9 @@ export function buildEditModeInjectScript(previewScale = 1): string {
   let overlayElement = null;
   let hoverOverlayElement = null;
   let overlayResizeObserver = null;
+  let lastCycleKey = "";
+  let lastCycleIndex = -1;
+  let lastCycleAt = 0;
 
   // Double-click detection
 
@@ -874,6 +877,102 @@ export function buildEditModeInjectScript(previewScale = 1): string {
       width: Math.max(1, right - left),
       height: Math.max(1, bottom - top),
     };
+  };
+
+  const isPointInsideBounds = (bounds, clientX, clientY) => {
+    return (
+      bounds &&
+      clientX >= bounds.left &&
+      clientX <= bounds.left + bounds.width &&
+      clientY >= bounds.top &&
+      clientY <= bounds.top + bounds.height
+    );
+  };
+
+  const zIndexForSort = (element) => {
+    const value = parseInt(window.getComputedStyle(element).zIndex || "0", 10);
+    return Number.isFinite(value) ? value : 0;
+  };
+
+  const compareDocumentPaintOrder = (a, b) => {
+    if (a === b) return 0;
+    const position = a.compareDocumentPosition(b);
+    if (position & Node.DOCUMENT_POSITION_FOLLOWING) return 1;
+    if (position & Node.DOCUMENT_POSITION_PRECEDING) return -1;
+    return 0;
+  };
+
+  const getPointSelectionCandidates = (origin, clientX, clientY, fallbackTarget) => {
+    const root =
+      getPageRoot(origin) ||
+      getPageRoot(fallbackTarget) ||
+      document.querySelector(".ppt-page-root, [data-ppt-guard-root='1']");
+    if (!root) return [];
+    const items = [];
+    const seen = new Set();
+    Array.from(root.querySelectorAll("[data-block-id]")).forEach((element) => {
+      if (!(element instanceof Element)) return;
+      if (seen.has(element)) return;
+      if (!isUsableElementTarget(element)) return;
+      const selector = buildStableSelector(element);
+      if (!selector) return;
+      const bounds = getVisualBounds(element);
+      if (!isPointInsideBounds(bounds, clientX, clientY)) return;
+      seen.add(element);
+      items.push({
+        element,
+        selector,
+        bounds,
+        zIndex: zIndexForSort(element),
+        area: Math.max(1, bounds.width * bounds.height),
+      });
+    });
+    items.sort((a, b) => {
+      if (a.zIndex !== b.zIndex) return b.zIndex - a.zIndex;
+      if (Math.abs(a.area - b.area) > 0.5) return a.area - b.area;
+      return compareDocumentPaintOrder(a.element, b.element);
+    });
+    return items;
+  };
+
+  const pickCycleTarget = (origin, clientX, clientY, fallbackTarget) => {
+    const candidates = getPointSelectionCandidates(origin, clientX, clientY, fallbackTarget);
+    if (candidates.length === 0) return fallbackTarget;
+    if (candidates.length === 1) return candidates[0].element;
+    const key =
+      Math.round(clientX / 8) +
+      ":" +
+      Math.round(clientY / 8) +
+      ":" +
+      candidates.map((item) => item.selector).join("|");
+    const now = Date.now();
+    const startElement =
+      selectedElement && candidates.some((item) => item.element === selectedElement)
+        ? selectedElement
+        : fallbackTarget;
+    if (key !== lastCycleKey || now - lastCycleAt > 1400) {
+      lastCycleIndex = candidates.findIndex((item) => item.element === startElement);
+      if (lastCycleIndex < 0) lastCycleIndex = 0;
+    }
+    lastCycleIndex = (lastCycleIndex + 1) % candidates.length;
+    lastCycleKey = key;
+    lastCycleAt = now;
+    return candidates[lastCycleIndex].element;
+  };
+
+  const pickModifierTarget = (origin, clientX, clientY, fallbackTarget) => {
+    const candidates = getPointSelectionCandidates(origin, clientX, clientY, fallbackTarget);
+    if (candidates.length === 0) return fallbackTarget;
+    const selectedCandidate =
+      selectedElement && candidates.find((item) => item.element === selectedElement);
+    if (selectedCandidate && selectedCandidate.zIndex < 0) {
+      return selectedCandidate.element;
+    }
+    const negativeCandidates = candidates.filter((item) => item.zIndex < 0);
+    if (negativeCandidates.length > 0) {
+      return negativeCandidates[negativeCandidates.length - 1].element;
+    }
+    return pickCycleTarget(origin, clientX, clientY, fallbackTarget);
   };
 
   const ensureHoverOverlay = () => {
@@ -1503,30 +1602,43 @@ export function buildEditModeInjectScript(previewScale = 1): string {
       return;
     }
 
-    const target = pickTarget(event.target, event.clientX, event.clientY);
-    if (!target) return;
+    const primaryTarget = pickTarget(event.target, event.clientX, event.clientY);
+    const modifierTarget = event.altKey
+      ? pickModifierTarget(event.target, event.clientX, event.clientY, primaryTarget)
+      : null;
+    const clickTarget = event.altKey ? modifierTarget : primaryTarget;
+    const dragTarget = clickTarget;
+    if (!dragTarget) return;
 
-    const selector = buildStableSelector(target);
+    const selector = buildStableSelector(dragTarget);
     if (!selector) return;
+    const clickSelector = clickTarget ? buildStableSelector(clickTarget) : selector;
+    if (!clickSelector) return;
 
     // All elements: deferred drag. Record start position.
     // < 3px on pointerup = click (emit selected). >= 3px on pointermove = drag.
-    const isAbsConverted = target.hasAttribute("data-ppt-layout-converted");
-    const computed = isAbsConverted ? null : getComputedStyle(target);
+    const isAbsConverted = dragTarget.hasAttribute("data-ppt-layout-converted");
+    const computed = isAbsConverted ? null : getComputedStyle(dragTarget);
     const baseX = isAbsConverted
-      ? parseFloat(target.style.left || "0")
-      : parsePx(target.style.getPropertyValue("--ppt-drag-x") || computed.getPropertyValue("--ppt-drag-x"));
+      ? parseFloat(dragTarget.style.left || "0")
+      : parsePx(dragTarget.style.getPropertyValue("--ppt-drag-x") || computed.getPropertyValue("--ppt-drag-x"));
     const baseY = isAbsConverted
-      ? parseFloat(target.style.top || "0")
-      : parsePx(target.style.getPropertyValue("--ppt-drag-y") || computed.getPropertyValue("--ppt-drag-y"));
-    const elementTag = target.tagName ? target.tagName.toLowerCase() : "";
+      ? parseFloat(dragTarget.style.top || "0")
+      : parsePx(dragTarget.style.getPropertyValue("--ppt-drag-y") || computed.getPropertyValue("--ppt-drag-y"));
+    const elementTag = dragTarget.tagName ? dragTarget.tagName.toLowerCase() : "";
     dragPendingState = {
-      target,
+      target: dragTarget,
       selector,
       elementTag,
+      clickTarget,
+      clickSelector,
+      clickElementTag: clickTarget && clickTarget.tagName ? clickTarget.tagName.toLowerCase() : "",
       startClientX: event.clientX,
       startClientY: event.clientY,
-      textTarget: buildTextTargetAtPoint(target, selector, event.clientX, event.clientY),
+      textTarget: buildTextTargetAtPoint(dragTarget, selector, event.clientX, event.clientY),
+      clickTextTarget: clickTarget
+        ? buildTextTargetAtPoint(clickTarget, clickSelector, event.clientX, event.clientY)
+        : undefined,
       baseX,
       baseY,
     };
@@ -1539,8 +1651,10 @@ export function buildEditModeInjectScript(previewScale = 1): string {
     if (dragPendingState) {
       const s = dragPendingState;
       dragPendingState = null;
-      setSelected(s.target);
-      emitSelected(s.target, s.selector, s.textTarget);
+      const clickTarget = s.clickTarget || s.target;
+      const clickSelector = s.clickSelector || s.selector;
+      setSelected(clickTarget);
+      emitSelected(clickTarget, clickSelector, s.clickTextTarget || s.textTarget);
       return;
     }
 
@@ -1748,7 +1862,13 @@ export function buildEditModeInjectScript(previewScale = 1): string {
       const el = document.querySelector(selector);
       if (!el || !patch) return;
       if (patch.style) {
-        if (patch.style.zIndex !== undefined) el.style.setProperty("z-index", String(patch.style.zIndex), "important");
+        if (patch.style.zIndex !== undefined) {
+          const position = window.getComputedStyle(el).position;
+          if (!position || position === "static") {
+            el.style.setProperty("position", "relative", "important");
+          }
+          el.style.setProperty("z-index", String(patch.style.zIndex), "important");
+        }
         if (patch.style.opacity !== undefined) el.style.setProperty("opacity", String(patch.style.opacity), "important");
         if (patch.style.backgroundColor) el.style.setProperty("background-color", patch.style.backgroundColor, "important");
         if (patch.style.color) el.style.setProperty("color", patch.style.color, "important");
@@ -1852,23 +1972,36 @@ export function buildEditModeInjectScript(previewScale = 1): string {
     }
   };
 
-  window.__pptEditModeInjectElement = (parentSelector, html) => {
+  window.__pptEditModeInjectElement = (parentSelector, html, insertIndex, selectAfterInsert = true) => {
     try {
-      // Inject into .ppt-page-root so element is inside the page root (required for selection/drag)
-      const parent = document.querySelector('.ppt-page-root') ||
+      const parent = document.querySelector(parentSelector) ||
                      document.querySelector('[data-ppt-guard-root="1"]') ||
-                     document.querySelector(parentSelector);
+                     document.querySelector('.ppt-page-root');
       if (!parent) return;
       const temp = document.createElement('div');
       temp.innerHTML = html;
-      const el = temp.firstElementChild;
-      if (el) {
-        parent.appendChild(el);
-        selectedElement = el;
-        el.classList.add(SELECTED_CLASS);
-        requestAnimationFrame(() => {
-          updateOverlay();
+      const nodes = Array.from(temp.children);
+      if (nodes.length > 0) {
+        const anchor =
+          Number.isInteger(insertIndex) && insertIndex >= 0 && insertIndex < parent.children.length
+            ? parent.children[insertIndex]
+            : null;
+        let selectable = null;
+        nodes.forEach((node) => {
+          if (anchor) parent.insertBefore(node, anchor);
+          else parent.appendChild(node);
+          if (!selectable && node instanceof Element && node.getAttribute("data-block-id")) {
+            selectable = node;
+          }
         });
+        const el = selectable || nodes.find((node) => node instanceof Element) || null;
+        if (el && selectAfterInsert) {
+          selectedElement = el;
+          el.classList.add(SELECTED_CLASS);
+          requestAnimationFrame(() => {
+            updateOverlay();
+          });
+        }
       }
     } catch (_error) {}
   };

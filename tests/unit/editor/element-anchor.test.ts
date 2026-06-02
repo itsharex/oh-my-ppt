@@ -121,3 +121,23 @@ describe('patchGenericElementProperties rich text', () => {
     expect(result).toContain('<span data-block-id="text-1">南欧</span>新文字')
   })
 })
+
+describe('patchGenericElementProperties layer', () => {
+  it('persists negative z-index and makes static media positionable', () => {
+    const html = `
+      <html><body data-page-id="page">
+        <img data-block-id="media" src="./images/a.png" style="width: 100px">
+      </body></html>
+    `
+
+    const result = patchGenericElementProperties(
+      html,
+      'body[data-page-id="page"] [data-block-id="media"]',
+      {
+        style: { zIndex: -1 }
+      }
+    )
+
+    expect(result).toContain('width: 100px; position: relative; z-index: -1')
+  })
+})

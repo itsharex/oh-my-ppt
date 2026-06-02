@@ -196,6 +196,28 @@ export interface ModelConfigRow {
   updatedAt: number
 }
 
+export interface ImageModelConfigRow {
+  id: string
+  name: string
+  provider: string
+  active: number
+  modelConfig: string
+  createdAt: number
+  updatedAt: number
+}
+
+export interface ImageGenerationHistoryRow {
+  id: string
+  sessionId: string
+  pageId: string
+  prompt: string
+  imagePaths: string
+  modelConfigId: string
+  provider: string
+  model: string
+  createdAt: number
+}
+
 export interface SessionOperationRecord {
   id: string
   session_id: string
@@ -1452,6 +1474,158 @@ export class PPTDatabase {
       .get()
     if (!existing) throw new Error('Model config does not exist')
     await this.db.delete(schema.modelConfigs).where(eq(schema.modelConfigs.id, id)).run()
+  }
+
+  // ========== Image Model Configs ==========
+
+  async listImageModelConfigs(): Promise<ImageModelConfigRow[]> {
+    const results = await this.db
+      .select()
+      .from(schema.imageModelConfigs)
+      .orderBy(desc(schema.imageModelConfigs.active), desc(schema.imageModelConfigs.updatedAt))
+      .all()
+    return results as unknown as ImageModelConfigRow[]
+  }
+
+  async getActiveImageModelConfig(): Promise<ImageModelConfigRow | undefined> {
+    const result = await this.db
+      .select()
+      .from(schema.imageModelConfigs)
+      .where(eq(schema.imageModelConfigs.active, 1))
+      .limit(1)
+      .get()
+    return result as unknown as ImageModelConfigRow | undefined
+  }
+
+  async getImageModelConfig(id: string): Promise<ImageModelConfigRow | undefined> {
+    const result = await this.db
+      .select()
+      .from(schema.imageModelConfigs)
+      .where(eq(schema.imageModelConfigs.id, id))
+      .limit(1)
+      .get()
+    return result as unknown as ImageModelConfigRow | undefined
+  }
+
+  async upsertImageModelConfig(data: {
+    id?: string
+    name: string
+    provider: string
+    modelConfig: string
+    active?: boolean
+  }): Promise<string> {
+    const id = data.id || crypto.randomUUID()
+    const now = Math.floor(Date.now() / 1000)
+    if (data.active) {
+      await this.db
+        .update(schema.imageModelConfigs)
+        .set({ active: 0, updatedAt: now })
+        .where(eq(schema.imageModelConfigs.active, 1))
+        .run()
+    }
+    await this.db
+      .insert(schema.imageModelConfigs)
+      .values({
+        id,
+        name: data.name,
+        provider: data.provider,
+        modelConfig: data.modelConfig,
+        active: data.active ? 1 : 0,
+        createdAt: now,
+        updatedAt: now
+      })
+      .onConflictDoUpdate({
+        target: schema.imageModelConfigs.id,
+        set: {
+          name: data.name,
+          provider: data.provider,
+          modelConfig: data.modelConfig,
+          active: data.active ? 1 : 0,
+          updatedAt: now
+        }
+      })
+      .run()
+    return id
+  }
+
+  async setActiveImageModelConfig(id: string): Promise<void> {
+    const now = Math.floor(Date.now() / 1000)
+    const existing = await this.db
+      .select()
+      .from(schema.imageModelConfigs)
+      .where(eq(schema.imageModelConfigs.id, id))
+      .get()
+    if (!existing) throw new Error('Image model config does not exist')
+    await this.db
+      .update(schema.imageModelConfigs)
+      .set({ active: 0, updatedAt: now })
+      .where(eq(schema.imageModelConfigs.active, 1))
+      .run()
+    await this.db
+      .update(schema.imageModelConfigs)
+      .set({ active: 1, updatedAt: now })
+      .where(eq(schema.imageModelConfigs.id, id))
+      .run()
+  }
+
+  async deleteImageModelConfig(id: string): Promise<void> {
+    const existing = await this.db
+      .select()
+      .from(schema.imageModelConfigs)
+      .where(eq(schema.imageModelConfigs.id, id))
+      .get()
+    if (!existing) throw new Error('Image model config does not exist')
+    await this.db.delete(schema.imageModelConfigs).where(eq(schema.imageModelConfigs.id, id)).run()
+  }
+
+  // ========== Image Generation Histories ==========
+
+  async listImageGenerationHistories(
+    sessionId: string,
+    pageId: string
+  ): Promise<ImageGenerationHistoryRow[]> {
+    const results = await this.db
+      .select()
+      .from(schema.imageGenerationHistories)
+      .where(
+        and(
+          eq(schema.imageGenerationHistories.sessionId, sessionId),
+          eq(schema.imageGenerationHistories.pageId, pageId)
+        )
+      )
+      .orderBy(desc(schema.imageGenerationHistories.createdAt))
+      .limit(50)
+      .all()
+    return results as unknown as ImageGenerationHistoryRow[]
+  }
+
+  async insertImageGenerationHistory(data: {
+    id?: string
+    sessionId: string
+    pageId: string
+    prompt: string
+    imagePaths: string[]
+    modelConfigId: string
+    provider: string
+    model: string
+    createdAt?: number
+  }): Promise<string> {
+    const id = data.id || crypto.randomUUID()
+    await this.db
+      .insert(schema.imageGenerationHistories)
+      .values({
+        id,
+        sessionId: data.sessionId,
+        pageId: data.pageId,
+        prompt: data.prompt,
+        imagePaths: JSON.stringify(data.imagePaths),
+        modelConfigId: data.modelConfigId,
+        provider: data.provider,
+        model: data.model,
+        createdAt: data.createdAt || Math.floor(Date.now() / 1000)
+      })
+      .run()
+    return id
   }
 
   // ========== Preferences ==========

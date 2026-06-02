@@ -26,6 +26,14 @@ import type {
   ThinkingPrepareGenerationResult,
   ThinkingWorkspaceListItem
 } from '@shared/thinking.js'
+import type {
+  GeneratedImageAsset,
+  ImageGenerateResult,
+  ImageGeneratePayload,
+  ImageGenerationHistoryRecord,
+  ImageModelConfig,
+  ImageModelProvider
+} from '@shared/image-generation.js'
 
 type IpcRendererLike = Window['electron']['ipcRenderer']
 
@@ -220,6 +228,8 @@ export interface ModelConfig {
   createdAt: number
   updatedAt: number
 }
+
+export type { GeneratedImageAsset, ImageModelConfig, ImageModelProvider }
 
 export interface UploadPrerequisitesResult {
   ready: boolean
@@ -511,6 +521,8 @@ export const ipc = {
     getIpc().invoke('export:sessionZip', { sessionId }) as Promise<ExportDeckResult>,
   getSettings: () => getIpc().invoke('settings:get') as Promise<Record<string, unknown>>,
   listModelConfigs: () => getIpc().invoke('settings:listModelConfigs') as Promise<ModelConfig[]>,
+  listImageModelConfigs: () =>
+    getIpc().invoke('imageModels:list') as Promise<ImageModelConfig[]>,
   validateUploadPrerequisites: () =>
     getIpc().invoke('settings:validateUploadPrerequisites') as Promise<UploadPrerequisitesResult>,
   listFonts: () => getIpc().invoke('fonts:list') as Promise<FontRegistryResponse>,
@@ -549,6 +561,29 @@ export const ipc = {
     getIpc().invoke('settings:setActiveModelConfig', id) as Promise<{ success: boolean }>,
   deleteModelConfig: (id: string) =>
     getIpc().invoke('settings:deleteModelConfig', id) as Promise<{ success: boolean }>,
+  upsertImageModelConfig: (payload: {
+    id?: string
+    name: string
+    provider: ImageModelProvider
+    active?: boolean
+    modelConfig: string
+  }) =>
+    getIpc().invoke('imageModels:upsert', payload) as Promise<{
+      success: boolean
+      id: string
+    }>,
+  setActiveImageModelConfig: (id: string) =>
+    getIpc().invoke('imageModels:setActive', id) as Promise<{ success: boolean }>,
+  deleteImageModelConfig: (id: string) =>
+    getIpc().invoke('imageModels:delete', id) as Promise<{ success: boolean }>,
+  verifyImageModel: (payload: {
+    provider: ImageModelProvider
+    modelConfig: string
+  }) =>
+    getIpc().invoke('imageModels:verify', payload) as Promise<{
+      valid: boolean
+      message?: string
+    }>,
   verifyApiKey: (payload: {
     provider: string
     apiKey: string
@@ -566,6 +601,23 @@ export const ipc = {
       path: string | null
       error?: string
     }>,
+  generateImage: (payload: ImageGeneratePayload) =>
+    getIpc().invoke('images:generate', payload) as Promise<ImageGenerateResult>,
+  listImageGenerationHistory: (payload: { sessionId: string; pageId: string }) =>
+    getIpc().invoke('images:listHistory', payload) as Promise<ImageGenerationHistoryRecord[]>,
+  cancelImageGeneration: (sessionId: string) =>
+    getIpc().invoke('images:cancel', sessionId) as Promise<{ success: boolean }>,
+  getImageGenerationState: (sessionId: string) =>
+    getIpc().invoke('images:getState', sessionId) as Promise<{
+      runId: string
+      sessionId: string
+      pageId: string
+      progress: number
+      label: string
+      status: 'running' | 'completed' | 'failed' | 'cancelled'
+      error: string | null
+      updatedAt: number
+    } | null>,
   getStyles: () =>
     getIpc().invoke('styles:get') as Promise<{
       categories: Record<

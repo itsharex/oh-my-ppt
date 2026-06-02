@@ -127,7 +127,12 @@ export interface PreviewIframeHandle {
     selector: string,
     childUpdates: Array<{ path: number[]; width?: number; height?: number }>
   ) => void
-  injectElement: (parentSelector: string, htmlFragment: string) => void
+  injectElement: (
+    parentSelector: string,
+    htmlFragment: string,
+    insertIndex?: number,
+    selectAfterInsert?: boolean
+  ) => void
 }
 
 export const PreviewIframe = forwardRef<
@@ -488,6 +493,8 @@ export const PreviewIframe = forwardRef<
           `(function(){` +
           `var __el = document.querySelector(${JSON.stringify(selector)});` +
           `if (!__el) return;` +
+          `var __position = window.getComputedStyle(__el).position;` +
+          `if (!__position || __position === "static") __el.style.setProperty("position", "relative", "important");` +
           `__el.style.setProperty("z-index", String(${zIndex}), "important");` +
           `})()`
         )
@@ -592,14 +599,31 @@ export const PreviewIframe = forwardRef<
           `})()`
         )
       },
-      injectElement(parentSelector: string, htmlFragment: string): void {
+      injectElement(
+        parentSelector: string,
+        htmlFragment: string,
+        insertIndex = -1,
+        selectAfterInsert = true
+      ): void {
         const wv = webviewRef.current
         if (!wv) return
         safeExecuteJavaScript(
           wv,
-          `if (window.__pptEditModeInjectElement) window.__pptEditModeInjectElement(${JSON.stringify(parentSelector)}, ${JSON.stringify(htmlFragment)});`
+          `(function(){` +
+          `var __parentSelector = ${JSON.stringify(parentSelector)};` +
+          `var __html = ${JSON.stringify(htmlFragment)};` +
+          `var __insertIndex = ${JSON.stringify(insertIndex)};` +
+          `var __selectAfterInsert = ${JSON.stringify(selectAfterInsert)};` +
+          `if (window.__pptEditModeInjectElement) { window.__pptEditModeInjectElement(__parentSelector, __html, __insertIndex, __selectAfterInsert); return; }` +
+          `var __parent = document.querySelector(__parentSelector); if (!__parent) return;` +
+          `var __template = document.createElement("template"); __template.innerHTML = __html;` +
+          `var __nodes = Array.from(__template.content.children); if (__nodes.length === 0) return;` +
+          `var __anchor = Number.isInteger(__insertIndex) && __insertIndex >= 0 && __insertIndex < __parent.children.length ? __parent.children[__insertIndex] : null;` +
+          `__nodes.forEach(function(__node){ if (__anchor) __parent.insertBefore(__node, __anchor); else __parent.appendChild(__node); });` +
+          `})()`
         )
-      }    }),
+      }
+    }),
     []
   )
 
