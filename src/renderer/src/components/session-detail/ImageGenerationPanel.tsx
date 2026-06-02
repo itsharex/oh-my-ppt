@@ -250,6 +250,8 @@ export function ImageGenerationPanel({
   const [previewAsset, setPreviewAsset] = useState<GeneratedImageAsset | null>(null)
   const [isGeneratingPrompt, setIsGeneratingPrompt] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const hasImageModels = imageModelConfigs.length > 0
+  const imageControlsDisabled = !hasImageModels || isGeneratingImage || isGeneratingPrompt
   const selectedImageModel =
     imageModelConfigs.find((config) => config.id === selectedImageModelConfigId) ||
     imageModelConfigs.find((config) => config.active) ||
@@ -281,6 +283,7 @@ export function ImageGenerationPanel({
   }, [imageMessages, isGeneratingImage, imageProgress?.progress])
 
   const handleFillFromOutline = (): void => {
+    if (!hasImageModels) return
     const parts = [
       t('sessionDetail.imageOutlinePromptIntro'),
       selectedPageTitle ? `${t('sessionDetail.imageOutlineTitle')}: ${selectedPageTitle}` : '',
@@ -293,7 +296,15 @@ export function ImageGenerationPanel({
   }
 
   const handleGeneratePromptFromCurrentPage = async (modelConfigId: string): Promise<void> => {
-    if (!selectedPageExists || !sessionId || !selectedPageHtmlPath || isGeneratingPrompt) return
+    if (
+      !hasImageModels ||
+      !selectedPageExists ||
+      !sessionId ||
+      !selectedPageHtmlPath ||
+      isGeneratingPrompt
+    ) {
+      return
+    }
     const activeModelConfigId = await modelAction.ensureModelActive(modelConfigId)
     if (!activeModelConfigId) return
 
@@ -319,11 +330,7 @@ export function ImageGenerationPanel({
   }
 
   const generateDisabled =
-    isGeneratingImage ||
-    isGeneratingPrompt ||
-    !selectedPageExists ||
-    !imagePrompt.trim() ||
-    imageModelConfigs.length === 0
+    imageControlsDisabled || !selectedPageExists || !imagePrompt.trim()
   const optionSummary = selectedImageModel
     ? `${selectedImageModel.name} · ${selectedImageSizeOption?.label || imageSize} · ${imageCount}`
     : t('sessionDetail.imageOptions')
@@ -505,7 +512,7 @@ export function ImageGenerationPanel({
             type="button"
             size="sm"
             variant="secondary"
-            disabled={!selectedPageExists || isGeneratingImage || isGeneratingPrompt}
+            disabled={imageControlsDisabled || !selectedPageExists}
             className="h-6 rounded-full border border-[#8faf7d]/36 bg-[#dcebcf]/74 px-2.5 text-[11px] font-medium text-[#526942] shadow-none hover:bg-[#d2e4c3] disabled:opacity-45"
             onClick={handleFillFromOutline}
           >
@@ -517,7 +524,7 @@ export function ImageGenerationPanel({
             loadingLabel={t('sessionDetail.imagePromptGenerating')}
             loading={isGeneratingPrompt}
             disabled={
-              !selectedPageExists || !sessionId || !selectedPageHtmlPath || isGeneratingImage
+              imageControlsDisabled || !selectedPageExists || !sessionId || !selectedPageHtmlPath
             }
             icon={Sparkles}
             tone="subtle"
@@ -534,7 +541,7 @@ export function ImageGenerationPanel({
             placeholder={t('sessionDetail.imagePromptPlaceholder')}
             value={imagePrompt}
             onChange={(event) => setImagePrompt(event.target.value)}
-            disabled={isGeneratingImage || isGeneratingPrompt}
+            disabled={imageControlsDisabled}
             rows={4}
             className="min-h-[96px] resize-none rounded-[1.15rem] border border-[#ded2bd]/72 bg-[#fffdf8]/88 px-3 py-2 text-[13px] leading-5 text-[#3f4b35] shadow-[inset_0_1px_2px_rgba(74,59,42,0.05)] focus-visible:border-[#9bb98a] focus-visible:ring-0 focus-visible:ring-offset-0"
           />
@@ -546,6 +553,7 @@ export function ImageGenerationPanel({
                 type="button"
                 variant="secondary"
                 size="sm"
+                disabled={imageControlsDisabled}
                 className="h-8 min-w-0 flex-1 justify-start rounded-full border border-[#ded2bd]/70 bg-[#fffdf8]/88 px-2.5 text-xs text-[#52614a]"
               >
                 <SlidersHorizontal className="mr-1.5 h-3.5 w-3.5 shrink-0" />
@@ -575,6 +583,7 @@ export function ImageGenerationPanel({
                   <Select
                     value={selectedImageModelConfigId || undefined}
                     onValueChange={setSelectedImageModelConfigId}
+                    disabled={imageControlsDisabled}
                   >
                     <SelectTrigger className="h-8 w-full min-w-0 rounded-lg border-[#ded2bd]/70 bg-[#fffdf8]/82 px-3 py-1 text-xs text-[#3e4a32] shadow-none">
                       <SelectValue placeholder={t('sessionDetail.imageModelPlaceholder')} />
@@ -596,6 +605,7 @@ export function ImageGenerationPanel({
                     <Select
                       value={selectedImageSizeOption?.value || imageSize}
                       onValueChange={setImageSize}
+                      disabled={imageControlsDisabled}
                     >
                       <SelectTrigger className="h-8 w-full rounded-lg border-[#ded2bd]/70 bg-[#fffdf8]/82 px-3 py-1 text-xs text-[#3e4a32] shadow-none">
                         <SelectValue />
