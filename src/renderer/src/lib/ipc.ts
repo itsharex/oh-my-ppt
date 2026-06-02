@@ -379,6 +379,26 @@ export const ipc = {
       }>
       selectedPageId: string | null
     }>,
+  updateSessionPageOutline: (payload: {
+    sessionId: string
+    pageId: string
+    contentOutline: string
+  }) =>
+    getIpc().invoke('session:updatePageOutline', payload) as Promise<{
+      ok: boolean
+      generatedPages: Array<{
+        id: string
+        pageNumber: number
+        pageId: string
+        title: string
+        contentOutline?: string | null
+        html: string
+        htmlPath?: string
+        status?: string
+        error?: string | null
+      }>
+      selectedPageId: string | null
+    }>,
   getSessionMessages: (payload: {
     sessionId: string
     chatType: 'main' | 'page'

@@ -650,6 +650,7 @@ Business presentations, product introductions, project summaries — formal but 
     stop: 'Stop',
     send: 'Send',
     imageModelPlaceholder: 'Select image model',
+    imageModelRequiredHint: 'Configure an image model in Settings first.',
     imagePromptPlaceholder:
       'Describe the image to generate, or click "Outline prompt" to fill a prompt from the current page.',
     imagePromptFromOutline: 'Outline prompt',
@@ -848,6 +849,10 @@ Business presentations, product introductions, project summaries — formal but 
     dragHandle: 'Drag to reorder',
     editPageTitle: 'Edit title',
     editPageTitleDescription: 'Rename the current page and sync the preview list and history.',
+    editPageOutline: 'Edit outline',
+    pageOutlinePlaceholder: 'Enter page outline',
+    savePageOutline: 'Save outline',
+    updateOutlineFailed: 'Failed to save page outline',
     pageTitleLabel: 'Page title',
     pageTitlePlaceholder: 'Enter page title',
     pageTitleRequired: 'Please enter a page title',

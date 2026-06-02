@@ -536,6 +536,11 @@ export function ImageGenerationPanel({
             onRun={handleGeneratePromptFromCurrentPage}
           />
         </div>
+        {!hasImageModels && (
+          <p className="mb-1.5 rounded-lg border border-[#e3d6c2]/78 bg-[#fff6e7]/82 px-2.5 py-1.5 text-[11px] leading-4 text-[#8a5d2d]">
+            {t('sessionDetail.imageModelRequiredHint')}
+          </p>
+        )}
         <div>
           <Textarea
             placeholder={t('sessionDetail.imagePromptPlaceholder')}

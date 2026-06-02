@@ -10,7 +10,8 @@ import {
   PencilLine,
   Plus,
   Sparkles,
-  Trash2
+  Trash2,
+  X
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useGenerateStore, useSessionStore } from '@renderer/store'
@@ -112,6 +113,7 @@ export const PageSidebar = memo(function PageSidebar({
   onReorderPages,
   onDeletePage,
   onRenamePage,
+  onUpdatePageOutline,
   pageManagementDisabled = false,
   collapsed = false,
   onToggleCollapsed
@@ -124,6 +126,7 @@ export const PageSidebar = memo(function PageSidebar({
   onReorderPages?: (orderedPageIds: string[], selectedPageId?: string) => Promise<void> | void
   onDeletePage?: (page: SessionPreviewPage) => void
   onRenamePage?: (page: SessionPreviewPage) => void
+  onUpdatePageOutline?: (page: SessionPreviewPage, contentOutline: string) => Promise<void> | void
   pageManagementDisabled?: boolean
   collapsed?: boolean
   onToggleCollapsed?: () => void
@@ -137,6 +140,9 @@ export const PageSidebar = memo(function PageSidebar({
   const isAddingPage = useSessionDetailUiStore((state) => state.isAddingPage)
   const [activeView, setActiveView] = useState<'pages' | 'outline'>('pages')
   const [copiedOutlinePageId, setCopiedOutlinePageId] = useState<string | null>(null)
+  const [editingOutlinePageId, setEditingOutlinePageId] = useState<string | null>(null)
+  const [outlineDraft, setOutlineDraft] = useState('')
+  const [savingOutlinePageId, setSavingOutlinePageId] = useState<string | null>(null)
   const wasAddingRef = useRef(false)
   const viewportRef = useRef<HTMLDivElement>(null)
   const copyResetTimerRef = useRef<number | null>(null)
@@ -202,6 +208,33 @@ export const PageSidebar = memo(function PageSidebar({
       setCopiedOutlinePageId((current) => (current === page.id ? null : current))
       copyResetTimerRef.current = null
     }, 1600)
+  }
+
+  const handleStartEditOutline = (page: SessionPreviewPage, outlineText: string): void => {
+    setSelectedPageId(page.id)
+    setEditingOutlinePageId(page.id)
+    setOutlineDraft(outlineText)
+  }
+
+  const handleCancelEditOutline = (): void => {
+    setEditingOutlinePageId(null)
+    setOutlineDraft('')
+  }
+
+  const handleSaveOutline = async (page: SessionPreviewPage): Promise<void> => {
+    if (!onUpdatePageOutline || savingOutlinePageId) return
+    const normalizedDraft = outlineDraft.replace(/\s+/g, ' ').trim()
+    if (normalizedDraft === getPageOutlineText(page)) {
+      handleCancelEditOutline()
+      return
+    }
+    setSavingOutlinePageId(page.id)
+    try {
+      await onUpdatePageOutline(page, normalizedDraft)
+      handleCancelEditOutline()
+    } finally {
+      setSavingOutlinePageId(null)
+    }
   }
 
   return (
@@ -360,6 +393,8 @@ export const PageSidebar = memo(function PageSidebar({
                   const outlineText = getPageOutlineText(page)
                   const selected = selectedPageId === page.id
                   const copied = copiedOutlinePageId === page.id
+                  const editing = editingOutlinePageId === page.id
+                  const savingOutline = savingOutlinePageId === page.id
                   return (
                     <div
                       key={page.id}
@@ -371,26 +406,91 @@ export const PageSidebar = memo(function PageSidebar({
                           : 'bg-[#e8e0d0]/34 hover:bg-[#e8e0d0]/68 hover:shadow-[0_8px_18px_rgba(93,107,77,0.09)]'
                       } ${disabled ? 'opacity-45' : ''}`}
                     >
-                      <button
-                        type="button"
-                        disabled={disabled}
-                        onClick={() => setSelectedPageId(page.id)}
-                        className="block w-full min-w-0 cursor-pointer rounded-[1rem] text-left disabled:cursor-not-allowed"
-                      >
-                        <span className="block min-w-0 max-w-full overflow-hidden rounded-[1rem] bg-[#fffaf1]/72 px-2.5 py-2 pr-8 shadow-[0_5px_14px_rgba(93,107,77,0.08)]">
-                          <span className="block whitespace-normal break-words text-[12px] font-semibold leading-5 text-[#33402a] [overflow-wrap:anywhere]">
+                      {editing ? (
+                        <div className="block min-w-0 max-w-full overflow-hidden rounded-[1rem] bg-[#fffaf1]/72 px-2.5 py-2 shadow-[0_5px_14px_rgba(93,107,77,0.08)]">
+                          <p className="mb-1 whitespace-normal break-words text-[12px] font-semibold leading-5 text-[#33402a] [overflow-wrap:anywhere]">
                             {page.title || t('sessionDetail.untitledPage')}
+                          </p>
+                          <textarea
+                            value={outlineDraft}
+                            onChange={(event) => setOutlineDraft(event.target.value)}
+                            disabled={savingOutline}
+                            className="min-h-[84px] w-full resize-none rounded-lg border border-[#d8cfbc]/80 bg-[#fffdf8]/90 px-2 py-1.5 text-[11px] leading-4 text-[#514736] shadow-inner outline-none focus:border-[#9bb98a] disabled:opacity-60"
+                            placeholder={t('pageManagement.pageOutlinePlaceholder')}
+                            autoFocus
+                          />
+                          <div className="mt-1.5 flex justify-end gap-1">
+                            <button
+                              type="button"
+                              disabled={savingOutline}
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                handleCancelEditOutline()
+                              }}
+                              className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-[#f1e7d6] text-[#756955] transition-colors hover:bg-[#e8ddca] disabled:opacity-50"
+                              aria-label={t('common.cancel')}
+                              title={t('common.cancel')}
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              disabled={savingOutline}
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                void handleSaveOutline(page)
+                              }}
+                              className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-[#5d6b4d] text-white shadow-[0_4px_10px_rgba(62,74,50,0.18)] transition-colors hover:bg-[#4d5a40] disabled:opacity-50"
+                              aria-label={t('pageManagement.savePageOutline')}
+                              title={t('pageManagement.savePageOutline')}
+                            >
+                              <Check className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={disabled}
+                          onClick={() => setSelectedPageId(page.id)}
+                          className="block w-full min-w-0 cursor-pointer rounded-[1rem] text-left disabled:cursor-not-allowed"
+                        >
+                          <span className="block min-w-0 max-w-full overflow-hidden rounded-[1rem] bg-[#fffaf1]/72 px-2.5 py-2 pr-16 shadow-[0_5px_14px_rgba(93,107,77,0.08)]">
+                            <span className="block whitespace-normal break-words text-[12px] font-semibold leading-5 text-[#33402a] [overflow-wrap:anywhere]">
+                              {page.title || t('sessionDetail.untitledPage')}
+                            </span>
+                            <span className="mt-1 block whitespace-normal break-words text-[11px] leading-4 text-[#716654] [overflow-wrap:anywhere]">
+                              {outlineText || t('sessionDetail.outlineEmpty')}
+                            </span>
                           </span>
-                          <span className="mt-1 block whitespace-normal break-words text-[11px] leading-4 text-[#716654] [overflow-wrap:anywhere]">
-                            {outlineText || t('sessionDetail.outlineEmpty')}
-                          </span>
-                        </span>
-                      </button>
+                        </button>
+                      )}
+                      {!editing && onUpdatePageOutline ? (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              type="button"
+                              disabled={pageManagementDisabled || disabled}
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                handleStartEditOutline(page, outlineText)
+                              }}
+                              className="absolute right-10 top-3 inline-flex h-6 w-6 items-center justify-center rounded-full bg-[#f5f1e8]/88 text-[#697659] opacity-0 shadow-[0_4px_10px_rgba(93,107,77,0.12)] transition-all hover:bg-[#d4e4c1] hover:text-[#3e4a32] group-hover:opacity-100 focus-visible:opacity-100 disabled:cursor-not-allowed disabled:opacity-0"
+                              aria-label={t('pageManagement.editPageOutline')}
+                            >
+                              <PencilLine className="h-3.5 w-3.5" />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent side="right">
+                            {t('pageManagement.editPageOutline')}
+                          </TooltipContent>
+                        </Tooltip>
+                      ) : null}
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <button
                             type="button"
-                            disabled={!outlineText}
+                            disabled={!outlineText || editing}
                             onClick={(event) => {
                               event.stopPropagation()
                               void handleCopyOutline(page, outlineText)

@@ -1093,6 +1093,31 @@ export function SessionDetailPage(): React.JSX.Element {
     }
   }
 
+  const handleUpdatePageOutline = async (
+    page: SessionPreviewPage,
+    contentOutline: string
+  ): Promise<void> => {
+    if (!id) return
+    const normalizedOutline = contentOutline.replace(/\s+/g, ' ').trim()
+    if (normalizedOutline === (page.contentOutline || '').trim()) return
+    useSessionDetailUiStore.getState().setIsManagingPages(true)
+    try {
+      const result = await ipc.updateSessionPageOutline({
+        sessionId: id,
+        pageId: page.id,
+        contentOutline: normalizedOutline
+      })
+      useGenerateStore.getState().setPages(result.generatedPages)
+      useSessionDetailUiStore.getState().setSelectedPageId(result.selectedPageId || page.id)
+      void ipc.clearSpeechScript(id).catch((err) => console.warn('[speech] clearSpeechScript failed', err))
+    } catch (error) {
+      toastError(error instanceof Error ? error.message : t('pageManagement.updateOutlineFailed'))
+      throw error
+    } finally {
+      useSessionDetailUiStore.getState().setIsManagingPages(false)
+    }
+  }
+
   const handleConfirmDeletePage = async (): Promise<void> => {
     if (!id) return
     if (!deleteConfirmPage) return
@@ -2263,6 +2288,7 @@ export function SessionDetailPage(): React.JSX.Element {
             onReorderPages={handleReorderPages}
             onDeletePage={handleDeletePage}
             onRenamePage={handleOpenTitleEditDialog}
+            onUpdatePageOutline={handleUpdatePageOutline}
             pageManagementDisabled={isGenerating || isAddingPage || isRetryingSinglePage || isManagingPages}
             collapsed={sidebarCollapsed}
             onToggleCollapsed={toggleSidebarCollapsed}
