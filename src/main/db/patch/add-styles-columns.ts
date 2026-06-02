@@ -15,4 +15,7 @@ export const patchStylesColumns = async (client: LibSqlClient): Promise<void> =>
   if (!columnNames.has('style_case')) {
     await client.execute("ALTER TABLE styles ADD COLUMN style_case TEXT NOT NULL DEFAULT ''")
   }
+  if (!columnNames.has('active')) {
+    await client.execute('ALTER TABLE styles ADD COLUMN active INTEGER NOT NULL DEFAULT 1')
+  }
 }

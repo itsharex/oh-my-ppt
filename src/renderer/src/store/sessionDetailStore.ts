@@ -1,13 +1,32 @@
 import { create } from 'zustand'
 import type { UploadedAsset } from '@shared/generation.js'
+import type { GeneratedImageAsset } from '@shared/image-generation.js'
 import type { SpeechConfig } from '@shared/speech'
 
 export type SessionDetailChatType = 'main' | 'page'
+export type SessionDetailAiPanelMode = 'chat' | 'image'
 export type InteractionMode = 'preview' | 'ai-inspect' | 'edit'
+export type ImageGenerationMessage = {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+  assets?: GeneratedImageAsset[]
+  createdAt: number
+}
 
 interface SessionDetailUiStore {
   input: string
+  aiPanelMode: SessionDetailAiPanelMode
   chatType: SessionDetailChatType
+  imagePrompt: string
+  imageMessages: ImageGenerationMessage[]
+  imageMessageCache: Record<string, ImageGenerationMessage[]>
+  loadedImageMessageKeys: Record<string, boolean>
+  selectedImageModelConfigId: string
+  imageSize: string
+  imageCount: number
+  isGeneratingImage: boolean
+  imageProgress: { label?: string; progress: number } | null
   selectedPageId: string | null
   consoleOpen: boolean
   previewKey: number
@@ -38,7 +57,19 @@ interface SessionDetailUiStore {
   speechConfig: SpeechConfig
 
   setInput: (input: string) => void
+  setAiPanelMode: (mode: SessionDetailAiPanelMode) => void
   setChatType: (chatType: SessionDetailChatType) => void
+  setImagePrompt: (input: string) => void
+  setImageMessages: (messages: ImageGenerationMessage[]) => void
+  cacheImageMessages: (key: string, messages: ImageGenerationMessage[]) => void
+  setLoadedImageMessages: (key: string, messages: ImageGenerationMessage[]) => void
+  addImageMessage: (message: ImageGenerationMessage) => void
+  addCachedImageMessage: (key: string, message: ImageGenerationMessage) => void
+  setSelectedImageModelConfigId: (id: string) => void
+  setImageSize: (size: string) => void
+  setImageCount: (count: number) => void
+  setIsGeneratingImage: (generating: boolean) => void
+  setImageProgress: (progress: { label?: string; progress: number } | null) => void
   setSelectedPageId: (pageId: string | null) => void
   setConsoleOpen: (open: boolean | ((open: boolean) => boolean)) => void
   bumpPreviewKey: () => void
@@ -78,7 +109,17 @@ interface SessionDetailUiStore {
 
 export const useSessionDetailUiStore = create<SessionDetailUiStore>((set) => ({
   input: '',
+  aiPanelMode: 'chat',
   chatType: 'page',
+  imagePrompt: '',
+  imageMessages: [],
+  imageMessageCache: {},
+  loadedImageMessageKeys: {},
+  selectedImageModelConfigId: '',
+  imageSize: '16:9',
+  imageCount: 1,
+  isGeneratingImage: false,
+  imageProgress: null,
   selectedPageId: null,
   consoleOpen: true,
   previewKey: 0,
@@ -109,7 +150,47 @@ export const useSessionDetailUiStore = create<SessionDetailUiStore>((set) => ({
   speechConfig: { scope: 'all' as const, length: 'medium' as const, style: 'conversational' as const },
 
   setInput: (input) => set({ input }),
+  setAiPanelMode: (aiPanelMode) => set({ aiPanelMode }),
   setChatType: (chatType) => set({ chatType }),
+  setImagePrompt: (imagePrompt) => set({ imagePrompt }),
+  setImageMessages: (imageMessages) => set({ imageMessages }),
+  cacheImageMessages: (key, messages) =>
+    set((state) => ({
+      imageMessageCache: {
+        ...state.imageMessageCache,
+        [key]: messages
+      }
+    })),
+  setLoadedImageMessages: (key, messages) =>
+    set((state) => ({
+      imageMessageCache: {
+        ...state.imageMessageCache,
+        [key]: messages
+      },
+      loadedImageMessageKeys: {
+        ...state.loadedImageMessageKeys,
+        [key]: true
+      }
+    })),
+  addImageMessage: (message) =>
+    set((state) => ({
+      imageMessages: [...state.imageMessages, message].slice(-48)
+    })),
+  addCachedImageMessage: (key, message) =>
+    set((state) => {
+      const cached = state.imageMessageCache[key] || []
+      return {
+        imageMessageCache: {
+          ...state.imageMessageCache,
+          [key]: [...cached, message].slice(-48)
+        }
+      }
+    }),
+  setSelectedImageModelConfigId: (selectedImageModelConfigId) => set({ selectedImageModelConfigId }),
+  setImageSize: (imageSize) => set({ imageSize }),
+  setImageCount: (imageCount) => set({ imageCount: Math.max(1, Math.min(4, imageCount)) }),
+  setIsGeneratingImage: (isGeneratingImage) => set({ isGeneratingImage }),
+  setImageProgress: (imageProgress) => set({ imageProgress }),
   setSelectedPageId: (selectedPageId) => set({ selectedPageId }),
   setConsoleOpen: (open) =>
     set((state) => ({
@@ -188,7 +269,17 @@ export const useSessionDetailUiStore = create<SessionDetailUiStore>((set) => ({
   resetForSessionChange: () =>
     set({
       input: '',
+      aiPanelMode: 'chat',
       chatType: 'page',
+      imagePrompt: '',
+      imageMessages: [],
+      imageMessageCache: {},
+      loadedImageMessageKeys: {},
+      selectedImageModelConfigId: '',
+      imageSize: '16:9',
+      imageCount: 1,
+      isGeneratingImage: false,
+      imageProgress: null,
       selectedPageId: null,
       interactionMode: 'preview' as InteractionMode,
       selectedSelector: null,

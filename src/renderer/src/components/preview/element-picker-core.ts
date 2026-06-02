@@ -94,7 +94,7 @@ export function buildElementPickerCoreScript(): string {
       return null;
     };
 
-    const pickAtPoint = (origin, clientX, clientY) => {
+    const pickAtPointBase = (origin, clientX, clientY) => {
       if (!Number.isFinite(clientX) || !Number.isFinite(clientY)) return null;
       const hitElement = doc.elementFromPoint(clientX, clientY);
       const root =
@@ -113,6 +113,21 @@ export function buildElementPickerCoreScript(): string {
         if (candidate) return candidate;
       }
       return null;
+    };
+
+    const pickAtPoint = (origin, clientX, clientY) => {
+      const target = pickAtPointBase(origin, clientX, clientY);
+      if (typeof options.resolveTarget === "function") {
+        const resolved = options.resolveTarget({
+          origin,
+          clientX,
+          clientY,
+          target,
+          pickAtPointBase,
+        });
+        if (resolved !== undefined) return resolved;
+      }
+      return target;
     };
 
     const start = (handlers) => {

@@ -192,6 +192,13 @@ export function normalizeFontWeight(value: unknown): string | null {
   return String(clamped)
 }
 
+// Keep in sync with normalizeTextAlign in src/renderer/src/pages/session-detail.tsx.
+export function normalizeTextAlign(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const text = value.trim()
+  return ['left', 'center', 'right', 'justify'].includes(text) ? text : null
+}
+
 export function normalizeOpacity(value: unknown): string | null {
   const parsed = Number(value)
   if (!Number.isFinite(parsed)) return null
@@ -265,6 +272,8 @@ export function patchDraggedElementStyle(
 
   // zIndexOnly: only update z-index, leave everything else untouched
   if (zIndexOnly && zIndex !== undefined) {
+    const position = String(styleMap.get('position') || '').trim().toLowerCase()
+    if (!position || position === 'static') styleMap.set('position', 'relative')
     styleMap.set('z-index', String(zIndex))
     target.attr('style', serializeStyle(styleMap))
     return $.html()
@@ -318,6 +327,7 @@ export function patchDraggedElementStyle(
       if (!child || child.length === 0) break
     }
     if (!child || child.length === 0) continue
+    if (String(child.get(0)?.tagName || '').toLowerCase() === 'canvas') continue
     const childStyleMap = parseStyle(child.attr('style') || '')
     if (childUpdate.width !== null) childStyleMap.set('width', `${childUpdate.width}px`)
     if (childUpdate.height !== null) childStyleMap.set('height', `${childUpdate.height}px`)
@@ -353,6 +363,7 @@ export function patchElementProperties(
       color?: string
       fontSize?: string
       fontWeight?: string
+      textAlign?: string
     }
   }
 ): string {
@@ -399,10 +410,12 @@ export function patchElementProperties(
   const color = normalizeColor(stylePatch.color)
   const fontSize = normalizeFontSize(stylePatch.fontSize)
   const fontWeight = normalizeFontWeight(stylePatch.fontWeight)
+  const textAlign = normalizeTextAlign(stylePatch.textAlign)
   if (color) styleMap.set('color', color)
   if (fontSize) styleMap.set('font-size', fontSize)
   if (fontWeight) styleMap.set('font-weight', fontWeight)
-  if (color || fontSize || fontWeight) {
+  if (textAlign) styleMap.set('text-align', textAlign)
+  if (color || fontSize || fontWeight || textAlign) {
     target.attr('style', serializeStyle(styleMap))
   }
 
@@ -514,6 +527,7 @@ export function patchGenericElementProperties(
       color?: unknown
       fontSize?: unknown
       fontWeight?: unknown
+      textAlign?: unknown
       objectFit?: unknown
     }
     attrs?: {
@@ -566,13 +580,19 @@ export function patchGenericElementProperties(
   const color = normalizeColor(stylePatch.color)
   const fontSize = normalizeFontSize(stylePatch.fontSize)
   const fontWeight = normalizeFontWeight(stylePatch.fontWeight)
+  const textAlign = normalizeTextAlign(stylePatch.textAlign)
   const objectFit = normalizeObjectFit(stylePatch.objectFit)
-  if (zIndex !== null && zIndex >= 0 && zIndex <= 9999) styleMap.set('z-index', String(zIndex))
+  if (zIndex !== null && zIndex >= -999 && zIndex <= 9999) {
+    const position = String(styleMap.get('position') || '').trim().toLowerCase()
+    if (!position || position === 'static') styleMap.set('position', 'relative')
+    styleMap.set('z-index', String(zIndex))
+  }
   if (opacity) styleMap.set('opacity', opacity)
   if (backgroundColor) styleMap.set('background-color', backgroundColor)
   if (color) styleMap.set('color', color)
   if (fontSize) styleMap.set('font-size', fontSize)
   if (fontWeight) styleMap.set('font-weight', fontWeight)
+  if (textAlign) styleMap.set('text-align', textAlign)
   if (objectFit) styleMap.set('object-fit', objectFit)
   if (
     zIndex !== null ||
@@ -581,6 +601,7 @@ export function patchGenericElementProperties(
     color ||
     fontSize ||
     fontWeight ||
+    textAlign ||
     objectFit
   ) {
     target.attr('style', serializeStyle(styleMap))

@@ -7,6 +7,8 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/
 import { Bot, BookOpen, Check, ChevronDown, ChevronRight, FileSearch, FileText, FolderOpen, Image as ImageIcon, Loader2, Paperclip, Pencil, Send, User, X } from 'lucide-react'
 import { ScrollArea } from '../ui/ScrollArea'
 import type { ThinkingChatMessage, ThinkingSource } from '@shared/thinking'
+import { ModelSelectButton } from '../model/ModelActionButton'
+import { useModelAction } from '@renderer/hooks/useModelAction'
 
 const MAX_DOCUMENT_SIZE_MB = 10
 const MAX_DOCUMENT_SIZE_BYTES = MAX_DOCUMENT_SIZE_MB * 1024 * 1024
@@ -144,6 +146,7 @@ export function ThinkingChat({
 }: ThinkingChatProps): ReactElement {
   const t = useT()
   const { error: toastError } = useToastStore()
+  const modelAction = useModelAction()
   const [input, setInput] = useState('')
   const [uploading, setUploading] = useState(false)
   const [removingSourceId, setRemovingSourceId] = useState<string | null>(null)
@@ -151,6 +154,7 @@ export function ThinkingChat({
   const scrollRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const composingRef = useRef(false)
+
   const visibleThinkingSteps = useMemo(
     () => thinkingSteps.filter((step) => step.type === 'tool_call' && step.summary.trim()),
     [thinkingSteps]
@@ -168,9 +172,10 @@ export function ThinkingChat({
     })
   }, [messages, loading, visibleThinkingSteps, animatingText])
 
-  const handleSend = (): void => {
+  const handleSend = async (): Promise<void> => {
     const text = input.trim()
-    if (!text || loading) return
+    if (!text || loading || modelAction.activatingModelConfigId) return
+    if (!(await modelAction.ensureModelActive())) return
     onSend(text)
     setInput('')
   }
@@ -179,7 +184,7 @@ export function ThinkingChat({
     if (e.key === 'Enter' && !e.shiftKey) {
       if (composingRef.current || e.nativeEvent.isComposing) return
       e.preventDefault()
-      handleSend()
+      void handleSend()
     }
   }
 
@@ -374,7 +379,7 @@ export function ThinkingChat({
       </ScrollArea>
 
       <div className="border-t border-[#e0d8c8] bg-[#fffdf8] px-4 py-3">
-        <div className="rounded-[1.5rem] border border-[#e0d8c8] bg-[#f5f1e8] px-2 py-2 shadow-sm focus-within:border-[#8fbc8f] focus-within:ring-2 focus-within:ring-[#d4e4c1]">
+        <div className="rounded-xl border border-[#e0d8c8] bg-[#f5f1e8] px-2 py-2 shadow-sm focus-within:border-[#8fbc8f] focus-within:ring-2 focus-within:ring-[#d4e4c1]">
           {pendingSources.length > 0 && (
             <div className="flex max-h-16 flex-wrap gap-1.5 overflow-y-auto px-2 pb-1.5">
               {pendingSources.map((source) => (
@@ -427,9 +432,9 @@ export function ThinkingChat({
               </Tooltip>
             </TooltipProvider>
             <textarea
-              className="max-h-28 min-h-8 flex-1 resize-none border-0 bg-transparent px-2 py-1.5 text-[13px] leading-relaxed text-[#2f3329] placeholder:text-[#9a9b8c] focus:outline-none"
+              className="max-h-36 min-h-[44px] flex-1 resize-none border-0 bg-transparent px-2 py-2.5 text-[13px] leading-relaxed text-[#2f3329] placeholder:text-[#9a9b8c] focus:outline-none"
               placeholder={t('thinking.inputPlaceholder')}
-              rows={1}
+              rows={2}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onCompositionStart={() => {
@@ -441,14 +446,17 @@ export function ThinkingChat({
               onKeyDown={handleKeyDown}
               disabled={loading}
             />
-            <button
-              type="button"
-              onClick={handleSend}
-              disabled={loading || !input.trim()}
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#3e4a32] text-white transition-colors hover:bg-[#5d6b4d] disabled:opacity-40 disabled:hover:bg-[#3e4a32]"
-            >
-              <Send className="h-4 w-4" />
-            </button>
+            <div className="flex shrink-0 items-center gap-1">
+              <ModelSelectButton modelAction={modelAction} disabled={loading} />
+              <button
+                type="button"
+                onClick={() => void handleSend()}
+                disabled={loading || Boolean(modelAction.activatingModelConfigId) || !input.trim()}
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-[#3e4a32] text-white transition-colors hover:bg-[#5d6b4d] disabled:opacity-40 disabled:hover:bg-[#3e4a32]"
+              >
+                <Send className="h-4 w-4" />
+              </button>
+            </div>
           </div>
         </div>
         <input

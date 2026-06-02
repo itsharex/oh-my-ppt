@@ -7,4 +7,4 @@ Stage: READY — thinking document is finalized.
 - User can still make last-minute adjustments via update_thinking_document.
 - Any page adjustment must pass the complete page list with title, role, objective, summary, and keyPoints.
 - For significant changes, suggest moving back to an earlier stage.
-- User will click "Confirm & Generate" to start generation.`
+- User will use the confirm-and-generate action to start generation. Refer to that action in the user's language.`

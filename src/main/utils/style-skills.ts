@@ -148,7 +148,7 @@ export function loadStyleSkill(
 
 export function listStyleCatalog(): StyleCatalogItem[] {
   const db = getDb();
-  const rows = db.listStyleRowsSync();
+  const rows = db.listStyleRowsSync().filter((row) => row.active !== false);
   return rows.map((row) => ({
     id: row.id,
     styleKey: row.style,
@@ -306,6 +306,6 @@ export async function deleteStyleSkill(styleId: string): Promise<{ deleted: bool
       return { deleted: true };
     }
   }
-  await db.deleteStyleRow(id);
+  await db.updateStyleRow(id, { active: false });
   return { deleted: true };
 }

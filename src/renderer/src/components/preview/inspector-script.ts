@@ -270,6 +270,29 @@ export function buildInspectorInjectScript(options?: { mode?: 'inspect' | 'text-
     return rect.width >= 2 && rect.height >= 2;
   };
 
+  const isGeneratedBackgroundTarget = (element) => {
+    if (!(element instanceof Element)) return false;
+    return Boolean(element.closest('[data-ppt-generated-background="1"]'));
+  };
+
+  const pickWithoutGeneratedBackground = (origin, clientX, clientY, pickAtPointBase) => {
+    const backgrounds = Array.from(document.querySelectorAll('[data-ppt-generated-background="1"]'))
+      .filter((element) => element instanceof HTMLElement);
+    if (backgrounds.length === 0) return null;
+    const previousVisibility = backgrounds.map((element) => element.style.visibility);
+    try {
+      backgrounds.forEach((element) => {
+        element.style.visibility = "hidden";
+      });
+      const alternate = pickAtPointBase(origin, clientX, clientY);
+      return alternate && !isGeneratedBackgroundTarget(alternate) ? alternate : null;
+    } finally {
+      backgrounds.forEach((element, index) => {
+        element.style.visibility = previousVisibility[index] || "";
+      });
+    }
+  };
+
   const promoteToWrapper = (element) => {
     if (element.getAttribute("data-block-id")) return element;
     const contentRoot = getContentRoot(element);
@@ -293,7 +316,11 @@ export function buildInspectorInjectScript(options?: { mode?: 'inspect' | 'text-
     getPageRoot,
     getContentRoot,
     isSelectable: isUsableTarget,
-    getSelector: buildStableSelector
+    getSelector: buildStableSelector,
+    resolveTarget: ({ origin, clientX, clientY, target, pickAtPointBase }) => {
+      if (!isGeneratedBackgroundTarget(target)) return target;
+      return pickWithoutGeneratedBackground(origin, clientX, clientY, pickAtPointBase) || target;
+    }
   });
 
   const getPointTarget = (origin, clientX, clientY) => {
@@ -411,9 +438,16 @@ export function buildInspectorInjectScript(options?: { mode?: 'inspect' | 'text-
       const s = el.style;
       const computed = getComputedStyle(el);
       const inlineOpacity = s.opacity.trim();
+      const inlineOpacityNumber = inlineOpacity ? Number(inlineOpacity) : NaN;
+      const hasMotionMarker =
+        el.matches("[data-anim], [data-anime], [data-animate], [data-ppt-anim-initialized='1'], .opacity-0");
+      const hasInitialHiddenOpacity =
+        inlineOpacity &&
+        Number.isFinite(inlineOpacityNumber) &&
+        inlineOpacityNumber <= 0.04;
       const motionMarked =
-        el.matches("[data-anim], [data-anime], [data-animate], [data-ppt-anim-initialized='1'], .opacity-0") ||
-        Boolean(inlineOpacity);
+        hasMotionMarker ||
+        hasInitialHiddenOpacity;
       if (motionMarked && Number(computed.opacity || "1") < 0.98) {
         s.opacity = "1";
       }

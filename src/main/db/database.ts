@@ -178,6 +178,7 @@ export interface StyleRow {
   styleSkill: string // plain markdown
   version: number
   styleCase: string
+  active: boolean
   createdAt: number
   updatedAt: number
 }
@@ -193,6 +194,28 @@ export interface ModelConfigRow {
   active: number
   createdAt: number
   updatedAt: number
+}
+
+export interface ImageModelConfigRow {
+  id: string
+  name: string
+  provider: string
+  active: number
+  modelConfig: string
+  createdAt: number
+  updatedAt: number
+}
+
+export interface ImageGenerationHistoryRow {
+  id: string
+  sessionId: string
+  pageId: string
+  prompt: string
+  imagePaths: string
+  modelConfigId: string
+  provider: string
+  model: string
+  createdAt: number
 }
 
 export interface SessionOperationRecord {
@@ -624,7 +647,7 @@ export class PPTDatabase {
       .select()
       .from(schema.generationPages)
       .where(eq(schema.generationPages.sessionId, sessionId))
-      .orderBy(asc(schema.generationPages.pageNumber), desc(schema.generationPages.updatedAt))
+      .orderBy(desc(schema.generationPages.updatedAt), desc(schema.generationPages.createdAt))
       .all()
     const latestByPageId = new Map<string, GenerationPageRecord>()
     for (const row of rows) {
@@ -1453,6 +1476,158 @@ export class PPTDatabase {
     await this.db.delete(schema.modelConfigs).where(eq(schema.modelConfigs.id, id)).run()
   }
 
+  // ========== Image Model Configs ==========
+
+  async listImageModelConfigs(): Promise<ImageModelConfigRow[]> {
+    const results = await this.db
+      .select()
+      .from(schema.imageModelConfigs)
+      .orderBy(desc(schema.imageModelConfigs.active), desc(schema.imageModelConfigs.updatedAt))
+      .all()
+    return results as unknown as ImageModelConfigRow[]
+  }
+
+  async getActiveImageModelConfig(): Promise<ImageModelConfigRow | undefined> {
+    const result = await this.db
+      .select()
+      .from(schema.imageModelConfigs)
+      .where(eq(schema.imageModelConfigs.active, 1))
+      .limit(1)
+      .get()
+    return result as unknown as ImageModelConfigRow | undefined
+  }
+
+  async getImageModelConfig(id: string): Promise<ImageModelConfigRow | undefined> {
+    const result = await this.db
+      .select()
+      .from(schema.imageModelConfigs)
+      .where(eq(schema.imageModelConfigs.id, id))
+      .limit(1)
+      .get()
+    return result as unknown as ImageModelConfigRow | undefined
+  }
+
+  async upsertImageModelConfig(data: {
+    id?: string
+    name: string
+    provider: string
+    modelConfig: string
+    active?: boolean
+  }): Promise<string> {
+    const id = data.id || crypto.randomUUID()
+    const now = Math.floor(Date.now() / 1000)
+    if (data.active) {
+      await this.db
+        .update(schema.imageModelConfigs)
+        .set({ active: 0, updatedAt: now })
+        .where(eq(schema.imageModelConfigs.active, 1))
+        .run()
+    }
+    await this.db
+      .insert(schema.imageModelConfigs)
+      .values({
+        id,
+        name: data.name,
+        provider: data.provider,
+        modelConfig: data.modelConfig,
+        active: data.active ? 1 : 0,
+        createdAt: now,
+        updatedAt: now
+      })
+      .onConflictDoUpdate({
+        target: schema.imageModelConfigs.id,
+        set: {
+          name: data.name,
+          provider: data.provider,
+          modelConfig: data.modelConfig,
+          active: data.active ? 1 : 0,
+          updatedAt: now
+        }
+      })
+      .run()
+    return id
+  }
+
+  async setActiveImageModelConfig(id: string): Promise<void> {
+    const now = Math.floor(Date.now() / 1000)
+    const existing = await this.db
+      .select()
+      .from(schema.imageModelConfigs)
+      .where(eq(schema.imageModelConfigs.id, id))
+      .get()
+    if (!existing) throw new Error('Image model config does not exist')
+    await this.db
+      .update(schema.imageModelConfigs)
+      .set({ active: 0, updatedAt: now })
+      .where(eq(schema.imageModelConfigs.active, 1))
+      .run()
+    await this.db
+      .update(schema.imageModelConfigs)
+      .set({ active: 1, updatedAt: now })
+      .where(eq(schema.imageModelConfigs.id, id))
+      .run()
+  }
+
+  async deleteImageModelConfig(id: string): Promise<void> {
+    const existing = await this.db
+      .select()
+      .from(schema.imageModelConfigs)
+      .where(eq(schema.imageModelConfigs.id, id))
+      .get()
+    if (!existing) throw new Error('Image model config does not exist')
+    await this.db.delete(schema.imageModelConfigs).where(eq(schema.imageModelConfigs.id, id)).run()
+  }
+
+  // ========== Image Generation Histories ==========
+
+  async listImageGenerationHistories(
+    sessionId: string,
+    pageId: string
+  ): Promise<ImageGenerationHistoryRow[]> {
+    const results = await this.db
+      .select()
+      .from(schema.imageGenerationHistories)
+      .where(
+        and(
+          eq(schema.imageGenerationHistories.sessionId, sessionId),
+          eq(schema.imageGenerationHistories.pageId, pageId)
+        )
+      )
+      .orderBy(desc(schema.imageGenerationHistories.createdAt))
+      .limit(50)
+      .all()
+    return results as unknown as ImageGenerationHistoryRow[]
+  }
+
+  async insertImageGenerationHistory(data: {
+    id?: string
+    sessionId: string
+    pageId: string
+    prompt: string
+    imagePaths: string[]
+    modelConfigId: string
+    provider: string
+    model: string
+    createdAt?: number
+  }): Promise<string> {
+    const id = data.id || crypto.randomUUID()
+    await this.db
+      .insert(schema.imageGenerationHistories)
+      .values({
+        id,
+        sessionId: data.sessionId,
+        pageId: data.pageId,
+        prompt: data.prompt,
+        imagePaths: JSON.stringify(data.imagePaths),
+        modelConfigId: data.modelConfigId,
+        provider: data.provider,
+        model: data.model,
+        createdAt: data.createdAt || Math.floor(Date.now() / 1000)
+      })
+      .run()
+    return id
+  }
+
   // ========== Preferences ==========
 
   async getActiveUserPreferences(): Promise<UserPreference[]> {
@@ -1812,6 +1987,7 @@ export class PPTDatabase {
       styleSkill?: string
       version?: number
       styleCase?: string
+      active?: boolean
     }
   ): Promise<void> {
     const now = Math.floor(Date.now() / 1000)
@@ -1824,6 +2000,7 @@ export class PPTDatabase {
     if (data.styleSkill !== undefined) set.styleSkill = data.styleSkill
     if (data.version !== undefined) set.version = data.version
     if (data.styleCase !== undefined) set.styleCase = data.styleCase
+    if (data.active !== undefined) set.active = data.active
     await this.db.update(schema.styles).set(set).where(eq(schema.styles.id, styleId)).run()
     await this._refreshStylesCache()
   }

@@ -95,6 +95,32 @@ CREATE TABLE IF NOT EXISTS model_configs (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_model_configs_single_active ON model_configs(active) WHERE active = 1;
 CREATE INDEX IF NOT EXISTS idx_model_configs_updated ON model_configs(updated_at);
 
+CREATE TABLE IF NOT EXISTS image_model_configs (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  model_config TEXT NOT NULL DEFAULT '{}',
+  active INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_image_model_configs_single_active ON image_model_configs(active) WHERE active = 1;
+CREATE INDEX IF NOT EXISTS idx_image_model_configs_updated ON image_model_configs(updated_at);
+
+CREATE TABLE IF NOT EXISTS image_generation_histories (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  page_id TEXT NOT NULL,
+  prompt TEXT NOT NULL,
+  image_paths TEXT NOT NULL DEFAULT '[]',
+  model_config_id TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  model TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_image_generation_histories_session ON image_generation_histories(session_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_image_generation_histories_page ON image_generation_histories(session_id, page_id, created_at);
+
 CREATE TABLE IF NOT EXISTS memory_summaries (
   id TEXT PRIMARY KEY,
   session_id TEXT NOT NULL,
@@ -179,6 +205,7 @@ CREATE TABLE IF NOT EXISTS styles (
   style_skill TEXT NOT NULL DEFAULT '',
   version INTEGER NOT NULL DEFAULT 1,
   style_case TEXT NOT NULL DEFAULT '',
+  active INTEGER NOT NULL DEFAULT 1,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
@@ -275,7 +302,15 @@ const resolveLegacyPagePath = (
 
 const getTableColumns = async (
   client: LibSqlClient,
-  tableName: 'settings' | 'messages' | 'sessions' | 'projects' | 'generation_pages' | 'session_pages'
+  tableName:
+    | 'settings'
+    | 'messages'
+    | 'sessions'
+    | 'projects'
+    | 'generation_pages'
+    | 'session_pages'
+    | 'model_configs'
+    | 'image_model_configs'
 ): Promise<Set<string>> => {
   const result = await client.execute(`PRAGMA table_info(${tableName})`)
   const rows = Array.isArray((result as { rows?: unknown[] }).rows)
@@ -329,6 +364,32 @@ const enforceModelConfigsSchema = async (client: LibSqlClient): Promise<void> =>
   )
   await client.execute(
     'CREATE INDEX IF NOT EXISTS idx_model_configs_updated ON model_configs(updated_at)'
+  )
+}
+
+const enforceImageModelConfigsSchema = async (client: LibSqlClient): Promise<void> => {
+  const columns = await getTableColumns(client, 'image_model_configs')
+  if (columns.size > 0 && !columns.has('model_config')) {
+    await client.execute('DROP INDEX IF EXISTS idx_image_model_configs_single_active')
+    await client.execute('DROP INDEX IF EXISTS idx_image_model_configs_updated')
+    await client.execute('DROP TABLE IF EXISTS image_model_configs')
+  }
+  await client.execute(`
+    CREATE TABLE IF NOT EXISTS image_model_configs (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      model_config TEXT NOT NULL DEFAULT '{}',
+      active INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `)
+  await client.execute(
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_image_model_configs_single_active ON image_model_configs(active) WHERE active = 1'
+  )
+  await client.execute(
+    'CREATE INDEX IF NOT EXISTS idx_image_model_configs_updated ON image_model_configs(updated_at)'
   )
 }
 
@@ -1104,6 +1165,7 @@ export const runDatabasePatches = async (args: {
   await enforceProjectsSchema(client)
   await enforceSettingsSchema(client)
   await enforceModelConfigsSchema(client)
+  await enforceImageModelConfigsSchema(client)
   await enforceMessagesSchema(client)
   await enforceGenerationSchema(client)
   await enforceSessionPagesSchema(client)

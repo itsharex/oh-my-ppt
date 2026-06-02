@@ -895,7 +895,8 @@ const buildChartBlock = (args: {
     zIndex: args.zIndex,
     offsetX: args.offsetX,
     offsetY: args.offsetY,
-    extra: ['background:#fff', 'padding:10px']
+    overflow: 'hidden',
+    extra: ['background:#fff']
   })
   if (!chartType || !('data' in args.element) || !Array.isArray(args.element.data)) {
     return `<section data-block-id="${escapeHtml(args.blockId)}"${animationAttrText} style="${css};display:flex;align-items:center;justify-content:center;color:#6b7280;">图表已作为占位导入</section>`
@@ -913,8 +914,8 @@ const buildChartBlock = (args: {
     data: { labels, datasets },
     options: { responsive: true, maintainAspectRatio: false, indexAxis: chartType.indexAxis || 'x' }
   }
-  return `<section data-block-id="${escapeHtml(args.blockId)}"${animationAttrText} style="${css}">
-  <canvas id="${canvasId}" style="width:100%;height:100%;"></canvas>
+  return `<section data-block-id="${escapeHtml(args.blockId)}" class="ppt-chart-frame"${animationAttrText} style="${css}">
+  <canvas id="${canvasId}" class="h-full w-full"></canvas>
 </section>
 <script>
 window.addEventListener("DOMContentLoaded", function () {

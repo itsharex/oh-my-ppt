@@ -1,6 +1,7 @@
 import { BrowserWindow, app, dialog, ipcMain } from 'electron'
 import log from 'electron-log/main.js'
 import { resolveModel } from '../../agent'
+import { applyProxy } from '../../utils/proxy'
 import type { IpcContext } from '../context'
 import {
   CONFIGURABLE_MODEL_TIMEOUT_PROFILES,
@@ -38,11 +39,16 @@ export function registerSettingsHandlers(ctx: IpcContext): void {
       typeof settings.storage_path === 'string' && settings.storage_path.trim().length > 0
         ? settings.storage_path.trim()
         : ''
+    const proxyUrl =
+      typeof settings.proxy_url === 'string' && settings.proxy_url.trim().length > 0
+        ? settings.proxy_url.trim()
+        : ''
     return {
       theme: settings.theme || 'light',
       locale: settings.locale === 'en' ? 'en' : 'zh',
       storagePath,
-      timeouts: readGlobalTimeouts(settings)
+      timeouts: readGlobalTimeouts(settings),
+      proxyUrl
     }
   })
 
@@ -114,6 +120,26 @@ export function registerSettingsHandlers(ctx: IpcContext): void {
           await db.setSetting(`timeout_ms_${profile}`, resolveModelTimeoutMs(value, profile))
         }
       }
+    }
+    if ('proxyUrl' in settings) {
+      const nextProxy =
+        typeof settings.proxyUrl === 'string' ? settings.proxyUrl.trim() : ''
+      try {
+        applyProxy(nextProxy || undefined)
+      } catch (proxyError) {
+        log.error('[settings:save] failed to apply proxy', {
+          proxyUrl: nextProxy,
+          message: proxyError instanceof Error ? proxyError.message : String(proxyError)
+        })
+        throw new Error(
+          uiText(
+            await readAppLocale(ctx),
+            `代理设置无效：${proxyError instanceof Error ? proxyError.message : '请检查地址格式'}`,
+            `Invalid proxy: ${proxyError instanceof Error ? proxyError.message : 'check the address format'}`
+          )
+        )
+      }
+      await db.setSetting('proxy_url', nextProxy)
     }
     return { success: true }
   })

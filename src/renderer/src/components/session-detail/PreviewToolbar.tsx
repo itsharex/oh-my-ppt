@@ -8,6 +8,7 @@ import {
   Redo2,
   ScrollText,
   Sparkles,
+  Type,
   Undo2,
   Video
 } from 'lucide-react'
@@ -35,6 +36,7 @@ interface PreviewToolbarProps {
   onRedo: () => void
   onSaveAllEdits: () => void
   onDiscardAllEdits: () => void
+  onAddText: () => void
   onAddFromLibrary: (type: 'image' | 'video') => void
   onAddFromLocal: (type: 'image' | 'video') => void
   onOpenSpeechScript: () => void
@@ -51,6 +53,7 @@ export function PreviewToolbar({
   onRedo,
   onSaveAllEdits,
   onDiscardAllEdits,
+  onAddText,
   onAddFromLibrary,
   onAddFromLocal,
   onOpenSpeechScript
@@ -199,6 +202,17 @@ export function PreviewToolbar({
             >
               <Redo2 className="mr-0.5 h-2.5 w-2.5" />
               {t('sessionDetail.redo')}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 shrink-0 rounded-[7px] border border-[#d9cfbd]/62 bg-[#fffaf1]/90 px-2 text-[10px] leading-none text-[#5d6b4d] shadow-[0_4px_12px_rgba(74,59,42,0.06)] hover:bg-[#d4e4c1]/72 disabled:opacity-40"
+              onClick={onAddText}
+              disabled={toolbarDisabled}
+            >
+              <Type className="mr-0.5 h-2.5 w-2.5" />
+              {t('editMode.addText')}
             </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>

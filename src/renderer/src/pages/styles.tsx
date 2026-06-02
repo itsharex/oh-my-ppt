@@ -9,7 +9,7 @@ import {
 } from '../components/ui/Popover'
 import { ipc } from '@renderer/lib/ipc'
 import { useToastStore } from '../store'
-import { Plus, PencilLine, Eye } from 'lucide-react'
+import { Plus, PencilLine, Eye, Trash2 } from 'lucide-react'
 import { useT } from '../i18n'
 
 type StyleSummary = {
@@ -30,7 +30,7 @@ const localAssetUrl = (filePath: string): string => `local-asset://${encodeURICo
 export function StylesPage(): React.JSX.Element {
   const navigate = useNavigate()
   const [styles, setStyles] = useState<StyleSummary[]>([])
-  const { error } = useToastStore()
+  const { error, info, warning } = useToastStore()
   const t = useT()
 
   const loadStyles = useCallback(async (): Promise<void> => {
@@ -51,6 +51,22 @@ export function StylesPage(): React.JSX.Element {
     }, 0)
     return () => window.clearTimeout(timer)
   }, [loadStyles])
+
+  const handleDelete = useCallback(async (style: StyleSummary): Promise<void> => {
+    try {
+      const result = await ipc.deleteStyle(style.id)
+      if (!result.deleted) {
+        warning(result.message || t('styles.cannotDelete'))
+        return
+      }
+      info(t('styles.deleted'))
+      await loadStyles()
+    } catch (e) {
+      error(t('styles.deleteFailed'), {
+        description: e instanceof Error ? e.message : t('common.retryLater'),
+      })
+    }
+  }, [error, info, warning, t, loadStyles])
 
   return (
     <div className="mx-auto w-full max-w-6xl p-6">
@@ -77,27 +93,36 @@ export function StylesPage(): React.JSX.Element {
               <CardHeader className="pb-2">
                 <CardTitle className="flex items-center justify-between text-base">
                   <span className="truncate transition-colors duration-200 group-hover:text-foreground">{style.label}</span>
-                  <div className="flex shrink-0 items-center gap-1.5">
+                  <div className="flex shrink-0 items-center gap-1">
                     {style.previewPath && (
                       <PopoverTrigger asChild>
                         <Button
                           size="sm"
                           variant="outline"
-                          className="transition-all duration-200 group-hover:-translate-y-0.5"
+                          className="h-7 gap-1 px-2 text-[11px] transition-all duration-200 group-hover:-translate-y-0.5"
                         >
-                          <Eye className="mr-1.5 h-3.5 w-3.5" />
-                          预览
+                          <Eye className="h-3 w-3" />
+                          {t('common.preview')}
                         </Button>
                       </PopoverTrigger>
                     )}
                     <Button
                       size="sm"
                       variant="outline"
-                      className="transition-all duration-200 group-hover:-translate-y-0.5"
+                      className="h-7 gap-1 px-2 text-[11px] transition-all duration-200 group-hover:-translate-y-0.5"
                       onClick={() => navigate(`/styles/${style.id}`)}
                     >
-                      <PencilLine className="mr-1.5 h-3.5 w-3.5" />
+                      <PencilLine className="h-3 w-3" />
                       {t('common.edit')}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 gap-1 px-2 text-[11px] text-destructive/70 transition-all duration-200 hover:text-destructive group-hover:-translate-y-0.5"
+                      onClick={() => void handleDelete(style)}
+                    >
+                      <Trash2 className="h-3 w-3" />
+                      {t('common.delete')}
                     </Button>
                   </div>
                 </CardTitle>

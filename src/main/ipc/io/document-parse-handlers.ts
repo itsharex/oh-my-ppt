@@ -6,13 +6,20 @@ import log from 'electron-log/main.js'
 import { nanoid } from 'nanoid'
 import { resolveModel } from '../../agent'
 import { FilesystemBackend, createDeepAgent } from 'deepagents'
-import { extractJsonBlock, extractModelText } from '../utils'
+import { extractModelText } from '../utils'
 import type { IpcContext } from '../context'
-import type { ParseDocumentPlanPayload, ParsedDocumentPlanResult } from '@shared/generation'
+import type {
+  ParseDocumentPlanPayload,
+  ParseImageReferencePayload,
+  ParsedDocumentPlanResult,
+  PrepareReferenceDocumentPayload,
+  PreparedReferenceDocumentResult
+} from '@shared/generation'
 import { resolveModelTimeoutMs } from '@shared/model-timeout'
 import { resolveActiveModelConfig, resolveGlobalModelTimeouts } from '../config/model-config-utils'
 import { assertImageWasRead, isImageUnsupportedError } from '../../utils/style-image-import'
 import { invokeVisionModelText } from '../../utils/vision-model'
+import { normalizeGeneratedPlan as normalizeDocumentPlan } from './document-plan-normalizer'
 
 type PreparedSourceFile = ParsedDocumentPlanResult['files'][number] & {
   originalPath: string
@@ -138,148 +145,6 @@ const getObject = (value: unknown): Record<string, unknown> | null =>
   value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null
-
-const isMeaningfulText = (value: string): boolean => value.trim().length > 0
-
-const stringifyLooseValue = (value: unknown): string => {
-  if (typeof value === 'string') return value.trim()
-  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
-  if (Array.isArray(value)) {
-    return value
-      .map((item) => stringifyLooseValue(item))
-      .filter(isMeaningfulText)
-      .join('\n')
-  }
-  const record = getObject(value)
-  if (record) {
-    return Object.entries(record)
-      .map(([key, item]) => {
-        const text = stringifyLooseValue(item)
-        return text ? `${key}：${text}` : ''
-      })
-      .filter(isMeaningfulText)
-      .join('\n')
-  }
-  return ''
-}
-
-const readFirstLooseString = (object: Record<string, unknown>, keys: string[]): string => {
-  for (const key of keys) {
-    const value = object[key]
-    const text = stringifyLooseValue(value)
-    if (text) return text
-  }
-  return ''
-}
-
-const unescapeLooseJsonString = (value: string): string =>
-  value
-    .replace(/\\n/g, '\n')
-    .replace(/\\r/g, '\n')
-    .replace(/\\t/g, '\t')
-    .replace(/\\"/g, '"')
-    .replace(/\\\\/g, '\\')
-    .trim()
-
-const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-
-const extractLooseFieldFromText = (rawText: string, keys: string[]): string => {
-  for (const key of keys) {
-    const quotedPattern = new RegExp(
-      `["']${escapeRegExp(key)}["']\\s*[:：]\\s*["']([\\s\\S]*?)(?=["']\\s*(?:,|}|\\n\\s*["'][^"']+["']\\s*[:：]))`,
-      'i'
-    )
-    const quotedMatch = rawText.match(quotedPattern)
-    if (quotedMatch?.[1]?.trim()) return unescapeLooseJsonString(quotedMatch[1])
-
-    const linePattern = new RegExp(
-      `(?:^|\\n)\\s*["']?${escapeRegExp(key)}["']?\\s*[:：]\\s*([\\s\\S]*?)(?=\\n\\s*["']?(?:${keys
-        .map(escapeRegExp)
-        .join('|')})["']?\\s*[:：]|$)`,
-      'i'
-    )
-    const lineMatch = rawText.match(linePattern)
-    if (lineMatch?.[1]?.trim()) {
-      return unescapeLooseJsonString(lineMatch[1].replace(/[,}]\s*$/g, ''))
-    }
-  }
-  return ''
-}
-
-const stripLikelyJsonWrappers = (rawText: string): string =>
-  rawText
-    .replace(/```(?:json)?/gi, '')
-    .replace(/```/g, '')
-    .replace(/^\s*[{[]\s*/, '')
-    .replace(/\s*[}\]]\s*$/, '')
-    .trim()
-
-const CHINESE_NUMERAL_MAP: Record<string, number> = {
-  零: 0,
-  一: 1,
-  二: 2,
-  两: 2,
-  三: 3,
-  四: 4,
-  五: 5,
-  六: 6,
-  七: 7,
-  八: 8,
-  九: 9
-}
-
-const parseChinesePageNumber = (value: string): number | null => {
-  const text = value.trim()
-  if (!text) return null
-  if (/^\d+$/.test(text)) return Number.parseInt(text, 10)
-  if (text === '十') return 10
-  if (text.startsWith('十')) {
-    const ones = CHINESE_NUMERAL_MAP[text.slice(1)]
-    return ones !== undefined ? 10 + ones : null
-  }
-  if (text.includes('十')) {
-    const [tensRaw, onesRaw = ''] = text.split('十')
-    const tens = CHINESE_NUMERAL_MAP[tensRaw]
-    const ones = onesRaw ? CHINESE_NUMERAL_MAP[onesRaw] : 0
-    return tens !== undefined && ones !== undefined ? tens * 10 + ones : null
-  }
-  return CHINESE_NUMERAL_MAP[text] ?? null
-}
-
-const extractNumberedSectionCount = (text: string, headingPattern: RegExp): number => {
-  const lines = text.split('\n')
-  const startIndex = lines.findIndex((line) => headingPattern.test(line))
-  if (startIndex < 0) return 0
-  let count = 0
-  let lastNumber = 0
-  for (const line of lines.slice(startIndex + 1)) {
-    const trimmed = line.trim()
-    if (!trimmed) continue
-    if (/^(每页要点|必须保留|风格|表达|注意事项|受众|核心观点|演示目标)\s*[:：]/.test(trimmed))
-      break
-    const match = trimmed.match(/^(\d{1,2})\s*[.、．)]\s*\S+/)
-    if (!match) {
-      if (count > 0 && /^[^\d第]/.test(trimmed)) break
-      continue
-    }
-    const n = Number.parseInt(match[1], 10)
-    if (Number.isFinite(n) && n >= 1 && n <= MAX_PAGE_COUNT) {
-      lastNumber = Math.max(lastNumber, n)
-      count += 1
-    }
-  }
-  return Math.max(count, lastNumber)
-}
-
-const extractImpliedPageCount = (text: string): number => {
-  const pageNumbers = Array.from(text.matchAll(/第\s*([一二两三四五六七八九十\d]{1,3})\s*页/g))
-    .map((match) => parseChinesePageNumber(match[1] || ''))
-    .filter((value): value is number => Boolean(value && value >= 1 && value <= MAX_PAGE_COUNT))
-  const maxPageNumber = pageNumbers.length > 0 ? Math.max(...pageNumbers) : 0
-  const outlineCount = extractNumberedSectionCount(text, /建议大纲|大纲|目录/)
-  const pagePointCount = extractNumberedSectionCount(text, /每页要点|页面要点|页级要点/)
-  return Math.min(MAX_PAGE_COUNT, Math.max(maxPageNumber, outlineCount, pagePointCount, 0))
-}
 
 const readMessageField = (message: Record<string, unknown>, key: string): unknown => {
   const direct = message[key]
@@ -570,95 +435,6 @@ const prepareSourceFile = async (
   }
 }
 
-const normalizeGeneratedPlan = (
-  rawText: string,
-  fallback: {
-    topic: string
-    pageCount: number | null
-    briefText: string
-  }
-): Pick<ParsedDocumentPlanResult, 'topic' | 'pageCount' | 'briefText'> => {
-  const parsed = (() => {
-    try {
-      return JSON.parse(extractJsonBlock(rawText)) as unknown
-    } catch {
-      return null
-    }
-  })()
-  const object =
-    parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : {}
-
-  const topicKeys = ['topic', 'title', '主题', '标题']
-  const briefKeys = [
-    'briefText',
-    'brief_text',
-    'brief',
-    'description',
-    'detail',
-    'detailedDescription',
-    'outline',
-    'summary',
-    'content',
-    'plan',
-    '详细描述',
-    '描述',
-    '大纲',
-    '建议大纲'
-  ]
-  const pageCountKeys = ['pageCount', 'page_count', 'pages', 'totalPages', '页数']
-
-  const topic =
-    readFirstLooseString(object, topicKeys) ||
-    extractLooseFieldFromText(rawText, topicKeys) ||
-    fallback.topic ||
-    ''
-  const rawPageCountValue =
-    pageCountKeys.map((key) => object[key]).find((value) => value !== undefined) ??
-    extractLooseFieldFromText(rawText, pageCountKeys)
-  const rawPageCount = Number(rawPageCountValue)
-  const normalizedPageCount = Number.isFinite(rawPageCount)
-    ? Math.min(MAX_PAGE_COUNT, Math.max(1, Math.round(rawPageCount)))
-    : fallback.pageCount || 5
-  // When JSON parsed successfully and has a briefText-family key, prefer it directly.
-  // readFirstLooseString returns "" for empty strings (falsy), which would cause the
-  // regex fallback to mis-parse valid JSON. Avoid that by checking key existence first.
-  const parsedHasBriefKey = Object.keys(object).some((key) => briefKeys.includes(key))
-  const looseBriefText = parsedHasBriefKey
-    ? (readFirstLooseString(object, briefKeys) ?? '')
-    : readFirstLooseString(object, briefKeys) ||
-      extractLooseFieldFromText(rawText, briefKeys) ||
-      fallback.briefText ||
-      stripLikelyJsonWrappers(rawText)
-  const briefText = looseBriefText.trim()
-  const impliedPageCount = extractImpliedPageCount(`${briefText}\n${rawText}`)
-  const pageCount = impliedPageCount >= 2 ? impliedPageCount : normalizedPageCount
-
-  if (!readFirstLooseString(object, ['briefText']) || pageCount !== normalizedPageCount) {
-    log.info('[documents:parsePlan] normalized with fallback fields', {
-      parsedKeys: Object.keys(object).slice(0, 20),
-      hasParsedObject: Object.keys(object).length > 0,
-      rawLength: rawText.length,
-      topicFound: Boolean(topic.trim()),
-      briefTextFound: Boolean(briefText),
-      rawPageCount: Number.isFinite(rawPageCount) ? rawPageCount : null,
-      normalizedPageCount,
-      impliedPageCount,
-      finalPageCount: pageCount
-    })
-  }
-
-  if (!topic.trim()) throw new Error('文档解析完成，但模型未返回 topic')
-  if (!briefText) throw new Error('文档解析完成，但模型未返回 briefText')
-
-  return {
-    topic: topic.trim(),
-    pageCount,
-    briefText
-  }
-}
-
 const buildDocumentPlanPrompt = (args: {
   topic: string
   pageCount: number | null
@@ -685,21 +461,27 @@ const buildDocumentPlanPrompt = (args: {
     'Field rules:',
     '- topic: a concise title suitable for the creation form topic input, in the selected output language.',
     `- pageCount: an integer suitable for the creation form page-count input, from 1 to ${MAX_PAGE_COUNT}.`,
+    '- IMPORTANT: pageCount means the target number of PPT slides to generate. It is NOT the number of uploaded files, NOT the number of source-document pages, and NOT the number of pages/screens shown in the source.',
+    '- Use pageCount=1 only when the source is extremely short and contains one single presentation point. For ordinary multi-section documents, infer a multi-slide deck, usually at least 4-8 slides depending on density.',
     '- briefText: a concise but structured outline suitable for the creation form detailed-brief input, in the selected output language.',
     '- briefText should establish generation direction and page structure; it does not need to expand every source detail.',
     '- briefText should include these sections in the selected output language: presentation goal, audience/context, core argument, recommended outline, per-page points, facts/metrics/terms to preserve, and style/expression notes when useful.',
-    '- The recommended outline and per-page points should align with the source document structure and be close to pageCount.',
+    '- Decide pageCount before writing briefText by estimating how many slides are needed to faithfully cover the document at presentation density.',
+    '- Base pageCount on the document structure, information density, major sections, narrative flow, and required cover/closing pages when useful.',
+    '- The recommended outline must contain exactly pageCount numbered items.',
+    '- The per-page points section must contain exactly pageCount page entries.',
     '- Per-page points must be specific to the source content; avoid vague placeholders such as background/goals/value.',
     '- Before returning, silently check consistency: pageCount must match the number of recommended outline items and per-page point entries.',
     '- If pageCount, recommended outline, and per-page points are inconsistent, fix them before returning the final JSON. Do not include the self-check.',
-    '- If the user-provided page count conflicts with the document structure, prefer a complete and internally consistent page-level outline.',
+    '- If no page count is provided by the user, infer it only from the document. Do not copy an example pageCount.',
+    '- If a page count is provided by the user, treat it as a hard target: pageCount must equal that number, and outline/per-page entries must be adapted to exactly that number.',
     '- Later PPT generation will read the source document again, so briefText should focus on clear direction and structure.',
     '- Preserve key facts, numbers, proper nouns, conclusions, product names, systems, timelines, roles, risks, and terminology from the document.',
     '- Compress the source; do not paste long passages verbatim.',
     '- Do not invent exact data that is not present in the document.',
     args.pageCount
-      ? `- Prefer pageCount=${args.pageCount} unless the document structure strongly suggests otherwise.`
-      : '- Infer pageCount from the document structure.',
+      ? `- User-provided page count: ${args.pageCount}. Return pageCount=${args.pageCount} exactly.`
+      : '- No page count was provided. Infer the target PPT slide count from the document structure and information density. Do not return 1 merely because one file was uploaded.',
     '',
     'Reading requirements:',
     `- Document path: ${args.file.virtualPath}`,
@@ -707,7 +489,7 @@ const buildDocumentPlanPrompt = (args: {
     '- If the file is long, call read_file multiple times in sections and summarize progressively. Do not only read the beginning.',
     '- If the document is a Word file, it has already been converted to Markdown for reading.',
     args.retryHint
-      ? `\nRetry requirement: the previous output failed validation because: ${args.retryHint}. Fix this issue. Ensure briefText is non-empty and pageCount matches the page-level outline.`
+      ? `\nRetry requirement: the previous output failed validation because: ${args.retryHint}. Fix this issue. Ensure briefText is non-empty and pageCount exactly matches the page-level outline and per-page points.`
       : '',
     args.topic
       ? `\nUser-provided topic: ${args.topic}`
@@ -752,7 +534,7 @@ const runDocumentPlanAgent = async (args: {
       virtualMode: true
     }),
     systemPrompt:
-      'You are a document-to-PPT-creation-form parsing agent. You must use read_file to read the uploaded document, in sections when needed, and extract topic, pageCount, and a structured briefText outline. Keep topic and briefText in the dominant language of the source document unless the user explicitly asks for another language. The section labels inside briefText must also use that language. If the source document is primarily Chinese, do not use English template labels. If the source document is primarily English, do not translate the outline into Chinese. Before returning, silently verify that pageCount, recommended outline count, and per-page point count are consistent. Return strict JSON only: topic, pageCount, briefText.'
+      'You are a document-to-PPT-creation-form parsing agent. You must use read_file to read the uploaded document, in sections when needed, and extract topic, pageCount, and a structured briefText outline. pageCount means the target number of PPT slides to generate; it is not the number of uploaded files or source-document pages. If no page count is provided, infer pageCount from the document structure and information density, and do not return 1 merely because one file was uploaded. If a page count is provided, return that exact pageCount. Keep topic and briefText in the dominant language of the source document unless the user explicitly asks for another language. The section labels inside briefText must also use that language. If the source document is primarily Chinese, do not use English template labels. If the source document is primarily English, do not translate the outline into Chinese. Before returning, silently verify that pageCount, recommended outline count, and per-page point count are consistent. Return strict JSON only: topic, pageCount, briefText.'
   })
   const stream = await agent.stream(
     {
@@ -837,13 +619,15 @@ const buildImageDocumentPlanPrompt = (args: {
     'Field rules:',
     '- topic: a concise title suitable for the creation form topic input.',
     `- pageCount: an integer from 1 to ${MAX_PAGE_COUNT}.`,
+    '- pageCount means the target number of PPT slides to generate from this image/reference. It is not the number of attached images.',
+    '- Use pageCount=1 only for a single simple visual with one presentation point; if the image contains multiple sections, panels, metrics, or a document-like screenshot, infer a multi-slide deck.',
     '- briefText: a concise but structured outline suitable for the creation form detailed-brief input.',
     '- briefText should include presentation goal, audience/context, core argument, recommended outline, per-page points, facts/metrics/terms to preserve, and visual/style reference.',
     '- visual/style reference should cover approximate colors, background, typography feel, layout density, alignment, cards/shapes/borders/shadows, chart style, image/illustration style, and any mood or motion guidance that would help recreate the look.',
     '- The recommended outline and per-page points should align with pageCount.',
     args.pageCount
       ? `- Prefer pageCount=${args.pageCount} unless the image strongly suggests otherwise.`
-      : '- Infer pageCount from the image structure.',
+      : '- Infer the target PPT slide count from the image structure. Do not return 1 merely because one image was attached.',
     args.retryHint
       ? `\nRetry requirement: the previous output failed validation because: ${args.retryHint}. Fix this issue. Ensure briefText is non-empty and pageCount matches the page-level outline.`
       : '',
@@ -855,6 +639,136 @@ const buildImageDocumentPlanPrompt = (args: {
     '{"topic":"AI动漫产业发展分析","pageCount":7,"briefText":"演示目标：...\\n受众/场景：...\\n核心观点：...\\n建议大纲：\\n1. ...\\n每页要点：\\n第 1 页：...\\n必须保留的事实/指标/术语：...\\n风格/表达要求：..."}',
     '{"topic":"Product Launch Readiness Review","pageCount":8,"briefText":"Presentation goal: ...\\nAudience/context: ...\\nCore argument: ...\\nRecommended outline:\\n1. ...\\nPer-page points:\\nPage 1: ...\\nFacts/metrics/terms to preserve: ...\\nStyle or expression notes: ..."}'
   ].join('\n')
+
+const writeImagePlanReferenceFile = async (args: {
+  file: PreparedSourceFile
+  plan: Pick<ParsedDocumentPlanResult, 'topic' | 'pageCount' | 'briefText'>
+}): Promise<PreparedSourceFile> => {
+  const ext = path.extname(args.file.workspacePath).toLowerCase()
+  const mdPath = args.file.workspacePath.replace(/\.[^.]+$/, '.image.md')
+  const briefText = compactText(args.plan.briefText)
+  if (!briefText) throw new Error('图片解析完成，但模型未返回可用参考内容')
+  const useChineseLabels = isMostlyChineseText(`${args.plan.topic}\n${briefText}`)
+  const markdown = [
+    `# ${path.basename(args.file.name, ext) || (useChineseLabels ? '图片参考' : 'Image reference')}`,
+    '',
+    `> Source image: ${args.file.name}`,
+    '> This file was generated after the user explicitly parsed the uploaded image, so later generation can use it as text reference.',
+    '',
+    `## ${useChineseLabels ? '主题' : 'Topic'}`,
+    '',
+    args.plan.topic,
+    '',
+    `## ${useChineseLabels ? '建议页数' : 'Suggested page count'}`,
+    '',
+    String(args.plan.pageCount),
+    '',
+    `## ${useChineseLabels ? '图片解析参考' : 'Image analysis reference'}`,
+    '',
+    briefText
+  ].join('\n')
+  await fs.promises.writeFile(mdPath, markdown, 'utf-8')
+
+  return {
+    ...args.file,
+    name: `${args.file.name}.image.md`,
+    type: 'markdown',
+    characterCount: markdown.length,
+    path: mdPath,
+    workspacePath: mdPath,
+    virtualPath: `/${path.basename(mdPath)}`
+  }
+}
+
+const buildImageReferenceMarkdownPrompt = (fileName: string): string =>
+  [
+    'Analyze the attached image or screenshot and convert it into a readable Markdown reference document.',
+    'The image is attached to this same message as a multimodal image block. Directly inspect the image before answering.',
+    '',
+    'Return Markdown only. Do not return JSON. Do not include task explanations.',
+    'Do not generate a PPT outline, page count, slide plan, or creation-form suggestions. Only organize what can be read or observed from the image.',
+    '',
+    `# 图片参考：${fileName}`,
+    '',
+    'Required sections:',
+    '## 可见文字',
+    '- Transcribe readable text, headings, labels, chart labels, names, metrics, dates, and terminology. Keep the original language.',
+    '- Preserve line breaks or hierarchy when they are visible.',
+    '## 内容整理',
+    '- Organize the observed content into concise Markdown bullets or tables when helpful.',
+    '- Mark uncertain or unreadable items clearly instead of guessing.',
+    '## 视觉信息',
+    '- Briefly describe visible layout, chart/table/UI structure, colors, and other visual cues that may help later generation.',
+    '',
+    'Rules:',
+    '- Do not invent exact numbers or facts that are not visible.',
+    '- If text is unreadable, say it is unreadable.',
+    '- If the image is mainly visual with little text, describe only the observable visual content.'
+  ].join('\n')
+
+const convertImageReferenceToMarkdown = async (args: {
+  file: PreparedSourceFile
+  provider: string
+  apiKey: string
+  model: string
+  baseUrl: string
+  maxTokens?: number
+  modelTimeoutMs: number
+}): Promise<PreparedSourceFile> => {
+  const ext = path.extname(args.file.workspacePath).toLowerCase()
+  const mimeType = IMAGE_MIME_BY_EXTENSION[ext]
+  if (!mimeType) throw new Error('暂只支持 png、jpg、jpeg、webp 图片')
+
+  const imageBase64 = (await fs.promises.readFile(args.file.workspacePath)).toString('base64')
+  let markdown = ''
+  try {
+    markdown = await invokeVisionModelText({
+      imageBase64,
+      mimeType,
+      prompt: buildImageReferenceMarkdownPrompt(args.file.name),
+      provider: args.provider,
+      apiKey: args.apiKey,
+      model: args.model,
+      baseUrl: args.baseUrl,
+      maxTokens: args.maxTokens,
+      modelTimeoutMs: args.modelTimeoutMs,
+      logTag: 'documents:parseImageReference'
+    })
+  } catch (error) {
+    if (isImageUnsupportedError(error)) {
+      throw new Error('当前模型不支持图片解析，请在设置中切换到支持多模态的模型')
+    }
+    throw error
+  }
+
+  const content = compactText(markdown)
+  assertImageWasRead(content)
+  if (!content) throw new Error('图片解析完成，但模型未返回可用内容')
+
+  const mdPath = args.file.workspacePath.replace(/\.[^.]+$/, '.image.md')
+  await fs.promises.writeFile(
+    mdPath,
+    [
+      `# ${path.basename(args.file.name, ext) || '图片参考'}`,
+      '',
+      `> Source image: ${args.file.name}`,
+      '> This file was generated after the user explicitly parsed the uploaded image into a readable Markdown reference.',
+      '',
+      content
+    ].join('\n'),
+    'utf-8'
+  )
+
+  return {
+    ...args.file,
+    name: `${args.file.name}.image.md`,
+    type: 'markdown',
+    characterCount: content.length,
+    path: mdPath,
+    workspacePath: mdPath,
+    virtualPath: `/${path.basename(mdPath)}`
+  }
+}
 
 const runImageDocumentPlanModel = async (args: {
   provider: string
@@ -904,6 +818,65 @@ const runImageDocumentPlanModel = async (args: {
 
 export function registerDocumentParseHandlers(ctx: IpcContext): void {
   const { resolveStoragePath } = ctx
+
+  ipcMain.handle(
+    'documents:prepareReference',
+    async (_event, payload: PrepareReferenceDocumentPayload) => {
+      const input = payload && typeof payload === 'object' ? payload : { files: [] }
+      const files = Array.isArray(input.files) ? input.files.slice(0, MAX_DOCUMENT_FILES) : []
+      if (files.length === 0) throw new Error('请先选择要附加的参考文件')
+
+      const docsDir = path.join(await resolveStoragePath(), 'docs')
+      await fs.promises.mkdir(docsDir, { recursive: true })
+      const preparedFiles = await Promise.all(files.map((file) => prepareSourceFile(file, docsDir)))
+
+      return {
+        files: preparedFiles.map(({ name, type, characterCount, workspacePath }) => ({
+          name,
+          type,
+          characterCount,
+          path: workspacePath
+        }))
+      } satisfies PreparedReferenceDocumentResult
+    }
+  )
+
+  ipcMain.handle(
+    'documents:parseImageReference',
+    async (_event, payload: ParseImageReferencePayload) => {
+      const input = payload && typeof payload === 'object' ? payload : { file: null }
+      const rawFile = input.file && typeof input.file === 'object' ? input.file : null
+      if (!rawFile) throw new Error('请先选择要解析的图片')
+
+      const docsDir = path.join(await resolveStoragePath(), 'docs')
+      await fs.promises.mkdir(docsDir, { recursive: true })
+      const sourceFile = await prepareSourceFile(rawFile, docsDir)
+      if (sourceFile.type !== 'image') throw new Error('请选择 png、jpg、jpeg、webp 图片')
+
+      const activeModel = await resolveActiveModelConfig(ctx)
+      const modelTimeouts = await resolveGlobalModelTimeouts(ctx)
+      const referenceFile = await convertImageReferenceToMarkdown({
+        file: sourceFile,
+        provider: activeModel.provider,
+        apiKey: activeModel.apiKey,
+        model: activeModel.model,
+        baseUrl: activeModel.baseUrl,
+        maxTokens: activeModel.maxTokens,
+        modelTimeoutMs: modelTimeouts.document
+      })
+
+      return {
+        files: [
+          {
+            name: referenceFile.name,
+            type: referenceFile.type,
+            characterCount: referenceFile.characterCount,
+            path: referenceFile.workspacePath
+          }
+        ]
+      } satisfies PreparedReferenceDocumentResult
+    }
+  )
 
   ipcMain.handle('documents:parsePlan', async (_event, payload: ParseDocumentPlanPayload) => {
     const input = payload && typeof payload === 'object' ? payload : { files: [] }
@@ -988,7 +961,7 @@ export function registerDocumentParseHandlers(ctx: IpcContext): void {
         sourceVirtualPath: sourceFile.virtualPath
       })
       try {
-        const candidatePlan = normalizeGeneratedPlan(responseText, fallbackPlan)
+        const candidatePlan = normalizeDocumentPlan(responseText, fallbackPlan)
         if (sourceFile.type === 'image') {
           assertImageWasRead(`${candidatePlan.topic}\n${candidatePlan.briefText}`)
         }
@@ -1002,7 +975,7 @@ export function registerDocumentParseHandlers(ctx: IpcContext): void {
       } catch (error) {
         lastError = error
         if (error instanceof RetryableDocumentPlanQualityError && attempt >= MAX_ATTEMPTS) {
-          plan = normalizeGeneratedPlan(responseText, fallbackPlan)
+          plan = normalizeDocumentPlan(responseText, fallbackPlan)
           log.warn(
             '[documents:parsePlan] quality check failed after retry, returning editable plan',
             {
@@ -1021,10 +994,14 @@ export function registerDocumentParseHandlers(ctx: IpcContext): void {
       }
     }
     if (!plan) throw lastError || new Error('文档解析完成，但模型未返回 briefText')
+    const resultFiles =
+      sourceFile.type === 'image'
+        ? [await writeImagePlanReferenceFile({ file: sourceFile, plan })]
+        : preparedFiles
 
     return {
       ...plan,
-      files: preparedFiles.map(({ name, type, characterCount, workspacePath }) => ({
+      files: resultFiles.map(({ name, type, characterCount, workspacePath }) => ({
         name,
         type,
         characterCount,

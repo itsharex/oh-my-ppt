@@ -50,6 +50,7 @@ export function buildSinglePageGenerationPrompt(args: {
   sourceDocumentPaths?: string[]
   referenceDocumentSnippets?: string
   isRetryMode?: boolean
+  writeToolName?: 'update_single_page_file' | 'update_template_page_file'
   designContract?: DesignContract
   retryContext?: {
     attempt: number
@@ -57,11 +58,16 @@ export function buildSinglePageGenerationPrompt(args: {
     previousError: string
   }
 }): string {
+  const writeToolName = args.writeToolName || 'update_single_page_file'
   const previousError = args.retryContext?.previousError || ''
   const shouldMentionChartFix =
     /chart|canvas|PPT\.createChart/i.test(previousError)
   const shouldMentionWriteToolFix =
-    /页面未写入|没有成功调用|not written|update_single_page_file|占位|placeholder/i.test(
+    /页面未写入|没有成功调用|not written|update_single_page_file|update_template_page_file|占位|placeholder/i.test(
+      previousError
+    )
+  const shouldMentionTemplateSkeletonFix =
+    /模板骨架|skeleton|background\/decorative|背景\/装饰资源|CSS url|SVG image|local asset/i.test(
       previousError
     )
   const retryInstructions = args.retryContext
@@ -72,7 +78,10 @@ export function buildSinglePageGenerationPrompt(args: {
         `- Previous failure: ${previousError}`,
         '- Output only a complete creative page fragment. The write tool will add section/main/content semantics when they are missing. Do not output a full document, page shell, or runtime scripts.',
         shouldMentionWriteToolFix
-          ? `- The previous attempt did not write the target page. You must call update_single_page_file(pageId="${args.pageId}", content=...) before any final response; do not only describe the HTML in the final response.`
+          ? `- The previous attempt did not write the target page. You must call ${writeToolName}(pageId="${args.pageId}", content=...) before any final response; do not only describe the HTML in the final response.`
+          : '',
+        shouldMentionTemplateSkeletonFix
+          ? '- The previous attempt dropped template skeleton resources. Reread the target template page, find the missing local asset references from the error, and include the corresponding background/decorative layers in the next write.'
           : '',
         '- Before calling the write tool, mentally validate that the main containers are closed and that no tag is left unfinished at the end.',
         '- If the previous issue was unclosed tags, do not patch the broken fragment. Rewrite a simpler, shallower fragment from scratch: one root div, no page shell (section[data-page-scaffold], main[data-role="content"], or runtime frame), grid/flex direct children, aim for 3 nesting levels and avoid exceeding 4, fewer wrappers, fewer modules.',
@@ -146,9 +155,12 @@ export function buildSinglePageGenerationPrompt(args: {
     '- Expansion must still fit one slide. If expanded content would exceed the 1600×900 canvas, summarize, merge, or drop lower-priority details instead of adding more cards or long paragraphs.',
     '',
     'Single-slide tool constraints:',
-    `- Required action: call update_single_page_file(pageId="${args.pageId}", content=complete creative page fragment).`,
-    '- This is not optional. A final text response without a successful update_single_page_file tool call means the slide is not generated.',
+    `- Required action: call ${writeToolName}(pageId="${args.pageId}", content=complete creative page fragment).`,
+    `- This is not optional. A final text response without a successful ${writeToolName} tool call means the slide is not generated.`,
     '- Do not call update_page_file. In this single-slide run it is intentionally not available.',
+    writeToolName === 'update_template_page_file'
+      ? '- Do not call update_single_page_file. This template run exposes update_template_page_file instead.'
+      : '',
     '- content must be a complete creative page fragment. The tool will wrap it with section[data-page-scaffold], main[data-role="content"], editable data-block-id attributes, and the runtime page frame when needed.',
     '- The content must not contain <!doctype>, <html>, <head>, <body>, .ppt-page-root, .ppt-page-content, .ppt-page-fit-scope, or data-ppt-guard-root.',
     '- The content must be complete and balanced: close your main layout containers and leave no unfinished trailing tags.',

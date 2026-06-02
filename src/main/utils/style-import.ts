@@ -18,7 +18,8 @@ export interface StyleParseResult {
 }
 
 const ALLOWED_EXTENSIONS = new Set(['.md', '.txt', '.html', '.htm'])
-const MAX_FILE_SIZE = 1024 * 1024
+const MAX_FILE_SIZE_MB = 10
+const MAX_FILE_SIZE = MAX_FILE_SIZE_MB * 1024 * 1024
 
 type PreparedStyleSourceFile = {
   name: string
@@ -67,7 +68,9 @@ async function prepareStyleSourceFile(
     throw new Error(`路径不是文件：${resolvedPath}`)
   }
   if (stat.size > MAX_FILE_SIZE) {
-    throw new Error(`文件过大（${(stat.size / 1024).toFixed(0)}KB），上限 ${MAX_FILE_SIZE / 1024}KB`)
+    throw new Error(
+      `文件过大（${(stat.size / 1024 / 1024).toFixed(1)}MB），上限 ${MAX_FILE_SIZE_MB}MB`
+    )
   }
   log.info('[styles:parseFile] read source file', {
     fileName: path.basename(resolvedPath),

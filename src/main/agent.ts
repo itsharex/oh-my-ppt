@@ -290,7 +290,9 @@ export function createSessionDeckAgent(args: {
     virtualMode: true,
     disableEditFile: true,
     editBlockedReason:
-      "当前生成/全局编辑任务禁止使用 edit_file。请使用 update_single_page_file(pageId, content) 或 update_page_file(pageId, content)。",
+      context.templatePageReadRequired
+        ? "当前模板生成任务禁止使用 edit_file。请使用 update_template_page_file(pageId, content)。"
+        : "当前生成/全局编辑任务禁止使用 edit_file。请使用 update_single_page_file(pageId, content) 或 update_page_file(pageId, content)。",
   });
   const agentBackend = attachProductSkillsBackend(backend);
   const getToolName = (tool: unknown): string => {

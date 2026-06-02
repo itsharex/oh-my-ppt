@@ -85,7 +85,7 @@ export function registerStyleHandlers(ctx: IpcContext): void {
   })
 
   ipcMain.handle('styles:list', async () => {
-    const rows = await db.listStyleRows()
+    const rows = (await db.listStyleRows()).filter((row) => row.active !== false)
     rows.sort((a, b) => b.updatedAt - a.updatedAt || b.createdAt - a.createdAt)
     return {
       items: rows.map((row) => ({

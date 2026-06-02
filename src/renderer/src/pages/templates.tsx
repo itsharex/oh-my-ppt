@@ -1,45 +1,24 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { CircleAlert, FileText, FileUp, LayoutTemplate, Loader2, RefreshCw } from 'lucide-react'
+import {
+  FileUp,
+  LayoutTemplate,
+  Loader2,
+  RefreshCw
+} from 'lucide-react'
 import { Button } from '../components/ui/Button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../components/ui/Dialog'
-import { Input, Textarea } from '../components/ui/Input'
 import { SaveTemplateDialog } from '../components/templates/SaveTemplateDialog'
 import { TemplateCard, TemplateEmptyState } from '../components/templates/TemplateCard'
+import { TemplateUseDialog } from '../components/templates/TemplateUseDialog'
 import { useTemplateStore, useToastStore } from '../store'
 import { ipc, type TemplateListItem } from '../lib/ipc'
 import { useT } from '../i18n'
+import { useModelAction } from '@renderer/hooks/useModelAction'
 
-const MIN_PAGE_COUNT = 1
-const MAX_PAGE_COUNT = 40
-const MAX_DOCUMENT_SIZE_MB = 10
-const MAX_DOCUMENT_SIZE_BYTES = MAX_DOCUMENT_SIZE_MB * 1024 * 1024
 const MAX_PPTX_SIZE_MB = 80
 const MAX_PPTX_SIZE_BYTES = MAX_PPTX_SIZE_MB * 1024 * 1024
 const DIRECT_CREATE_DONE_DELAY_MS = 500
-
-const resolvePageCount = (raw: string, fallback: number): number => {
-  const parsed = Number.parseInt(raw, 10)
-  if (!Number.isFinite(parsed)) return fallback
-  return Math.min(MAX_PAGE_COUNT, Math.max(MIN_PAGE_COUNT, parsed))
-}
-
-const buildTemplateInitialPrompt = (args: {
-  templateName: string
-  title: string
-  pageCount: number
-  brief: string
-}): string =>
-  [
-    `Create a ${args.pageCount}-slide presentation titled "${args.title}".`,
-    `Use the selected template "${args.templateName}" as the fixed visual template reference.`,
-    'Regenerate every slide from the new brief/source document. Preserve the template direction for layout roles, visual rhythm, colors, typography, and component treatment, but do not reuse old slide text unless the user asks for it.',
-    'Page-count mapping: preserve the template cover/opening role for slide 1 and the closing/ending role for the final slide when possible. If the final deck has more pages than the template, add the extra pages in the middle by reusing or varying relevant middle-page roles. If it has fewer pages, merge or skip less relevant middle-page roles. Do not force one-to-one page matching.',
-    'Determine the presentation content language from the brief and source documents; do not infer it from the application UI language or this instruction language.',
-    '',
-    'Brief:',
-    args.brief
-  ].join('\n')
 
 const localAssetUrl = (filePath: string): string =>
   `local-asset://${encodeURI(filePath.replace(/\\/g, '/'))}`
@@ -59,28 +38,19 @@ export function TemplatesPage(): React.JSX.Element {
     loading,
     fetchTemplates,
     createEditableSessionFromTemplate,
-    createSessionFromTemplate,
     importPptxAsTemplate,
     updateTemplateMetadata,
     deleteTemplate
   } = useTemplateStore()
   const { success, error, warning } = useToastStore()
+  const { ensureModelActive } = useModelAction()
   const [useTarget, setUseTarget] = useState<TemplateListItem | null>(null)
   const [previewTarget, setPreviewTarget] = useState<TemplateListItem | null>(null)
   const [editTarget, setEditTarget] = useState<TemplateListItem | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<TemplateListItem | null>(null)
-  const [title, setTitle] = useState('')
-  const [brief, setBrief] = useState('')
-  const [pageCount, setPageCount] = useState('5')
-  const [referenceDocumentPath, setReferenceDocumentPath] = useState<string | null>(null)
-  const [parsingDocument, setParsingDocument] = useState(false)
-  const [documentParseError, setDocumentParseError] = useState<string | null>(null)
-  const [hasParsedSource, setHasParsedSource] = useState(false)
-  const [creating, setCreating] = useState(false)
   const [directCreatingTemplateName, setDirectCreatingTemplateName] = useState<string | null>(null)
   const [editing, setEditing] = useState(false)
   const [deleting, setDeleting] = useState(false)
-  const documentInputRef = useRef<HTMLInputElement | null>(null)
   const pptxInputRef = useRef<HTMLInputElement | null>(null)
   const [importingPptxTemplate, setImportingPptxTemplate] = useState(false)
   const [pptxTemplateProgress, setPptxTemplateProgress] = useState<string | null>(null)
@@ -105,24 +75,10 @@ export function TemplatesPage(): React.JSX.Element {
     })
   }, [])
 
-  const openUseDialog = (template: TemplateListItem): void => {
+  const openUseDialog = async (template: TemplateListItem): Promise<void> => {
+    const ready = await ensureModelActive()
+    if (!ready) return
     setUseTarget(template)
-    setTitle(template.name)
-    setBrief('')
-    setPageCount(String(resolvePageCount(String(template.pageCount || 5), 5)))
-    setReferenceDocumentPath(null)
-    setDocumentParseError(null)
-    setHasParsedSource(false)
-  }
-
-  const closeUseDialog = (): void => {
-    if (creating || parsingDocument) return
-    setUseTarget(null)
-    setTitle('')
-    setBrief('')
-    setReferenceDocumentPath(null)
-    setDocumentParseError(null)
-    setHasParsedSource(false)
   }
 
   const ensureUploadPrerequisites = async (): Promise<boolean> => {
@@ -195,109 +151,6 @@ export function TemplatesPage(): React.JSX.Element {
     } finally {
       setImportingPptxTemplate(false)
       setPptxTemplateProgress(null)
-    }
-  }
-
-  const handleParseDocumentClick = async (): Promise<void> => {
-    if (parsingDocument) return
-    if (!(await ensureUploadPrerequisites())) return
-    documentInputRef.current?.click()
-  }
-
-  const handleDocumentFilesSelected = async (files: FileList | null): Promise<void> => {
-    const selectedFiles = Array.from(files || [])
-    if (documentInputRef.current) {
-      documentInputRef.current.value = ''
-    }
-    if (!useTarget || selectedFiles.length === 0) return
-    if (selectedFiles.length > 1) {
-      const message = t('templates.documentSingleOnly')
-      setDocumentParseError(message)
-      error(t('templates.documentCountExceeded'), { description: message })
-      return
-    }
-
-    const selectedFile = selectedFiles[0]
-    if (selectedFile.size > MAX_DOCUMENT_SIZE_BYTES) {
-      const message = t('templates.documentTooLarge', { maxSize: MAX_DOCUMENT_SIZE_MB })
-      setDocumentParseError(message)
-      error(t('templates.documentTooLargeTitle'), { description: message })
-      return
-    }
-
-    const payloadFiles = selectedFiles
-      .map((file) => ({
-        path: window.electron?.getPathForFile?.(file) || '',
-        name: file.name
-      }))
-      .filter((file) => file.path)
-    if (payloadFiles.length === 0) {
-      setDocumentParseError(t('templates.documentPathFailed'))
-      error(t('templates.documentPathFailedTitle'))
-      return
-    }
-
-    setParsingDocument(true)
-    setDocumentParseError(null)
-    setHasParsedSource(false)
-    try {
-      const result = await ipc.parseDocumentPlan({
-        files: payloadFiles,
-        topic: title.trim() || useTarget.name,
-        existingBrief: brief.trim()
-      })
-      setTitle(result.topic || title || useTarget.name)
-      setPageCount(String(result.pageCount))
-      setBrief(result.briefText)
-      const referenceFile = result.files.find((file) => file.type !== 'image')
-      setReferenceDocumentPath(referenceFile?.path || null)
-      setHasParsedSource(true)
-      success(t('templates.documentParsed'), {
-        description: t('templates.documentParsedDescription', { count: result.files.length })
-      })
-    } catch (err) {
-      const message = err instanceof Error ? err.message : t('common.retryLater')
-      setDocumentParseError(message)
-      error(t('templates.documentParseFailed'), { description: message })
-    } finally {
-      setParsingDocument(false)
-    }
-  }
-
-  const handleCreate = async (): Promise<void> => {
-    if (!useTarget || creating) return
-    const deckTitle = title.trim() || useTarget.name
-    const briefText = brief.trim()
-    if (!briefText) {
-      warning(t('templates.briefRequired'))
-      return
-    }
-    const safePageCount = resolvePageCount(pageCount, useTarget.pageCount || 5)
-    setCreating(true)
-    try {
-      const sessionId = await createSessionFromTemplate({
-        templateId: useTarget.id,
-        title: deckTitle,
-        pageCount: safePageCount,
-        referenceDocumentPath: referenceDocumentPath || undefined
-      })
-      const initialPrompt = buildTemplateInitialPrompt({
-        templateName: useTarget.name,
-        title: deckTitle,
-        pageCount: safePageCount,
-        brief: briefText
-      })
-      success(t('templates.sessionCreated'), { description: t('templates.sessionCreatedDescription') })
-      setUseTarget(null)
-      navigate(`/sessions/${sessionId}/template-generating`, {
-        state: { initialPrompt }
-      })
-    } catch (err) {
-      error(t('templates.createFailed'), {
-        description: err instanceof Error ? err.message : t('common.retryLater')
-      })
-    } finally {
-      setCreating(false)
     }
   }
 
@@ -415,7 +268,7 @@ export function TemplatesPage(): React.JSX.Element {
               key={template.id}
               template={template}
               onUseDirect={(item) => void handleCreateEditable(item)}
-              onUseGenerate={openUseDialog}
+              onUseGenerate={(item) => void openUseDialog(item)}
               onPreview={setPreviewTarget}
               onEdit={setEditTarget}
               onDelete={setDeleteTarget}
@@ -510,92 +363,7 @@ export function TemplatesPage(): React.JSX.Element {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={Boolean(useTarget)} onOpenChange={(open) => !open && closeUseDialog()}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <LayoutTemplate className="h-4 w-4" />
-              {t('templates.useDialogTitle')}
-            </DialogTitle>
-            <DialogDescription className="text-xs leading-5">
-              {t('templates.useDialogDescription')}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div className="flex flex-col gap-3 sm:flex-row">
-              <div className="min-w-0 flex-1">
-                <label className="mb-1 block text-xs font-medium text-[#5f6b50]">{t('templates.sessionTitleLabel')}</label>
-                <Input value={title} onChange={(event) => setTitle(event.target.value)} />
-              </div>
-              <div className="w-full sm:w-28">
-                <label className="mb-1 block text-xs font-medium text-[#5f6b50]">{t('templates.pageCountLabel')}</label>
-                <Input
-                  value={pageCount}
-                  inputMode="numeric"
-                  onChange={(event) => setPageCount(event.target.value)}
-                />
-              </div>
-            </div>
-            <div>
-              <div className="mb-1 flex items-center justify-between gap-2">
-                <label className="block text-xs font-medium text-[#5f6b50]">{t('templates.briefLabel')}</label>
-                {hasParsedSource && !parsingDocument ? (
-                  <span className="rounded-full bg-[#e8f0df] px-2 py-0.5 text-[11px] text-[#4f6340]">
-                    {t('templates.parsed')}
-                  </span>
-                ) : null}
-              </div>
-              <Textarea
-                value={brief}
-                onChange={(event) => setBrief(event.target.value)}
-                className="min-h-[160px]"
-                placeholder={t('templates.briefPlaceholder')}
-              />
-            </div>
-            <input
-              ref={documentInputRef}
-              type="file"
-              accept=".md,.txt,.text,.csv,.docx"
-              multiple={false}
-              className="hidden"
-              onChange={(event) => void handleDocumentFilesSelected(event.target.files)}
-            />
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => void handleParseDocumentClick()}
-                disabled={parsingDocument || creating}
-              >
-                {parsingDocument ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <FileText className="mr-2 h-4 w-4" />
-                )}
-                {parsingDocument ? t('templates.parsingDocument') : t('templates.uploadDocument')}
-              </Button>
-              <span className="text-xs text-muted-foreground">
-                {t('templates.supportedDocuments', { maxSize: MAX_DOCUMENT_SIZE_MB })}
-              </span>
-            </div>
-            {documentParseError ? (
-              <div className="flex items-start gap-2 rounded-md border border-[#d58b7f]/45 bg-[#fff2ef] px-3 py-2 text-xs text-[#8a3d33]">
-                <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
-                <span>{documentParseError}</span>
-              </div>
-            ) : null}
-          </div>
-          <DialogFooter>
-            <Button type="button" variant="outline" size="sm" onClick={closeUseDialog} disabled={creating || parsingDocument}>
-              {t('common.cancel')}
-            </Button>
-            <Button type="button" size="sm" onClick={() => void handleCreate()} disabled={creating || parsingDocument}>
-              {creating ? t('templates.creating') : t('templates.createAndGenerate')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <TemplateUseDialog template={useTarget} onOpenChange={(open) => !open && setUseTarget(null)} />
 
       <Dialog open={Boolean(deleteTarget)} onOpenChange={(open) => !deleting && !open && setDeleteTarget(null)}>
         <DialogContent>

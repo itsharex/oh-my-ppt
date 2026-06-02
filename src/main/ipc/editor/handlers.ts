@@ -241,7 +241,8 @@ export function registerEditorHandlers(ctx: IpcContext): void {
           style: {
             color: typeof rawStyle.color === 'string' ? rawStyle.color : undefined,
             fontSize: typeof rawStyle.fontSize === 'string' ? rawStyle.fontSize : undefined,
-            fontWeight: typeof rawStyle.fontWeight === 'string' ? rawStyle.fontWeight : undefined
+            fontWeight: typeof rawStyle.fontWeight === 'string' ? rawStyle.fontWeight : undefined,
+            textAlign: typeof rawStyle.textAlign === 'string' ? rawStyle.textAlign : undefined
           }
         })
       }
@@ -447,7 +448,8 @@ export function registerEditorHandlers(ctx: IpcContext): void {
         style: {
           color: typeof rawStyle.color === 'string' ? rawStyle.color : undefined,
           fontSize: typeof rawStyle.fontSize === 'string' ? rawStyle.fontSize : undefined,
-          fontWeight: typeof rawStyle.fontWeight === 'string' ? rawStyle.fontWeight : undefined
+          fontWeight: typeof rawStyle.fontWeight === 'string' ? rawStyle.fontWeight : undefined,
+          textAlign: typeof rawStyle.textAlign === 'string' ? rawStyle.textAlign : undefined
         }
       })
       await fs.promises.writeFile(safeHtmlPath, nextHtml, 'utf-8')

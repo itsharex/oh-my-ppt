@@ -32,9 +32,13 @@ export function buildDeckAgentSystemPrompt(
     Boolean(context.selectedPageId) ||
     (Array.isArray(context.allowedPageIds) && context.allowedPageIds.length === 1) ||
     context.outlineTitles.length === 1
+  const isTemplateGeneration = context.templatePageReadRequired === true
+  const singlePageWriteToolName = isTemplateGeneration
+    ? 'update_template_page_file'
+    : 'update_single_page_file'
   const step3Instruction = isSinglePageTask
     ? context.templatePageReadRequired
-      ? '3. Required: after reading the target template page with read_file, call update_single_page_file(pageId=target page, content). A final text response without the read_file + update_single_page_file sequence is a failed generation.'
+      ? '3. Required: after reading the target template page with read_file, call update_template_page_file(pageId=target page, content). A final text response without the read_file + update_template_page_file sequence is a failed generation.'
       : '3. Required: call update_single_page_file(pageId=target page, content). A final text response without this tool call is a failed generation.'
     : '3. Call update_page_file(content) page by page. For multi-page generation, write each target page file in order. You may pass pageId to override automatic targeting.'
   const sourceDocumentPaths = (context.sourceDocumentPaths || []).filter(Boolean)
@@ -62,7 +66,9 @@ export function buildDeckAgentSystemPrompt(
 
   return [
     '⛔⛔⛔ CRITICAL — TOOL CALL IS MANDATORY ⛔⛔⛔',
-    'You MUST call update_single_page_file (single-page) or update_page_file (multi-page) to write every page.',
+    isTemplateGeneration
+      ? 'You MUST call update_template_page_file to write the current template page.'
+      : 'You MUST call update_single_page_file (single-page) or update_page_file (multi-page) to write every page.',
     "Put ALL HTML into the tool's content parameter. Do NOT output HTML in your text reply.",
     'A response without successful tool calls is a FAILED generation.',
     '',
@@ -79,11 +85,22 @@ export function buildDeckAgentSystemPrompt(
     '本套演示设计契约（统一视觉护栏，避免机械套版）：',
     formatDesignContract(context.designContract),
     '',
-    '## 创意变化',
-    '- 在统一风格内制造每页的视觉惊喜：变化主视觉位置、标题进入方式、信息节奏、留白比例或局部装饰语言。',
-    '- 每页至少有一个清晰的视觉焦点，可以是关键数字、图表、产品/场景图、概念符号、时间节点或一句核心判断。',
-    '- 惊喜感服务于内容理解；不要为了变化加入无关装饰、复杂嵌套、遮挡文字或难以维护的结构。',
-    '- 同一套 deck 内避免连续页面使用完全相同的标题位置、卡片网格和背景分区。',
+    isTemplateGeneration
+      ? [
+          '## 模板还原优先',
+          '- 当前是模板生成，不追求重新设计、视觉惊喜或主动变化。',
+          '- 每页先继承目标模板页的页面角色、版式骨架、背景/装饰层、留白节奏、字体尺度、组件形状和配色关系。',
+          '- 只替换旧业务内容：标题、正文、指标、图表数据、案例、结论和与新主题冲突的内容素材。',
+          '- 为适配新内容可以做局部微调，但不能把模板页改成另一套构图或另一套视觉系统。',
+          '- 如果内容放不下，优先压缩文案/合并模块，不要通过新增大量卡片或重排整页来破坏模板。'
+        ].join('\n')
+      : [
+          '## 创意变化',
+          '- 在统一风格内制造每页的视觉惊喜：变化主视觉位置、标题进入方式、信息节奏、留白比例或局部装饰语言。',
+          '- 每页至少有一个清晰的视觉焦点，可以是关键数字、图表、产品/场景图、概念符号、时间节点或一句核心判断。',
+          '- 惊喜感服务于内容理解；不要为了变化加入无关装饰、复杂嵌套、遮挡文字或难以维护的结构。',
+          '- 同一套 deck 内避免连续页面使用完全相同的标题位置、卡片网格和背景分区。'
+        ].join('\n'),
     ...sourceDocumentInstructions,
     '',
     CANVAS_CONSTRAINTS,
@@ -110,17 +127,19 @@ export function buildDeckAgentSystemPrompt(
       : '',
     '- 不要在回复中贴大段 HTML；你的任务是通过工具把文件改好',
     isSinglePageTask
-      ? '- 不要调用 edit_file / write_file / update_page_file；单页任务必须调用 update_single_page_file(pageId, content) 并成功落盘后才能最终回复'
+      ? `- 不要调用 edit_file / write_file / update_page_file${
+          isTemplateGeneration ? ' / update_single_page_file' : ''
+        }；单页任务必须调用 ${singlePageWriteToolName}(pageId, content) 并成功落盘后才能最终回复`
       : '- 不要调用 edit_file / write_file 直接覆盖页面文件，统一用 update_page_file(content)',
     '',
     '## Execution Flow',
     isSinglePageTask
       ? context.templatePageReadRequired
         ? [
-            `1. Mandatory first action: call read_file(path="${targetPagePath || '/<pageId>.html'}", offset=0, limit=260) to inspect the copied template page before writing.`,
+            `1. Mandatory first action: call read_file(path="${targetPagePath || '/<pageId>.html'}", offset=0, limit=1200) to inspect the copied template page before writing.`,
             '2. Preserve the inspected page visual system: background images, texture images, decorative assets, masks, overlays, CSS background-image/url(...) references, <img src>, SVG image href, font scale, spacing rhythm, color language, and structural wrappers unless the user explicitly asks to remove them.',
             '   Background/decorative assets are template skeleton, not stale business content; replacing facts and text must not remove the visual shell.',
-            '   The content fragment you pass to update_single_page_file must explicitly carry those required layers or exact local asset references.',
+            `   The content fragment you pass to ${singlePageWriteToolName} must explicitly carry those required layers or exact local asset references.`,
             sourceDocumentPaths.length > 0
               ? `3. If retrieved source-document snippets are insufficient, use read_file to confirm source documents (${sourceDocumentPaths.join(', ')}).`
               : '3. Analyze the new slide content requirements from the context provided.',
@@ -159,6 +178,10 @@ export function buildDeckAgentSystemPrompt(
     '',
     'Fill each corresponding page strictly according to the content points in the outline above, keeping titles and content aligned.',
     '',
-    '⛔ FINAL REMINDER: Before you send your final text response, you MUST have successfully called update_single_page_file (or update_page_file) for every target page. A text-only reply without tool calls = FAILED generation.'
+    `⛔ FINAL REMINDER: Before you send your final text response, you MUST have successfully called ${
+      isTemplateGeneration
+        ? 'update_template_page_file'
+        : 'update_single_page_file (or update_page_file)'
+    } for every target page. A text-only reply without tool calls = FAILED generation.`
   ].join('\n')
 }

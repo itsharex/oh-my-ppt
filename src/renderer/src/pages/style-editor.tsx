@@ -3,19 +3,30 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { Button } from '../components/ui/Button'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
 import { Input, Textarea } from '../components/ui/Input'
+import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/Popover'
 import { ScrollArea } from '../components/ui/ScrollArea'
 import { useToastStore } from '../store'
 import { ipc, type StyleDetail, type StyleParseResult } from '@renderer/lib/ipc'
 import ReactMarkdown from 'react-markdown'
-import { ArrowLeft, Eye, Import, Loader2, Pencil, Save, Trash2 } from 'lucide-react'
+import {
+  ArrowLeft,
+  CircleHelp,
+  Eye,
+  Import,
+  Pencil,
+  Save,
+  Trash2
+} from 'lucide-react'
 import { useT } from '../i18n'
+import { ModelSplitButton } from '../components/model/ModelActionButton'
+import { useModelAction } from '../hooks/useModelAction'
 import {
   isSupportedImageMimeType,
   normalizeImageMimeType
 } from '@shared/image-mime'
 
-const MAX_STYLE_TEXT_FILE_SIZE_MB = 1
-const MAX_STYLE_PPTX_FILE_SIZE_MB = 80
+const MAX_STYLE_TEXT_FILE_SIZE_MB = 10
+const MAX_STYLE_PPTX_FILE_SIZE_MB = 100
 const MAX_STYLE_IMAGE_SIZE_MB = 5
 const MAX_STYLE_TEXT_FILE_SIZE_BYTES = MAX_STYLE_TEXT_FILE_SIZE_MB * 1024 * 1024
 const MAX_STYLE_PPTX_FILE_SIZE_BYTES = MAX_STYLE_PPTX_FILE_SIZE_MB * 1024 * 1024
@@ -46,6 +57,8 @@ export function StyleEditorPage(): React.JSX.Element {
   const [mode, setMode] = useState<'edit' | 'preview'>('edit')
   const styleFileInputRef = useRef<HTMLInputElement | null>(null)
   const { success, error, warning, info } = useToastStore()
+  const modelAction = useModelAction()
+  const { selectedModelConfigId, ensureModelActive } = modelAction
   const t = useT()
 
   useEffect(() => {
@@ -170,8 +183,9 @@ export function StyleEditorPage(): React.JSX.Element {
     return false
   }
 
-  const handleImportStyleClick = async (): Promise<void> => {
+  const handleImportStyleClick = async (modelConfigId = selectedModelConfigId): Promise<void> => {
     if (importing) return
+    if (!(await ensureModelActive(modelConfigId))) return
     if (!(await ensureUploadPrerequisites())) return
     styleFileInputRef.current?.click()
   }
@@ -293,7 +307,7 @@ export function StyleEditorPage(): React.JSX.Element {
         <p className="text-xs uppercase tracking-[0.22em] text-muted-foreground">{t('styleEditor.eyebrow')}</p>
         <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
-            <h1 className="organic-serif text-[32px] font-semibold leading-none text-[#3e4a32]">{currentStyleName}</h1>
+            <h1 className="organic-serif text-[28px] font-semibold leading-none text-[#3e4a32]">{currentStyleName}</h1>
           </div>
           <div className="flex shrink-0 flex-wrap items-center gap-2 sm:justify-end">
             <Button size="sm" variant="secondary" className="min-w-[112px]" onClick={() => navigate('/styles')}>
@@ -312,21 +326,16 @@ export function StyleEditorPage(): React.JSX.Element {
         <>
           {isNew ? (
             <div className="mb-4 space-y-2">
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => {
-                  void handleImportStyleClick()
-                }}
-                disabled={importing}
-              >
-                {importing ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <Import className="mr-2 h-4 w-4" />
-                )}
-                {importing ? t('styleEditor.importing') : t('styleEditor.importStyle')}
-              </Button>
+              <ModelSplitButton
+                modelAction={modelAction}
+                label={t('styleEditor.importStyle')}
+                loadingLabel={t('styleEditor.importing')}
+                loading={importing}
+                icon={Import}
+                tone="subtle"
+                dropdownAlign="start"
+                onRun={handleImportStyleClick}
+              />
               <p className="text-xs text-muted-foreground">
                 {t('styleEditor.importHint', {
                   textMaxSize: MAX_STYLE_TEXT_FILE_SIZE_MB,
@@ -345,37 +354,61 @@ export function StyleEditorPage(): React.JSX.Element {
             onChange={(e) => void handleStyleFileSelected(e.target.files)}
           />
           <Card>
-            <CardHeader>
-              <CardTitle className="text-base">{t('styleEditor.skillMarkdown')}</CardTitle>
+            <CardHeader className="p-4">
+              <CardTitle className="text-sm">{t('styleEditor.skillMarkdown')}</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="space-y-3 p-4 pt-0">
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
               <div>
-                <label className="mb-2 block text-sm font-medium">{t('styleEditor.name')}</label>
-                <Input value={labelInput} onChange={(e) => setLabelInput(e.target.value)} />
+                <label className="mb-1.5 block text-xs font-medium">{t('styleEditor.name')}</label>
+                <Input
+                  value={labelInput}
+                  onChange={(e) => setLabelInput(e.target.value)}
+                  className="h-8 px-3 py-1.5 text-xs"
+                />
               </div>
               <div>
-                <label className="mb-2 block text-sm font-medium">{t('styleEditor.descriptionLabel')}</label>
+                <label className="mb-1.5 block text-xs font-medium">{t('styleEditor.descriptionLabel')}</label>
                 <Input
                   value={descriptionInput}
                   onChange={(e) => setDescriptionInput(e.target.value)}
                   placeholder={t('styleEditor.descriptionPlaceholder')}
+                  className="h-8 px-3 py-1.5 text-xs"
                 />
               </div>
               <div className="md:col-span-2">
-                <label className="mb-2 block text-sm font-medium">{t('styleEditor.styleCaseLabel')}</label>
+                <label className="mb-1.5 block text-xs font-medium">{t('styleEditor.styleCaseLabel')}</label>
                 <Input
                   value={draft.styleCase || ''}
                   onChange={(e) =>
                     setDraft((prev) => (prev ? { ...prev, styleCase: e.target.value } : prev))
                   }
                   placeholder={t('styleEditor.styleCasePlaceholder')}
+                  className="h-8 px-3 py-1.5 text-xs"
                 />
               </div>
             </div>
-            <div className="rounded-lg border border-[#d9ccb4]/70 bg-[#f8f0e2]/72 p-3">
-              <p className="mb-2 text-xs font-semibold uppercase tracking-[0.08em] text-[#5d6f4d]">{t('styleEditor.writingTips')}</p>
-              <ul className="list-disc space-y-1 pl-5 text-xs leading-5 text-[#5b6b4d]">
+            <div className="rounded-lg border border-[#d9ccb4]/70 bg-[#f8f0e2]/72 p-2.5">
+              <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#5d6f4d]">
+                {t('styleEditor.writingTips')}
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <CircleHelp className="ml-1 inline h-3.5 w-3.5 cursor-pointer text-[#5d6f4d]/60 hover:text-[#5d6f4d]" />
+                  </PopoverTrigger>
+                  <PopoverContent align="start" side="bottom" className="w-80 border-[#d8ccb5]/80 bg-[#fffdf8] p-3">
+                    <p className="mb-1.5 text-[11px] font-semibold text-[#3e4a32]">
+                      {t('styleEditor.promptReferenceTitle')}
+                      <span className="ml-1 font-normal text-[#5b6b4d]/70">{t('styleEditor.promptReferenceSubtitle')}</span>
+                    </p>
+                    <ul className="list-disc space-y-1 pl-4 text-[11px] leading-5 text-[#5b6b4d]">
+                      {[1, 2, 3, 4, 5, 6, 7].map((i) => (
+                        <li key={i}>{t(`styleEditor.promptRef${i}` as Parameters<typeof t>[0])}</li>
+                      ))}
+                    </ul>
+                  </PopoverContent>
+                </Popover>
+              </p>
+              <ul className="list-disc space-y-0.5 pl-5 text-[11px] leading-5 text-[#5b6b4d]">
                 <li>{t('styleEditor.tipStructure')}</li>
                 <li>{t('styleEditor.tipAnimation')}</li>
                 <li>{t('styleEditor.tipNatural')}</li>
@@ -386,7 +419,7 @@ export function StyleEditorPage(): React.JSX.Element {
             {mode === 'edit' ? (
               <div>
                 <div className="mb-2 flex items-center justify-between">
-                  <label className="block text-sm font-medium">Markdown</label>
+                  <label className="block text-xs font-medium">Markdown</label>
                   <div className="flex items-center gap-1 rounded-lg border border-border p-0.5">
                     <button
                       type="button"
@@ -410,13 +443,13 @@ export function StyleEditorPage(): React.JSX.Element {
                   value={markdownInput}
                   onChange={(e) => setMarkdownInput(e.target.value)}
                   rows={24}
-                  className="resize-y font-mono text-sm"
+                  className="resize-y px-3 py-2 font-mono text-xs leading-5"
                 />
               </div>
             ) : (
               <div>
                 <div className="mb-2 flex items-center justify-between">
-                  <label className="block text-sm font-medium">Markdown</label>
+                  <label className="block text-xs font-medium">Markdown</label>
                   <div className="flex items-center gap-1 rounded-lg border border-border p-0.5">
                     <button
                       type="button"
@@ -436,21 +469,21 @@ export function StyleEditorPage(): React.JSX.Element {
                     </button>
                   </div>
                 </div>
-                <ScrollArea className="h-[400px] rounded-lg border border-border/70 bg-background/70" viewportClassName="p-5">
+                <ScrollArea className="h-[400px] rounded-lg border border-border/70 bg-background/70" viewportClassName="p-4">
                   <ReactMarkdown
                     components={{
-                      h1: ({ children }) => <h1 className="mb-3 text-xl font-semibold text-foreground">{children}</h1>,
-                      h2: ({ children }) => <h2 className="mb-2 mt-4 text-lg font-semibold text-foreground">{children}</h2>,
-                      h3: ({ children }) => <h3 className="mb-2 mt-3 text-base font-semibold text-foreground">{children}</h3>,
-                      p: ({ children }) => <p className="mb-2 text-sm leading-relaxed text-muted-foreground">{children}</p>,
-                      ul: ({ children }) => <ul className="mb-2 list-disc space-y-1 pl-5 text-sm text-muted-foreground">{children}</ul>,
-                      ol: ({ children }) => <ol className="mb-2 list-decimal space-y-1 pl-5 text-sm text-muted-foreground">{children}</ol>,
+                      h1: ({ children }) => <h1 className="mb-2 text-lg font-semibold text-foreground">{children}</h1>,
+                      h2: ({ children }) => <h2 className="mb-2 mt-3 text-base font-semibold text-foreground">{children}</h2>,
+                      h3: ({ children }) => <h3 className="mb-1.5 mt-2.5 text-sm font-semibold text-foreground">{children}</h3>,
+                      p: ({ children }) => <p className="mb-2 text-xs leading-5 text-muted-foreground">{children}</p>,
+                      ul: ({ children }) => <ul className="mb-2 list-disc space-y-0.5 pl-5 text-xs text-muted-foreground">{children}</ul>,
+                      ol: ({ children }) => <ol className="mb-2 list-decimal space-y-0.5 pl-5 text-xs text-muted-foreground">{children}</ol>,
                       li: ({ children }) => <li>{children}</li>,
                       code: ({ children }) => (
                         <code className="rounded bg-muted px-1.5 py-0.5 text-xs text-foreground">{children}</code>
                       ),
                       blockquote: ({ children }) => (
-                        <blockquote className="mb-2 border-l-2 border-border pl-3 text-sm text-muted-foreground">{children}</blockquote>
+                        <blockquote className="mb-2 border-l-2 border-border pl-3 text-xs text-muted-foreground">{children}</blockquote>
                       ),
                     }}
                   >
@@ -460,18 +493,26 @@ export function StyleEditorPage(): React.JSX.Element {
               </div>
             )}
 
-            <div className="flex flex-wrap items-center gap-2">
-              <Button onClick={handleSave} disabled={saving}>
-                <Save className="mr-2 h-4 w-4" />
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <Button size="sm" className="h-8 px-3 text-xs" onClick={handleSave} disabled={saving}>
+                <Save className="mr-1.5 h-3.5 w-3.5" />
                 {saving ? t('common.saving') : t('styleEditor.saveStyle')}
               </Button>
-              <Button variant="outline" onClick={handleDelete} disabled={saving}>
-                <Trash2 className="mr-2 h-4 w-4" />
-                {t('common.delete')}
-              </Button>
+              {!isNew && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 px-3 text-xs"
+                  onClick={handleDelete}
+                  disabled={saving}
+                >
+                  <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                  {t('common.delete')}
+                </Button>
+              )}
             </div>
 
-            <p className="text-xs text-muted-foreground">
+            <p className="text-[11px] text-muted-foreground">
               {t('styleEditor.currentMode', {
                 mode: draft.source === 'builtin' ? t('styleEditor.builtinMode') : draft.source || ''
               })}

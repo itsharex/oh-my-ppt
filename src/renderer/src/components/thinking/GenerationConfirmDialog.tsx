@@ -20,6 +20,9 @@ import { useT } from '@renderer/i18n'
 import { ipc, type FontListItem } from '@renderer/lib/ipc'
 import type { FontSelection } from '@shared/generation'
 import type { ThinkingPrepareGenerationResult } from '@shared/thinking'
+import { Sparkles } from 'lucide-react'
+import { ModelSplitButton } from '../model/ModelActionButton'
+import { useModelAction } from '@renderer/hooks/useModelAction'
 
 type FontPairRef = Extract<FontSelection, { mode: 'pair' }>['title']
 
@@ -112,6 +115,7 @@ interface GenerationConfirmDialogProps {
     styleId: string
     fontSelection: FontSelection
     referenceDocumentPath: string
+    modelConfigId?: string
   }) => void
 }
 
@@ -122,6 +126,9 @@ export function GenerationConfirmDialog({
   onConfirm
 }: GenerationConfirmDialogProps): ReactElement {
   const t = useT()
+  const modelAction = useModelAction()
+  const { selectedModelConfigId, ensureModelActive } = modelAction
+  const [confirming, setConfirming] = useState(false)
   const [topic, setTopic] = useState('')
   const [pageCount, setPageCount] = useState('5')
   const [styleId, setStyleId] = useState('')
@@ -213,16 +220,23 @@ export function GenerationConfirmDialog({
 
   const resolvedConfirmStyleId = styleId || resolveFallbackStyleId(prepared.styleId, styleOptions)
 
-  const handleConfirm = (): void => {
-    if (!resolvedConfirmStyleId) return
-    onConfirm({
-      topic: topic.trim() || prepared.topic,
-      pageCount: Number.parseInt(pageCount, 10) || prepared.pageCount,
-      styleId: resolvedConfirmStyleId,
-      fontSelection: resolveFontSelection(),
-      referenceDocumentPath: prepared.thinkingDocumentPath
-    })
-    onOpenChange(false)
+  const handleConfirm = async (modelConfigId = selectedModelConfigId): Promise<void> => {
+    if (!resolvedConfirmStyleId || confirming) return
+    if (!(await ensureModelActive(modelConfigId))) return
+    setConfirming(true)
+    try {
+      onConfirm({
+        topic: topic.trim() || prepared.topic,
+        pageCount: Number.parseInt(pageCount, 10) || prepared.pageCount,
+        styleId: resolvedConfirmStyleId,
+        fontSelection: resolveFontSelection(),
+        referenceDocumentPath: prepared.thinkingDocumentPath,
+        modelConfigId
+      })
+      onOpenChange(false)
+    } finally {
+      setConfirming(false)
+    }
   }
 
   return (
@@ -337,13 +351,28 @@ export function GenerationConfirmDialog({
           </div>
         </div>
 
-        <DialogFooter className="flex-col-reverse gap-2 sm:flex-row">
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+        <DialogFooter className="flex-col-reverse gap-2 sm:flex-row sm:items-center">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => onOpenChange(false)}
+            disabled={confirming}
+            className="w-full rounded-full sm:w-auto"
+          >
             {t('common.cancel')}
           </Button>
-          <Button onClick={handleConfirm} disabled={!resolvedConfirmStyleId}>
-            {t('home.createAndStart')}
-          </Button>
+          <ModelSplitButton
+            modelAction={modelAction}
+            label={t('home.createAndStart')}
+            loadingLabel={t('home.creating')}
+            loading={confirming}
+            disabled={!resolvedConfirmStyleId}
+            icon={Sparkles}
+            tone="primary"
+            className="w-full sm:w-auto"
+            mainClassName="min-w-0 flex-1 sm:flex-none sm:min-w-[156px]"
+            onRun={handleConfirm}
+          />
         </DialogFooter>
       </DialogContent>
     </Dialog>

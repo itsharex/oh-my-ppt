@@ -1,5 +1,4 @@
 import * as cheerio from 'cheerio'
-import type { Element as CheerioElement } from 'domhandler'
 import {
   SHARED_PAGE_STYLES_END,
   SHARED_PAGE_STYLES_START,
@@ -92,29 +91,6 @@ export const PAGE_PLACEHOLDER_TEXT = '等待模型填充这一页内容'
 
 export const isPlaceholderPageHtml = (html: string): boolean =>
   html.includes(PAGE_PLACEHOLDER_TEXT) || /data-placeholder-page\s*=\s*["']1["']/i.test(html)
-
-const classBaseName = (cls: string): string => cls.split(':').pop() || cls
-
-const classList = (classRaw: string): string[] =>
-  classRaw
-    .split(/\s+/)
-    .map((cls) => cls.trim())
-    .filter(Boolean)
-
-const hasExplicitChartPixelHeightClass = (classRaw: string): boolean =>
-  classRaw
-    .split(/\s+/)
-    .filter(Boolean)
-    .some((cls) => {
-      const base = classBaseName(cls)
-      return /^h-\[\s*(?!0+(?:\.0+)?px\b)\d+(?:\.\d+)?px\s*\]$/.test(base)
-    })
-
-const hasConcreteChartHeightStyle = (styleRaw: string): boolean =>
-  /(?:^|;)\s*height\s*:\s*(?!\s*(?:auto|0(?:px|rem|em|%)?|100%|inherit|initial|unset)\b)\d+(?:\.\d+)?(?:px|rem)\s*(?:;|$)/i.test(
-    styleRaw
-  )
-
 
 
 const isAllowedRuntimeAsset = (src: string): boolean => {

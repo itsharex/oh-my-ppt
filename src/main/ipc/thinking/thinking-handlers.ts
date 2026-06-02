@@ -4,9 +4,17 @@ import fs from 'fs'
 import log from 'electron-log/main.js'
 import type { IpcContext } from '../context'
 import { resolveActiveModelConfig, resolveGlobalModelTimeouts } from '../config/model-config-utils'
-import { createWorkspace, readWorkspace, scanLatestWorkspace, resolveThinkingDir } from '../../thinking/workspace'
+import {
+  createWorkspace,
+  deleteWorkspace,
+  readWorkspace,
+  scanLatestWorkspace,
+  scanWorkspaceList,
+  resolveThinkingDir,
+  writeMessagesList
+} from '../../thinking/workspace'
 import { extractPendingImageTextSources, prepareMultipleSources } from '../../thinking/source-prepare'
-import { runThinkingChat } from '../../thinking/thinking-agent'
+import { invalidateRuntime, runThinkingChat } from '../../thinking/thinking-agent'
 import { normalizeFontSelection } from '@shared/generation'
 import type { ThinkingChatMessage, ThinkingPrepareGenerationResult } from '@shared/thinking'
 
@@ -143,6 +151,19 @@ export function registerThinkingHandlers(ctx: IpcContext): void {
     return readWorkspace(storagePath, latest.thinkingId)
   })
 
+  ipcMain.handle('thinking:listWorkspaces', async (_event, payload?: { limit?: unknown }) => {
+    const storagePath = await resolveStoragePath()
+    const limit = Math.max(1, Math.min(100, Math.floor(Number(payload?.limit) || 50)))
+    return scanWorkspaceList(storagePath, limit)
+  })
+
+  ipcMain.handle('thinking:deleteWorkspace', async (_event, thinkingId: string) => {
+    const storagePath = await resolveStoragePath()
+    await deleteWorkspace(storagePath, thinkingId)
+    invalidateRuntime(thinkingId)
+    return { success: true }
+  })
+
   ipcMain.handle('thinking:revealWorkspace', async (_event, thinkingId: string) => {
     const storagePath = await resolveStoragePath()
     await readWorkspace(storagePath, thinkingId)
@@ -230,9 +251,14 @@ export function registerThinkingHandlers(ctx: IpcContext): void {
     'thinking:chat',
     async (
       _event,
-      payload: { thinkingId: string; userMessage: string; recentMessages?: ThinkingChatMessage[] }
+      payload: {
+        thinkingId: string
+        userMessage: string
+        recentMessages?: ThinkingChatMessage[]
+        attachments?: ThinkingChatMessage['attachments']
+      }
     ) => {
-      const { thinkingId, userMessage, recentMessages } = payload
+      const { thinkingId, userMessage, recentMessages, attachments } = payload
       const storagePath = await resolveStoragePath()
       const dir = resolveThinkingDir(storagePath, thinkingId)
 
@@ -266,7 +292,9 @@ export function registerThinkingHandlers(ctx: IpcContext): void {
         contextMd: workspace.contextMd,
         sourcesDir: `${dir}/sources`,
         userMessage,
-        recentMessages: Array.isArray(recentMessages) ? recentMessages.slice(-8) : [],
+        recentMessages: Array.isArray(recentMessages)
+          ? recentMessages.slice(-8)
+          : workspace.messages.slice(-8),
         provider: activeModel.provider,
         apiKey: activeModel.apiKey,
         model: activeModel.model,
@@ -275,6 +303,22 @@ export function registerThinkingHandlers(ctx: IpcContext): void {
         modelTimeoutMs: modelTimeouts.agent,
         onThinkingEvent: emitThinkingEvent
       })
+
+      const now = Date.now()
+      await writeMessagesList(dir, [
+        ...workspace.messages,
+        {
+          role: 'user',
+          content: userMessage,
+          timestamp: now,
+          ...(Array.isArray(attachments) && attachments.length > 0 ? { attachments } : {})
+        },
+        {
+          role: 'assistant',
+          content: result.reply,
+          timestamp: Date.now()
+        }
+      ])
 
       // Send final result with the full reply for typing animation
       const windows = BrowserWindow.getAllWindows()

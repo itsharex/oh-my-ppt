@@ -8,6 +8,7 @@ import type { SessionDeckGenerationContext } from './types'
 import { validateHtmlContent, validatePersistedPageHtml } from './html-utils'
 import { buildSessionAssetHeadTags } from '../ipc/engine/page-assets'
 import { normalizeCreativePageFragment } from './page-fragment-normalizer'
+import { validateTemplateSkeletonPreserved } from '../ipc/templates/template-skeleton-validator'
 
 const uiText = (locale: 'zh' | 'en' | undefined, zh: string, en: string): string =>
   locale === 'en' ? en : zh
@@ -103,7 +104,6 @@ export const BASE_PAGE_STYLE_TAG = `<style id="ppt-page-guard-style">
   .ppt-page-content [data-block-id*="chart"],
   .ppt-page-content [data-block-id*="graph"],
   .ppt-page-content [data-block-id*="plot"] {
-    min-height: 240px;
     min-width: 0;
   }
   [data-role="title"] h1,
@@ -584,6 +584,8 @@ function preprocessPageHtml(html: string): string {
     // 2. Stabilize chart canvases
     $('canvas').each((_, node) => {
       const canvas = $(node)
+      canvas.removeAttr('width')
+      canvas.removeAttr('height')
       const originalCanvasClasses = splitClassNames(canvas.attr('class') || '')
       const wrapperClasses = originalCanvasClasses.filter(isMarginUtilityClass)
       const canvasClassSet = new Set(
@@ -982,6 +984,25 @@ export function createPageWriteTools(args: {
         context.projectDir,
         designFonts
       )
+      if (context.templatePageReadRequired) {
+        const beforeHtml = await fs.promises.readFile(targetPath, 'utf-8').catch(() => '')
+        const missingTemplateRefs = validateTemplateSkeletonPreserved(beforeHtml, normalized)
+        if (missingTemplateRefs.length > 0) {
+          const detail = missingTemplateRefs.slice(0, 8).join(', ')
+          emitNormalizedToolStatus(config, {
+            label: `模板骨架校验失败 ${resolvedPageId}`,
+            detail: `写入内容丢失模板背景/装饰资源: ${detail}`,
+            progress: 60,
+            pageId: resolvedPageId
+          })
+          throw new Error(
+            [
+              `模板骨架资源丢失 (${resolvedPageId})：${detail}`,
+              '请重新读取目标模板页，把背景图、纹理、装饰图、mask/overlay 或 CSS url(...) 对应结构保留在 update_template_page_file 的 content 中。'
+            ].join(' ')
+          )
+        }
+      }
       const persistedValidation = validatePersistedPageHtml(normalized, resolvedPageId)
       if (!persistedValidation.valid) {
         emitNormalizedToolStatus(config, {
@@ -1039,9 +1060,13 @@ export function createPageWriteTools(args: {
           })
         },
         {
-          name: 'update_single_page_file',
+          name: context.templatePageReadRequired
+            ? 'update_template_page_file'
+            : 'update_single_page_file',
           description:
-            'Single-page edit tool. Pass pageId and content explicitly; the tool validates pageId against the current single-page context to avoid modifying other pages.',
+            context.templatePageReadRequired
+              ? 'Template-preserving page generation tool. Pass pageId and a complete creative page fragment based on the copied template page. It validates pageId and rejects writes that drop template background/decorative CSS url(...) resources, SVG image hrefs, or decorative local media references.'
+              : 'Single-page edit tool. Pass pageId and content explicitly; the tool validates pageId against the current single-page context to avoid modifying other pages.',
           schema: z.object({
             pageId: z
               .string()
@@ -1051,7 +1076,9 @@ export function createPageWriteTools(args: {
             content: z
               .string()
               .describe(
-                'Complete creative page HTML fragment only. The tool will add section[data-page-scaffold], main[data-role="content"], editable data-block-id attributes, and the runtime page frame when needed. Do not pass <!doctype>, <html>, <head>, <body>, .ppt-page-root, .ppt-page-content, .ppt-page-fit-scope, data-ppt-guard-root, or any runtime shell markup.'
+                context.templatePageReadRequired
+                  ? 'Complete creative page HTML fragment based on the copied template page. Keep template background/decorative layers and exact local asset references from the inspected template page while replacing old business text/data. The tool will add the runtime page frame when needed. Do not pass <!doctype>, <html>, <head>, <body>, .ppt-page-root, .ppt-page-content, .ppt-page-fit-scope, data-ppt-guard-root, or runtime shell markup.'
+                  : 'Complete creative page HTML fragment only. The tool will add section[data-page-scaffold], main[data-role="content"], editable data-block-id attributes, and the runtime page frame when needed. Do not pass <!doctype>, <html>, <head>, <body>, .ppt-page-root, .ppt-page-content, .ppt-page-fit-scope, data-ppt-guard-root, or any runtime shell markup.'
               )
           })
         }

@@ -2,7 +2,14 @@ import path from 'path'
 import fs from 'fs'
 import { nanoid } from 'nanoid'
 import log from 'electron-log/main.js'
-import type { ThinkingStage, ThinkingSource, ThinkingWorkspace } from '@shared/thinking'
+import { normalizeThinkingAssistantReply, normalizeThinkingMessages } from './reply-normalizer'
+import type {
+  ThinkingChatMessage,
+  ThinkingStage,
+  ThinkingSource,
+  ThinkingWorkspace,
+  ThinkingWorkspaceListItem
+} from '@shared/thinking'
 
 const THINKING_ID_RE = /^[a-zA-Z0-9_-]{6,32}$/
 
@@ -75,7 +82,8 @@ export async function createWorkspace(storagePath: string): Promise<ThinkingWork
     thinkingMd,
     contextMd,
     stage: 'collect',
-    sources: []
+    sources: [],
+    messages: []
   }
 }
 
@@ -99,9 +107,16 @@ export async function readWorkspace(
   ])
 
   const stage = parseStageFromContextMd(contextMd)
-  const sources = await parseSourcesList(dir)
+  const [sources, messages] = await Promise.all([parseSourcesList(dir), readMessagesList(dir)])
 
-  return { thinkingId, thinkingMd, contextMd, stage, sources }
+  return { thinkingId, thinkingMd, contextMd, stage, sources, messages }
+}
+
+export async function deleteWorkspace(storagePath: string, thinkingId: string): Promise<void> {
+  await readWorkspace(storagePath, thinkingId)
+  const dir = resolveThinkingDir(storagePath, thinkingId)
+  await fs.promises.rm(dir, { recursive: true, force: true })
+  log.info(`[thinking] workspace deleted: ${thinkingId}`)
 }
 
 export async function writeThinkingMd(dir: string, content: string): Promise<void> {
@@ -112,6 +127,15 @@ export async function writeThinkingMd(dir: string, content: string): Promise<voi
 export async function writeContextMd(dir: string, content: string): Promise<void> {
   const filePath = path.join(dir, 'context.md')
   await fs.promises.writeFile(filePath, content, 'utf-8')
+}
+
+export async function writeMessagesList(
+  dir: string,
+  messages: ThinkingChatMessage[]
+): Promise<void> {
+  const filePath = path.join(dir, 'messages.json')
+  const normalized = normalizeThinkingMessages(messages)
+  await fs.promises.writeFile(filePath, JSON.stringify(normalized, null, 2), 'utf-8')
 }
 
 export async function scanLatestWorkspace(
@@ -146,6 +170,66 @@ export async function scanLatestWorkspace(
     thinkingId: path.basename(latestDir),
     updatedAt: latestMtime
   }
+}
+
+export async function scanWorkspaceList(
+  storagePath: string,
+  limit = 50
+): Promise<ThinkingWorkspaceListItem[]> {
+  const thinkingRoot = path.join(storagePath, 'thinking')
+  if (!fs.existsSync(thinkingRoot)) return []
+
+  const entries = await fs.promises.readdir(thinkingRoot, { withFileTypes: true })
+  const items: ThinkingWorkspaceListItem[] = []
+
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !THINKING_ID_RE.test(entry.name)) continue
+
+    const dir = path.join(thinkingRoot, entry.name)
+    const thinkingMdPath = path.join(dir, 'thinking.md')
+    const contextMdPath = path.join(dir, 'context.md')
+    if (!fs.existsSync(thinkingMdPath)) continue
+
+    try {
+      const [thinkingMd, thinkingStat] = await Promise.all([
+        fs.promises.readFile(thinkingMdPath, 'utf-8'),
+        fs.promises.stat(thinkingMdPath)
+      ])
+      let contextMd = ''
+      let contextMtime = 0
+      try {
+        const [content, stat] = await Promise.all([
+          fs.promises.readFile(contextMdPath, 'utf-8'),
+          fs.promises.stat(contextMdPath)
+        ])
+        contextMd = content
+        contextMtime = stat.mtimeMs
+      } catch {
+        contextMd = ''
+      }
+
+      items.push({
+        thinkingId: entry.name,
+        updatedAt: Math.max(thinkingStat.mtimeMs, contextMtime),
+        topic: parseTopicFromThinkingMd(thinkingMd),
+        stage: parseStageFromContextMd(contextMd)
+      })
+    } catch (error) {
+      log.warn('[thinking] failed to scan workspace list item', {
+        thinkingId: entry.name,
+        message: error instanceof Error ? error.message : String(error)
+      })
+    }
+  }
+
+  return items.sort((a, b) => b.updatedAt - a.updatedAt).slice(0, Math.max(1, limit))
+}
+
+function parseTopicFromThinkingMd(thinkingMd: string): string {
+  const inline = thinkingMd.match(/^##\s*Topic\s*:\s*(.+)/m)
+  if (inline) return inline[1].trim()
+  const newline = thinkingMd.match(/^##\s*Topic\s*\n\s*(.+)/m)
+  return newline ? newline[1].trim() : ''
 }
 
 export function parseStageFromContextMd(content: string): ThinkingStage {
@@ -210,4 +294,47 @@ export async function parseSourcesList(dir: string): Promise<ThinkingSource[]> {
   }
 
   return sources
+}
+
+async function readMessagesList(dir: string): Promise<ThinkingChatMessage[]> {
+  const filePath = path.join(dir, 'messages.json')
+  try {
+    const raw = await fs.promises.readFile(filePath, 'utf-8')
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    return parsed.flatMap((item): ThinkingChatMessage[] => {
+      if (!item || typeof item !== 'object') return []
+      const record = item as Record<string, unknown>
+      const role = record.role === 'user' || record.role === 'assistant' ? record.role : null
+      const rawContent = typeof record.content === 'string' ? record.content : ''
+      const content = role === 'assistant' ? normalizeThinkingAssistantReply(rawContent) : rawContent
+      const timestamp = Number(record.timestamp)
+      if (!role || !content.trim()) return []
+      const attachments = Array.isArray(record.attachments)
+        ? record.attachments.filter((source): source is ThinkingSource => {
+            if (!source || typeof source !== 'object') return false
+            const item = source as Record<string, unknown>
+            return (
+              typeof item.id === 'string' &&
+              typeof item.name === 'string' &&
+              (item.kind === 'markdown' ||
+                item.kind === 'text' ||
+                item.kind === 'csv' ||
+                item.kind === 'docx' ||
+                item.kind === 'image')
+            )
+          })
+        : undefined
+      return [
+        {
+          role,
+          content,
+          timestamp: Number.isFinite(timestamp) ? timestamp : Date.now(),
+          ...(attachments && attachments.length > 0 ? { attachments } : {})
+        }
+      ]
+    })
+  } catch {
+    return []
+  }
 }

@@ -126,6 +126,42 @@ export const modelConfigs = sqliteTable('model_configs', {
   updatedAt: integer('updated_at').notNull()
 })
 
+export const imageModelConfigs = sqliteTable('image_model_configs', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  provider: text('provider').notNull(),
+  modelConfig: text('model_config').notNull().default('{}'),
+  active: integer('active').notNull().default(0),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull()
+})
+
+export const imageGenerationHistories = sqliteTable(
+  'image_generation_histories',
+  {
+    id: text('id').primaryKey(),
+    sessionId: text('session_id').notNull(),
+    pageId: text('page_id').notNull(),
+    prompt: text('prompt').notNull(),
+    imagePaths: text('image_paths').notNull().default('[]'),
+    modelConfigId: text('model_config_id').notNull(),
+    provider: text('provider').notNull(),
+    model: text('model').notNull(),
+    createdAt: integer('created_at').notNull()
+  },
+  (table) => ({
+    imageGenerationHistoriesSessionIdx: index('idx_image_generation_histories_session').on(
+      table.sessionId,
+      table.createdAt
+    ),
+    imageGenerationHistoriesPageIdx: index('idx_image_generation_histories_page').on(
+      table.sessionId,
+      table.pageId,
+      table.createdAt
+    )
+  })
+)
+
 export const memorySummaries = sqliteTable('memory_summaries', {
   id: text('id').primaryKey(),
   sessionId: text('session_id').notNull(),
@@ -157,6 +193,7 @@ export const styles = sqliteTable('styles', {
   styleSkill: text('style_skill').notNull().default(''),
   version: integer('version').notNull().default(1),
   styleCase: text('style_case').notNull().default(''),
+  active: integer('active', { mode: 'boolean' }).notNull().default(true),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull()
 })
@@ -223,6 +260,7 @@ export type GenerationRun = typeof generationRuns.$inferSelect
 export type GenerationPage = typeof generationPages.$inferSelect
 export type SessionPage = typeof sessionPages.$inferSelect
 export type ModelConfig = typeof modelConfigs.$inferSelect
+export type ImageGenerationHistory = typeof imageGenerationHistories.$inferSelect
 export type MemorySummary = typeof memorySummaries.$inferSelect
 export type UserPreference = typeof userPreferences.$inferSelect
 export type SessionOperation = typeof sessionOperations.$inferSelect

@@ -9,6 +9,7 @@ export interface ElementEditDraft {
   color: string
   fontSize: string
   fontWeight: string
+  textAlign: string
   layoutX: string
   layoutY: string
   layoutWidth: string

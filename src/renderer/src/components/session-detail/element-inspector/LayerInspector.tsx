@@ -4,6 +4,9 @@ import { InspectorSection } from './InspectorSection'
 import type { ElementEditorProps } from './types'
 import { useT } from '@renderer/i18n'
 
+const MIN_Z_INDEX = -999
+const MAX_Z_INDEX = 9999
+
 export function LayerInspector({
   draft,
   onDraftChange
@@ -21,7 +24,7 @@ export function LayerInspector({
           onClick={() => {
             const current = parseInt(draft.layoutZIndex || '0', 10) || 0
             onDraftChange(
-              { ...draft, layoutZIndex: String(Math.max(0, current - 1)) },
+              { ...draft, layoutZIndex: String(Math.max(MIN_Z_INDEX, current - 1)) },
               { commit: true, fields: ['layoutZIndex'] }
             )
           }}
@@ -31,8 +34,8 @@ export function LayerInspector({
         </button>
         <Input
           type="number"
-          min={0}
-          max={9999}
+          min={MIN_Z_INDEX}
+          max={MAX_Z_INDEX}
           value={draft.layoutZIndex}
           onChange={(event) => onDraftChange({ ...draft, layoutZIndex: event.target.value })}
           onBlur={(event) =>
@@ -49,7 +52,7 @@ export function LayerInspector({
           onClick={() => {
             const current = parseInt(draft.layoutZIndex || '0', 10) || 0
             onDraftChange(
-              { ...draft, layoutZIndex: String(Math.min(9999, current + 1)) },
+              { ...draft, layoutZIndex: String(Math.min(MAX_Z_INDEX, current + 1)) },
               { commit: true, fields: ['layoutZIndex'] }
             )
           }}
@@ -58,6 +61,9 @@ export function LayerInspector({
           +
         </button>
       </div>
+      <p className="mt-1.5 text-[10px] leading-4 text-[#8a806d]">
+        {t('sessionDetail.zIndexNegativeHint')}
+      </p>
     </InspectorSection>
   )
 }

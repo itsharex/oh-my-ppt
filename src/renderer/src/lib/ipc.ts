@@ -6,7 +6,10 @@ import type {
   GenerateRetrySinglePagePayload,
   GenerateStartPayload,
   ParseDocumentPlanPayload,
+  ParseImageReferencePayload,
   ParsedDocumentPlanResult,
+  PrepareReferenceDocumentPayload,
+  PreparedReferenceDocumentResult,
   PptxImportPayload,
   PptxImportProgressPayload,
   PptxImportResult,
@@ -20,8 +23,19 @@ import type {
   ThinkingChatMessage,
   ThinkingWorkspace,
   ThinkingChatResult,
-  ThinkingPrepareGenerationResult
+  ThinkingPrepareGenerationResult,
+  ThinkingWorkspaceListItem
 } from '@shared/thinking.js'
+import type {
+  GeneratedImageAsset,
+  ImageGenerateResult,
+  ImageGeneratePayload,
+  ImagePromptGeneratePayload,
+  ImagePromptGenerateResult,
+  ImageGenerationHistoryRecord,
+  ImageModelConfig,
+  ImageModelProvider
+} from '@shared/image-generation.js'
 
 type IpcRendererLike = Window['electron']['ipcRenderer']
 
@@ -191,6 +205,7 @@ export interface UpdateElementPropertiesPayload {
       color?: string
       fontSize?: string
       fontWeight?: string
+      textAlign?: string
     }
   }
 }
@@ -215,6 +230,8 @@ export interface ModelConfig {
   createdAt: number
   updatedAt: number
 }
+
+export type { GeneratedImageAsset, ImageModelConfig, ImageModelProvider }
 
 export interface UploadPrerequisitesResult {
   ready: boolean
@@ -274,6 +291,7 @@ export const ipc = {
         id: string
         pageNumber: number
         title: string
+        contentOutline?: string | null
         html: string
         htmlPath?: string
         pageId?: string
@@ -294,6 +312,7 @@ export const ipc = {
         pageNumber: number
         pageId: string
         title: string
+        contentOutline?: string | null
         html: string
         htmlPath?: string
         status?: string
@@ -313,6 +332,7 @@ export const ipc = {
         pageNumber: number
         pageId: string
         title: string
+        contentOutline?: string | null
         html: string
         htmlPath?: string
         status?: string
@@ -331,6 +351,7 @@ export const ipc = {
         pageNumber: number
         pageId: string
         title: string
+        contentOutline?: string | null
         html: string
         htmlPath?: string
         status?: string
@@ -350,6 +371,27 @@ export const ipc = {
         pageNumber: number
         pageId: string
         title: string
+        contentOutline?: string | null
+        html: string
+        htmlPath?: string
+        status?: string
+        error?: string | null
+      }>
+      selectedPageId: string | null
+    }>,
+  updateSessionPageOutline: (payload: {
+    sessionId: string
+    pageId: string
+    contentOutline: string
+  }) =>
+    getIpc().invoke('session:updatePageOutline', payload) as Promise<{
+      ok: boolean
+      generatedPages: Array<{
+        id: string
+        pageNumber: number
+        pageId: string
+        title: string
+        contentOutline?: string | null
         html: string
         htmlPath?: string
         status?: string
@@ -469,6 +511,10 @@ export const ipc = {
   }) => getIpc().invoke('history:recordSnapshot', payload) as Promise<unknown>,
   uploadAssets: (payload: UploadAssetsPayload) =>
     getIpc().invoke('assets:upload', payload) as Promise<{ assets: UploadedAsset[] }>,
+  prepareReferenceDocument: (payload: PrepareReferenceDocumentPayload) =>
+    getIpc().invoke('documents:prepareReference', payload) as Promise<PreparedReferenceDocumentResult>,
+  parseImageReferenceDocument: (payload: ParseImageReferencePayload) =>
+    getIpc().invoke('documents:parseImageReference', payload) as Promise<PreparedReferenceDocumentResult>,
   parseDocumentPlan: (payload: ParseDocumentPlanPayload) =>
     getIpc().invoke('documents:parsePlan', payload) as Promise<ParsedDocumentPlanResult>,
   importPptx: (payload: PptxImportPayload) =>
@@ -497,6 +543,8 @@ export const ipc = {
     getIpc().invoke('export:sessionZip', { sessionId }) as Promise<ExportDeckResult>,
   getSettings: () => getIpc().invoke('settings:get') as Promise<Record<string, unknown>>,
   listModelConfigs: () => getIpc().invoke('settings:listModelConfigs') as Promise<ModelConfig[]>,
+  listImageModelConfigs: () =>
+    getIpc().invoke('imageModels:list') as Promise<ImageModelConfig[]>,
   validateUploadPrerequisites: () =>
     getIpc().invoke('settings:validateUploadPrerequisites') as Promise<UploadPrerequisitesResult>,
   listFonts: () => getIpc().invoke('fonts:list') as Promise<FontRegistryResponse>,
@@ -535,6 +583,29 @@ export const ipc = {
     getIpc().invoke('settings:setActiveModelConfig', id) as Promise<{ success: boolean }>,
   deleteModelConfig: (id: string) =>
     getIpc().invoke('settings:deleteModelConfig', id) as Promise<{ success: boolean }>,
+  upsertImageModelConfig: (payload: {
+    id?: string
+    name: string
+    provider: ImageModelProvider
+    active?: boolean
+    modelConfig: string
+  }) =>
+    getIpc().invoke('imageModels:upsert', payload) as Promise<{
+      success: boolean
+      id: string
+    }>,
+  setActiveImageModelConfig: (id: string) =>
+    getIpc().invoke('imageModels:setActive', id) as Promise<{ success: boolean }>,
+  deleteImageModelConfig: (id: string) =>
+    getIpc().invoke('imageModels:delete', id) as Promise<{ success: boolean }>,
+  verifyImageModel: (payload: {
+    provider: ImageModelProvider
+    modelConfig: string
+  }) =>
+    getIpc().invoke('imageModels:verify', payload) as Promise<{
+      valid: boolean
+      message?: string
+    }>,
   verifyApiKey: (payload: {
     provider: string
     apiKey: string
@@ -552,6 +623,25 @@ export const ipc = {
       path: string | null
       error?: string
     }>,
+  generateImage: (payload: ImageGeneratePayload) =>
+    getIpc().invoke('images:generate', payload) as Promise<ImageGenerateResult>,
+  generateImagePrompt: (payload: ImagePromptGeneratePayload) =>
+    getIpc().invoke('images:generatePrompt', payload) as Promise<ImagePromptGenerateResult>,
+  listImageGenerationHistory: (payload: { sessionId: string; pageId: string }) =>
+    getIpc().invoke('images:listHistory', payload) as Promise<ImageGenerationHistoryRecord[]>,
+  cancelImageGeneration: (sessionId: string) =>
+    getIpc().invoke('images:cancel', sessionId) as Promise<{ success: boolean }>,
+  getImageGenerationState: (sessionId: string) =>
+    getIpc().invoke('images:getState', sessionId) as Promise<{
+      runId: string
+      sessionId: string
+      pageId: string
+      progress: number
+      label: string
+      status: 'running' | 'completed' | 'failed' | 'cancelled'
+      error: string | null
+      updatedAt: number
+    } | null>,
   getStyles: () =>
     getIpc().invoke('styles:get') as Promise<{
       categories: Record<
@@ -735,6 +825,10 @@ export const ipc = {
     getIpc().invoke('thinking:getWorkspace', thinkingId) as Promise<ThinkingWorkspace>,
   thinkingGetLatestWorkspace: () =>
     getIpc().invoke('thinking:getLatestWorkspace') as Promise<ThinkingWorkspace | null>,
+  thinkingListWorkspaces: (payload?: { limit?: number }) =>
+    getIpc().invoke('thinking:listWorkspaces', payload || {}) as Promise<ThinkingWorkspaceListItem[]>,
+  thinkingDeleteWorkspace: (thinkingId: string) =>
+    getIpc().invoke('thinking:deleteWorkspace', thinkingId) as Promise<{ success: boolean }>,
   thinkingRevealWorkspace: (thinkingId: string) =>
     getIpc().invoke('thinking:revealWorkspace', thinkingId) as Promise<{ success: boolean }>,
   thinkingUploadSources: (payload: {
@@ -753,6 +847,7 @@ export const ipc = {
     thinkingId: string
     userMessage: string
     recentMessages?: ThinkingChatMessage[]
+    attachments?: ThinkingChatMessage['attachments']
   }) =>
     getIpc().invoke('thinking:chat', payload) as Promise<ThinkingChatResult>,
   thinkingPrepareGeneration: (payload: { thinkingId: string }) =>

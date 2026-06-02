@@ -7,9 +7,11 @@ import { extractModelText } from '../ipc/utils'
 import { resolveModelTimeoutMs } from '@shared/model-timeout'
 import { logAgentToolEvents } from '../utils/agent-tool-logger'
 import { buildThinkingContext, type ThinkingContextArgs } from './context-builder'
+import { findUnsupportedPrecisionClaims, type CredibilityIssue } from './content-credibility'
+import { routeThinkingIntent, type ThinkingIntentRoute } from './intent-router'
+import { normalizeThinkingAssistantReply } from './reply-normalizer'
 import {
   checkStageTransition,
-  detectStageFallback,
   isValidTransition,
   isRestartRequest,
   resolveRequestedStage
@@ -74,6 +76,29 @@ function isAssistantMessage(record: Record<string, unknown>): boolean {
   return isAssistant && !isToolOrHuman
 }
 
+function hasToolCalls(record: Record<string, unknown>): boolean {
+  const additional = getObject(record.additional_kwargs)
+  const toolCalls = record.tool_calls ?? additional?.tool_calls
+  return Array.isArray(toolCalls) && toolCalls.length > 0
+}
+
+function buildFallbackReply(args: {
+  contextUpdated: boolean
+  thinkingUpdated: boolean
+  stage: ThinkingStage
+}): string {
+  if (args.thinkingUpdated) {
+    return '我已经更新了内容方案。你可以继续补充要求，或确认后进入生成。'
+  }
+  if (args.contextUpdated) {
+    return '我已经记录了这些需求。你可以继续补充信息，或让我开始整理页面大纲。'
+  }
+  if (args.stage === 'collect') {
+    return '我已收到。请继续补充目标受众、使用场景或素材，我会帮你整理成清晰的大纲。'
+  }
+  return '我已收到，会继续基于当前方案推进。'
+}
+
 function extractAssistantTextsFromState(data: unknown): string[] {
   const texts: string[] = []
   const seen = new Set<object>()
@@ -89,8 +114,8 @@ function extractAssistantTextsFromState(data: unknown): string[] {
     }
 
     const record = value as Record<string, unknown>
-    if (isAssistantMessage(record)) {
-      const text = extractModelText(record).trim()
+    if (isAssistantMessage(record) && !hasToolCalls(record)) {
+      const text = normalizeThinkingAssistantReply(extractModelText(record))
       if (text) texts.push(text)
     }
 
@@ -202,7 +227,9 @@ async function collectAgentReply(
     extractAndEmitToolEvents(data, seenToolEvents, onThinkingEvent)
     logAgentToolEvents(data, seenToolEvents, { tag: 'thinking:agent', source: 'messages' })
     for (const message of data as Array<Record<string, unknown>>) {
-      const content = extractModelText(message).trim()
+      if (!message || typeof message !== 'object') continue
+      if (!isAssistantMessage(message) || hasToolCalls(message)) continue
+      const content = normalizeThinkingAssistantReply(extractModelText(message))
       if (content) {
         replyText += content
       }
@@ -298,12 +325,13 @@ function getThinkingRepairTarget(args: {
   currentStage: ThinkingStage
   rawAgentRequestedStage: ThinkingStage | null
   rawRequestedStage: ThinkingStage | null
+  routedIntent: ThinkingIntentRoute
   userMessage: string
 }): ThinkingStage | null {
   if (args.rawRequestedStage === 'collect') {
     return null
   }
-  if (args.currentStage === 'collect' && isCollectDesignRequest(args.userMessage)) {
+  if (args.currentStage === 'collect' && args.routedIntent.intent === 'plan_outline') {
     return 'outline'
   }
   if (
@@ -322,12 +350,6 @@ function getThinkingRepairTarget(args: {
   return null
 }
 
-function isCollectDesignRequest(userMessage: string): boolean {
-  return /设计吧|设计一下|开始生成|出大纲|好[，,]?\s*开始吧|可以[，,]?\s*规划一下|规划一下|开始吧/i.test(
-    userMessage
-  )
-}
-
 function buildForcedThinkingUpdateMessage(targetStage: ThinkingStage, fullUserMessage: string): string {
   return [
     `Internal repair task. The previous response did not persist /thinking.md in a form that can enter stage "${targetStage}".`,
@@ -338,6 +360,31 @@ function buildForcedThinkingUpdateMessage(targetStage: ThinkingStage, fullUserMe
     'Do not use write_file or edit_file.',
     'Do not ask the user a new question in this repair task.',
     'After the tool calls, return one concise user-facing reply describing what is ready.',
+    '',
+    fullUserMessage
+  ].join('\n')
+}
+
+function buildCredibilityRepairMessage(
+  issues: CredibilityIssue[],
+  fullUserMessage: string
+): string {
+  const issueList = issues
+    .slice(0, 12)
+    .map((issue) => `- Line ${issue.line}: ${issue.text} (${issue.reason})`)
+    .join('\n')
+
+  return [
+    'Internal repair task. The current /thinking.md contains exact metrics or benchmark claims that are not supported by user-provided text or source files.',
+    'You must call update_thinking_document and include the full page list.',
+    'Replace unsupported exact numbers with qualitative, source-needed wording. Preserve user-provided structural values such as topic year, duration, and page count.',
+    'Do not add new exact metrics, benchmark scores, prices, percentages, rankings, or version-specific claims.',
+    'Then call update_context_document to record that unsupported exact metrics were downgraded or marked as needing sources.',
+    'Do not use write_file or edit_file.',
+    'After the tool calls, return one concise user-facing reply in the user language.',
+    '',
+    'Unsupported claims detected:',
+    issueList,
     '',
     fullUserMessage
   ].join('\n')
@@ -468,6 +515,7 @@ export async function runThinkingChat(args: RunThinkingChatArgs): Promise<Thinki
   })
 
   const { systemPrompt, userMessage: fullUserMessage } = initialContext
+  const hasSources = initialContext.sourceContent.trim().length > 0
 
   // Invalidate cached runtime so system prompt is fresh
   runtimeCache.delete(thinkingId)
@@ -480,13 +528,20 @@ export async function runThinkingChat(args: RunThinkingChatArgs): Promise<Thinki
     maxTokens,
     systemPrompt,
     currentStage: inputStage,
-    hasSources: initialContext.sourceContent.trim().length > 0
+    hasSources
+  })
+
+  const routedIntent = routeThinkingIntent({
+    userMessage,
+    currentStage: inputStage
   })
 
   log.info('[thinking:agent] running chat', {
     thinkingId,
     stage: currentStage,
     inputStage,
+    intent: routedIntent.intent,
+    intentStage: routedIntent.requestedStage,
     messageLength: fullUserMessage.length
   })
 
@@ -521,8 +576,14 @@ export async function runThinkingChat(args: RunThinkingChatArgs): Promise<Thinki
     replyText = latestAssistantStateText
   }
 
+  replyText = normalizeThinkingAssistantReply(replyText)
+
   if (!replyText) {
-    throw new Error('AI did not return a response')
+    replyText = buildFallbackReply({
+      contextUpdated: runtime.workflowState.contextUpdated,
+      thinkingUpdated: runtime.workflowState.thinkingUpdated,
+      stage: inputStage
+    })
   }
 
   // Workflow tools may have persisted files — read them back before validation.
@@ -588,7 +649,7 @@ export async function runThinkingChat(args: RunThinkingChatArgs): Promise<Thinki
   // Stage resolution: 1) agent-requested (via tool)  2) keyword fallback  3) structural check.
   // All explicit requests still pass through the same transition and content-readiness rules.
   let rawAgentRequestedStage = runtime.workflowState.requestedStage
-  const rawRequestedStage = detectStageFallback(userMessage)
+  const rawRequestedStage = routedIntent.requestedStage
   let agentRequestedStage = resolveRequestedStage({
     currentStage: inputStage,
     requestedStage: rawAgentRequestedStage,
@@ -603,6 +664,7 @@ export async function runThinkingChat(args: RunThinkingChatArgs): Promise<Thinki
     currentStage: inputStage,
     rawAgentRequestedStage,
     rawRequestedStage,
+    routedIntent,
     userMessage
   })
 
@@ -628,7 +690,9 @@ export async function runThinkingChat(args: RunThinkingChatArgs): Promise<Thinki
         modelTimeoutMs,
         onThinkingEvent
       })
-      const repairReply = repairResult.replyText || repairResult.latestAssistantStateText
+      const repairReply = normalizeThinkingAssistantReply(
+        repairResult.latestAssistantStateText || repairResult.replyText
+      )
       if (repairReply.trim()) {
         replyText = repairReply.trim()
       }
@@ -653,6 +717,55 @@ export async function runThinkingChat(args: RunThinkingChatArgs): Promise<Thinki
       log.warn('[thinking:agent] forced thinking update retry failed; leaving thinking.md unchanged', {
         thinkingId,
         repairTarget,
+        error: err instanceof Error ? err.message : String(err)
+      })
+    }
+  }
+
+  const credibilityIssues = findUnsupportedPrecisionClaims({
+    markdown: updatedThinkingMd,
+    hasSources
+  })
+
+  if (runtime.workflowState.thinkingUpdated && credibilityIssues.length > 0) {
+    log.warn('[thinking:agent] unsupported exact claims detected; retrying credibility repair', {
+      thinkingId,
+      stage: inputStage,
+      issueCount: credibilityIssues.length
+    })
+    try {
+      const repairResult = await runAgentMessage({
+        runtime,
+        message: buildCredibilityRepairMessage(credibilityIssues, fullUserMessage),
+        modelTimeoutMs,
+        onThinkingEvent
+      })
+      const repairReply = normalizeThinkingAssistantReply(
+        repairResult.latestAssistantStateText || repairResult.replyText
+      )
+      if (repairReply.trim()) {
+        replyText = repairReply.trim()
+      }
+      if (fs.existsSync(thinkingMdPath)) {
+        updatedThinkingMd = await fs.promises.readFile(thinkingMdPath, 'utf-8')
+      }
+      if (fs.existsSync(contextMdPath)) {
+        updatedContextMd = await fs.promises.readFile(contextMdPath, 'utf-8')
+      }
+      rawAgentRequestedStage = runtime.workflowState.requestedStage
+      agentRequestedStage = resolveRequestedStage({
+        currentStage: inputStage,
+        requestedStage: rawAgentRequestedStage,
+        thinkingMd: updatedThinkingMd
+      })
+      resolvedRequestedStage = resolveRequestedStage({
+        currentStage: inputStage,
+        requestedStage: rawRequestedStage,
+        thinkingMd: updatedThinkingMd
+      })
+    } catch (err) {
+      log.warn('[thinking:agent] credibility repair failed; leaving thinking.md unchanged', {
+        thinkingId,
         error: err instanceof Error ? err.message : String(err)
       })
     }
