@@ -338,13 +338,17 @@ export const en = {
     modelHint: 'Any compatible model name for this provider is accepted.',
     imageModelConfigHint: 'Enter the full provider JSON.',
     imageModelConfigHintJimeng:
-      'Example: {"reqKey":"jimeng_t2i_v30","accessKeyId":"...","secretKey":"..."}',
+      'Connect Jimeng 3.0 for single-slide presentation visuals. Example: {"reqKey":"jimeng_t2i_v30","accessKeyId":"...","secretKey":"..."}',
     imageModelConfigHintJimeng4:
-      'Example: {"reqKey":"jimeng_t2i_v40","accessKeyId":"...","secretKey":"...","force_single":true}',
+      'Connect Jimeng 4.0 for higher-quality single-slide illustrations and background assets. Example: {"reqKey":"jimeng_t2i_v40","accessKeyId":"...","secretKey":"...","force_single":true}',
     imageModelConfigHintAgnes:
-      'Example: {"model":"agnes-image-2.0-flash","apiKey":"...","responseFormat":"url"}',
+      'Connect Agnes AI for presentation illustrations, backgrounds, and visual elements. Example: {"model":"agnes-image-2.0-flash","apiKey":"...","responseFormat":"url"}',
     imageModelConfigHintSiliconflow:
-      'Example: {"model":"Tongyi-MAI/Z-Image-Turbo","apiKey":"..."}. Available models: Tongyi-MAI/Z-Image-Turbo, Tongyi-MAI/Z-Image, baidu/ERNIE-Image-Turbo, Qwen/Qwen-Image, Kwai-Kolors/Kolors',
+      'Connect SiliconFlow image models and choose a model name for the style and speed you need. Example: {"model":"Tongyi-MAI/Z-Image-Turbo","apiKey":"..."}',
+    imageModelConfigHintOpenAICompatible:
+      'Connect a service with OpenAI Chat Completions image capability and generate slide visuals in the same workflow. Example: {"baseUrl":"https://api.openai.com","apiKey":"...","model":"gpt-image-1"}',
+    imageModelConfigHintGemini:
+      'Connect Gemini image generation for illustrations, backgrounds, and visual concepts based on slide content. Uses Google by default, with baseUrl available for a team service endpoint. Example: {"model":"gemini-3.1-flash-image","apiKey":"..."}',
     imageProviderOfficialDocs: 'Official docs',
     baseUrlHint: 'Enter a service URL compatible with the selected provider protocol.',
     baseUrlHintGoogle: 'Leave empty for official Google API. Fill only if using a proxy.',
@@ -369,12 +373,13 @@ export const en = {
     imageVerifyHint:
       'Image verification only checks basic fields. The real endpoint is verified on first generation to avoid unnecessary cost.',
     modelPlaceholder: 'Example: deepseek-v4/gpt-5.4',
-    imageModelPlaceholder: 'Example: Jimeng 3.0 / Jimeng 4.0 / Agnes AI / SiliconFlow',
+    imageModelPlaceholder:
+      'Example: Jimeng 3.0 / Jimeng 4.0 / Agnes AI / SiliconFlow / OpenAI compatible / Gemini',
     imageModelNamePlaceholder: 'Model alias, anything you like',
     baseUrlPlaceholder: 'Example: https://api.deepseek.com',
     imageBaseUrlPlaceholder: 'Leave empty for built-in defaults, or enter a compatible service URL',
     imageBaseUrlHint:
-      'Jimeng 3.0, Jimeng 4.0, Agnes AI, and SiliconFlow are available for now. Custom gateways will be added separately.',
+      'Jimeng 3.0, Jimeng 4.0, Agnes AI, SiliconFlow, OpenAI-compatible image APIs, and Gemini are available.',
     defaultImageSize: 'Default size',
     defaultImageQuality: 'Default quality',
     defaultImageCount: 'Default count',

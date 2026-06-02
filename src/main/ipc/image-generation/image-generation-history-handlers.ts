@@ -14,7 +14,9 @@ const VALID_IMAGE_PROVIDERS = [
   'jimeng',
   'jimeng4',
   'agnes',
-  'siliconflow'
+  'siliconflow',
+  'openaiCompatible',
+  'gemini'
 ] as const
 
 const resolveProvider = (provider: unknown): ImageModelProvider => {

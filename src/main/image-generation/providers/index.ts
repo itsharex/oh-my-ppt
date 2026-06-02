@@ -1,7 +1,9 @@
 import type { ImageGenerationProviderAdapter, ResolvedImageModelConfig } from '../types'
 import { agnesAiAdapter } from './agnes-ai'
+import { geminiAdapter } from './gemini'
 import { jimengAdapter } from './jimeng'
 import { jimengV4Adapter } from './jimeng-v4'
+import { openAiChatCompletionsAdapter } from './openai-chat-completions'
 import { siliconFlowAdapter } from './siliconflow'
 
 const PROVIDER_ADAPTERS: Record<
@@ -11,7 +13,9 @@ const PROVIDER_ADAPTERS: Record<
   agnes: agnesAiAdapter,
   jimeng: jimengAdapter,
   jimeng4: jimengV4Adapter,
-  siliconflow: siliconFlowAdapter
+  siliconflow: siliconFlowAdapter,
+  openaiCompatible: openAiChatCompletionsAdapter,
+  gemini: geminiAdapter
 }
 
 export function resolveImageGenerationProvider(

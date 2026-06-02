@@ -2,10 +2,12 @@ import type { ImageModelConfig, ImageModelProvider, ModelConfig } from '../../li
 import type { ImageModelForm, ModelForm } from './types'
 
 export const IMAGE_PROVIDER_OPTIONS: Array<{ value: ImageModelProvider; label: string }> = [
+  { value: 'agnes', label: 'Agnes AI' },
   { value: 'jimeng', label: '即梦3.0' },
   { value: 'jimeng4', label: '即梦4.0' },
-  { value: 'agnes', label: 'Agnes AI' },
-  { value: 'siliconflow', label: '硅基流动' }
+  { value: 'siliconflow', label: '硅基流动' },
+  { value: 'openaiCompatible', label: 'OpenAI 兼容' },
+  { value: 'gemini', label: 'Gemini' }
 ]
 
 const JIMENG_DEFAULT_REQ_KEY = 'jimeng_t2i_v30'
@@ -64,6 +66,19 @@ export const createDefaultImageModelConfig = (provider: ImageModelProvider): str
       apiKey: ''
     })
   }
+  if (provider === 'openaiCompatible') {
+    return stringifyJsonObject({
+      baseUrl: 'https://api.openai.com',
+      apiKey: '',
+      model: 'gpt-image-1'
+    })
+  }
+  if (provider === 'gemini') {
+    return stringifyJsonObject({
+      model: 'gemini-3.1-flash-image',
+      apiKey: ''
+    })
+  }
   return stringifyJsonObject({
     model: 'agnes-image-2.0-flash',
     apiKey: '',
@@ -94,8 +109,8 @@ export const createModelForm = (config: ModelConfig): ModelForm => ({
 
 export const createEmptyImageModelForm = (active = false): ImageModelForm => ({
   name: '',
-  provider: 'jimeng',
-  modelConfig: createDefaultImageModelConfig('jimeng'),
+  provider: 'agnes',
+  modelConfig: createDefaultImageModelConfig('agnes'),
   active
 })
 

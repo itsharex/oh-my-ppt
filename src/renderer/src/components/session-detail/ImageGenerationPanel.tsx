@@ -30,7 +30,7 @@ import { Textarea } from '../ui/Input'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/Tooltip'
 
 const localAssetSrc = (absolutePath?: string): string =>
-  absolutePath ? `local-asset://${absolutePath}` : ''
+  absolutePath ? `local-asset://${encodeURIComponent(absolutePath)}` : ''
 
 type ImageSizeOption = {
   value: string
@@ -59,6 +59,28 @@ const PROVIDER_SIZE_OPTIONS: Record<ImageModelProvider, ImageSizeOption[]> = {
     { value: '1024x1024', label: '1:1 · 1024x1024' },
     { value: '1280x720', label: '16:9 · 1280x720' },
     { value: '720x1280', label: '9:16 · 720x1280' }
+  ],
+  openaiCompatible: [
+    { value: '1024x1024', label: '1:1 · 1024x1024' },
+    { value: '1536x1024', label: '3:2 · 1536x1024' },
+    { value: '1024x1536', label: '2:3 · 1024x1536' },
+    { value: 'auto', label: 'auto' }
+  ],
+  gemini: [
+    { value: '1:1|1K', label: '1:1 · 1K' },
+    { value: '16:9|1K', label: '16:9 · 1K' },
+    { value: '9:16|1K', label: '9:16 · 1K' },
+    { value: '4:3|1K', label: '4:3 · 1K' },
+    { value: '3:4|1K', label: '3:4 · 1K' },
+    { value: '3:2|1K', label: '3:2 · 1K' },
+    { value: '2:3|1K', label: '2:3 · 1K' },
+    { value: '21:9|1K', label: '21:9 · 1K' },
+    { value: '1:1|2K', label: '1:1 · 2K' },
+    { value: '16:9|2K', label: '16:9 · 2K' },
+    { value: '9:16|2K', label: '9:16 · 2K' },
+    { value: '1:1|4K', label: '1:1 · 4K' },
+    { value: '16:9|4K', label: '16:9 · 4K' },
+    { value: '9:16|4K', label: '9:16 · 4K' }
   ]
 }
 

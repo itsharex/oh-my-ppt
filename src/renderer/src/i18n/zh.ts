@@ -326,13 +326,17 @@ export const zh = {
     modelHint: '只要该 provider 兼容这个模型名即可，不做限制。',
     imageModelConfigHint: '按 provider 填完整 JSON。',
     imageModelConfigHintJimeng:
-      '填完整 JSON。示例：{"reqKey":"jimeng_t2i_v30","accessKeyId":"...","secretKey":"..."}',
+      '连接火山引擎即梦 3.0，用于生成适合单页 PPT 的视觉素材。示例：{"reqKey":"jimeng_t2i_v30","accessKeyId":"...","secretKey":"..."}',
     imageModelConfigHintJimeng4:
-      '填完整 JSON。示例：{"reqKey":"jimeng_t2i_v40","accessKeyId":"...","secretKey":"...","force_single":true}',
+      '连接火山引擎即梦 4.0，用于生成更高质量的单页配图与背景素材。示例：{"reqKey":"jimeng_t2i_v40","accessKeyId":"...","secretKey":"...","force_single":true}',
     imageModelConfigHintAgnes:
-      '填完整 JSON。示例：{"model":"agnes-image-2.0-flash","apiKey":"...","responseFormat":"url"}',
+      '连接 Agnes AI，用于快速生成演示文稿中的插画、背景和视觉元素。示例：{"model":"agnes-image-2.0-flash","apiKey":"...","responseFormat":"url"}',
     imageModelConfigHintSiliconflow:
-      '填完整 JSON。示例：{"model":"Tongyi-MAI/Z-Image-Turbo","apiKey":"..."}。可选模型：Tongyi-MAI/Z-Image-Turbo、Tongyi-MAI/Z-Image、baidu/ERNIE-Image-Turbo、Qwen/Qwen-Image、Kwai-Kolors/Kolors',
+      '连接硅基流动的图像模型服务，可按模型名称选择不同风格与速度的生成能力。示例：{"model":"Tongyi-MAI/Z-Image-Turbo","apiKey":"..."}',
+    imageModelConfigHintOpenAICompatible:
+      '连接支持 OpenAI Chat Completions 图片能力的服务，用统一体验生成页面视觉素材。示例：{"baseUrl":"https://api.openai.com","apiKey":"...","model":"gpt-image-1"}',
+    imageModelConfigHintGemini:
+      '连接 Gemini 图像生成能力，用于根据页面内容创建插画、背景和视觉概念图。默认使用 Google 服务，也可填写 baseUrl 接入团队服务地址。示例：{"model":"gemini-3.1-flash-image","apiKey":"..."}',
     imageProviderOfficialDocs: '官方文档',
     baseUrlHint: '请填写兼容 provider 协议的服务地址。',
     baseUrlHintGoogle: '使用 Google 官方 API 无需填写，使用代理时填写代理地址。',
@@ -356,11 +360,11 @@ export const zh = {
       '会使用当前 provider 预设下的 model / api_key / base_url 做一次真实连通性校验。（本地ollama随便填写值）',
     imageVerifyHint: '生图验证只检查基础配置，真实接口会在首次文生图时验证，避免产生不必要费用。',
     modelPlaceholder: '例如：deepseek-v4/gpt-5.4',
-    imageModelPlaceholder: '例如：即梦3.0 / 即梦4.0 / Agnes AI / 硅基流动',
+    imageModelPlaceholder: '例如：即梦3.0 / 即梦4.0 / Agnes AI / 硅基流动 / OpenAI 兼容 / Gemini',
     imageModelNamePlaceholder: '模型别名，随意写',
     baseUrlPlaceholder: '例如：https://api.deepseek.com',
     imageBaseUrlPlaceholder: '留空使用内置默认地址，或填写兼容服务地址',
-    imageBaseUrlHint: '目前开放即梦3.0、即梦4.0、Agnes AI 和硅基流动；自定义网关后续单独接入。',
+    imageBaseUrlHint: '目前开放即梦3.0、即梦4.0、Agnes AI、硅基流动、OpenAI 兼容协议和 Gemini。',
     defaultImageSize: '默认尺寸',
     defaultImageQuality: '默认质量',
     defaultImageCount: '默认张数',
