@@ -6,6 +6,7 @@ import type { SpeechConfig } from '@shared/speech'
 export type SessionDetailChatType = 'main' | 'page'
 export type SessionDetailAiPanelMode = 'chat' | 'image'
 export type InteractionMode = 'preview' | 'ai-inspect' | 'edit'
+export type SessionWorkspaceTab = 'preview' | 'edit' | 'insert' | 'animation' | 'speech' | 'ai'
 export type ImageGenerationMessage = {
   id: string
   role: 'user' | 'assistant'
@@ -36,6 +37,7 @@ interface SessionDetailUiStore {
   isExportingSlidePack: boolean
   isExportingSessionZip: boolean
   interactionMode: InteractionMode
+  workspaceTab: SessionWorkspaceTab
   thumbnailVersions: Record<string, number>
   selectedSelector: string | null
   selectorLabel: string
@@ -79,6 +81,7 @@ interface SessionDetailUiStore {
   setIsExportingSlidePack: (isExporting: boolean) => void
   setIsExportingSessionZip: (isExporting: boolean) => void
   setInteractionMode: (mode: InteractionMode) => void
+  setWorkspaceTab: (tab: SessionWorkspaceTab) => void
   setSelectedElement: (
     selector: string,
     label: string,
@@ -129,6 +132,7 @@ export const useSessionDetailUiStore = create<SessionDetailUiStore>((set) => ({
   isExportingSlidePack: false,
   isExportingSessionZip: false,
   interactionMode: 'preview' as InteractionMode,
+  workspaceTab: 'preview' as SessionWorkspaceTab,
   thumbnailVersions: {},
   selectedSelector: null,
   selectorLabel: '',
@@ -203,6 +207,7 @@ export const useSessionDetailUiStore = create<SessionDetailUiStore>((set) => ({
   setIsExportingSlidePack: (isExportingSlidePack) => set({ isExportingSlidePack }),
   setIsExportingSessionZip: (isExportingSessionZip) => set({ isExportingSessionZip }),
   setInteractionMode: (interactionMode) => set({ interactionMode }),
+  setWorkspaceTab: (workspaceTab) => set({ workspaceTab }),
   // Fix: only reset to preview when currently in preview mode.
   // In edit/ai-inspect mode, selecting an element should NOT change the mode.
   setSelectedElement: (selectedSelector, selectorLabel, elementTag = '', elementText = '') =>
@@ -261,6 +266,7 @@ export const useSessionDetailUiStore = create<SessionDetailUiStore>((set) => ({
   resetForPageChange: () =>
     set({
       interactionMode: 'preview' as InteractionMode,
+      workspaceTab: 'preview' as SessionWorkspaceTab,
       selectedSelector: null,
       selectorLabel: '',
       elementTag: '',
@@ -282,6 +288,7 @@ export const useSessionDetailUiStore = create<SessionDetailUiStore>((set) => ({
       imageProgress: null,
       selectedPageId: null,
       interactionMode: 'preview' as InteractionMode,
+      workspaceTab: 'preview' as SessionWorkspaceTab,
       selectedSelector: null,
       selectorLabel: '',
       elementTag: '',

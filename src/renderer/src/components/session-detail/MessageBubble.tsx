@@ -1,7 +1,7 @@
 import dayjs from 'dayjs'
 import { Image as ImageIcon, Video } from 'lucide-react'
 import { cn } from '@renderer/lib/utils'
-import type { Message } from '@renderer/store/sessionStore'
+import type { Message } from '@renderer/store'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/Tooltip'
 import { useT } from '@renderer/i18n'
 

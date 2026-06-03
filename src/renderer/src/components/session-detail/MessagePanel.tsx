@@ -1,6 +1,6 @@
 import { MessageCircle, Sparkles } from 'lucide-react'
 import { cn } from '@renderer/lib/utils'
-import { useSessionDetailUiStore } from '@renderer/store/sessionDetailStore'
+import { useSessionDetailUiStore } from '@renderer/store'
 import { useT } from '@renderer/i18n'
 import type { GeneratedImageAsset } from '@shared/image-generation.js'
 import { ChatPanel } from './ChatPanel'

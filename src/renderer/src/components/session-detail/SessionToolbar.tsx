@@ -13,7 +13,7 @@ import {
   Presentation
 } from 'lucide-react'
 import { cn } from '@renderer/lib/utils'
-import { useSessionDetailUiStore } from '@renderer/store/sessionDetailStore'
+import { useSessionDetailUiStore } from '@renderer/store'
 import { Button } from '../ui/Button'
 import {
   DropdownMenu,

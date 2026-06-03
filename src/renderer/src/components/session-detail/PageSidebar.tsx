@@ -3,7 +3,6 @@ import {
   Check,
   Copy,
   FilePlus2,
-  Home,
   Move,
   PanelLeft,
   PanelRight,
@@ -13,9 +12,7 @@ import {
   Trash2,
   X
 } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
-import { useGenerateStore, useSessionStore } from '@renderer/store'
-import { useSessionDetailUiStore } from '@renderer/store/sessionDetailStore'
+import { useSessionDetailUiStore } from '@renderer/store'
 import {
   DndContext,
   PointerSensor,
@@ -131,7 +128,6 @@ export const PageSidebar = memo(function PageSidebar({
   collapsed?: boolean
   onToggleCollapsed?: () => void
 }): React.JSX.Element {
-  const navigate = useNavigate()
   const t = useT()
   const selectedPageId = useSessionDetailUiStore((state) => state.selectedPageId)
   const previewKey = useSessionDetailUiStore((state) => state.previewKey)
@@ -146,7 +142,6 @@ export const PageSidebar = memo(function PageSidebar({
   const wasAddingRef = useRef(false)
   const viewportRef = useRef<HTMLDivElement>(null)
   const copyResetTimerRef = useRef<number | null>(null)
-  const resetSessionRuntimeState = useSessionStore((state) => state.resetRuntimeState)
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
   const sortableIds = useMemo(() => pages.map((p) => p.id), [pages])
 
@@ -174,13 +169,6 @@ export const PageSidebar = memo(function PageSidebar({
       if (copyResetTimerRef.current !== null) window.clearTimeout(copyResetTimerRef.current)
     }
   }, [])
-
-  const handleBackToSessions = (): void => {
-    useGenerateStore.getState().reset()
-    useSessionDetailUiStore.getState().resetForSessionChange()
-    resetSessionRuntimeState()
-    navigate('/sessions')
-  }
 
   const handleDragEnd = (event: DragEndEvent): void => {
     const { active, over } = event
@@ -247,26 +235,6 @@ export const PageSidebar = memo(function PageSidebar({
       {collapsed ? (
         // Collapsed: compact icons
         <>
-          {/* Top: back + page count */}
-          <div className="mb-2 space-y-1.5">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={handleBackToSessions}
-                  className="flex h-8 w-full items-center justify-center rounded-xl bg-[#e8e0d0]/72 text-[#5d6b4d] shadow-[0_4px_10px_rgba(93,107,77,0.08)] transition-colors hover:bg-[#d4e4c1]/78 hover:text-[#3e4a32] cursor-pointer"
-                  aria-label={t('sessionDetail.backToSessions')}
-                >
-                  <Home className="h-4 w-4" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="right">{t('sessionDetail.backToSessions')}</TooltipContent>
-            </Tooltip>
-            <div className="text-center text-[10px] font-semibold text-[#5c6c47]">
-              {pages.length}
-            </div>
-          </div>
-
           {/* Middle: page list */}
           <ScrollArea className="min-h-0 min-w-0 flex-1" viewportClassName="overflow-x-hidden pb-2" viewportRef={viewportRef}>
             <div className="space-y-1.5">
@@ -335,27 +303,6 @@ export const PageSidebar = memo(function PageSidebar({
       ) : (
         // Expanded: full sidebar
         <>
-          {/* Top: back + page count */}
-          <div className="relative mb-3 flex items-center justify-between overflow-hidden rounded-[1.35rem] bg-[#e8e0d0]/72 px-2 py-1.5 shadow-[0_10px_24px_rgba(93,107,77,0.08)]">
-            <div className="pointer-events-none absolute -right-6 -top-7 h-20 w-20 rounded-[30%_70%_70%_30%/30%_30%_70%_70%] bg-[#d4e4c1]/62" />
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={handleBackToSessions}
-                  className="relative inline-flex h-8 w-8 items-center justify-center rounded-[38%_62%_44%_56%/55%_45%_55%_45%] bg-[#f5f1e8]/72 text-[#5d6b4d] shadow-[0_4px_10px_rgba(93,107,77,0.08)] transition-colors hover:bg-[#d4e4c1]/78 hover:text-[#3e4a32] cursor-pointer"
-                  aria-label={t('sessionDetail.backToSessions')}
-                >
-                  <Home className="h-4 w-4" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="right">{t('sessionDetail.backToSessions')}</TooltipContent>
-            </Tooltip>
-            <div className="relative rounded-full bg-[#d4e4c1]/74 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#3e4a32] shadow-[0_3px_8px_rgba(93,107,77,0.08)]">
-              {t('sessionDetail.pagesCount', { count: pages.length })}
-            </div>
-          </div>
-
           <div className="mb-2 grid grid-cols-2 rounded-full border border-[#ded2bd]/60 bg-[#e8e0d0]/46 p-0.5 text-[11px] font-medium text-[#6a705d]">
             <button
               type="button"
@@ -449,74 +396,85 @@ export const PageSidebar = memo(function PageSidebar({
                           </div>
                         </div>
                       ) : (
-                        <button
-                          type="button"
-                          disabled={disabled}
+                        <div
+                          role="button"
+                          tabIndex={disabled ? -1 : 0}
+                          aria-disabled={disabled}
                           onClick={() => setSelectedPageId(page.id)}
-                          className="block w-full min-w-0 cursor-pointer rounded-[1rem] text-left disabled:cursor-not-allowed"
+                          onKeyDown={(event) => {
+                            if (disabled) return
+                            if (event.key !== 'Enter' && event.key !== ' ') return
+                            event.preventDefault()
+                            setSelectedPageId(page.id)
+                          }}
+                          className={`relative block w-full min-w-0 rounded-[1rem] text-left ${
+                            disabled ? 'cursor-not-allowed' : 'cursor-pointer'
+                          }`}
                         >
-                          <span className="block min-w-0 max-w-full overflow-hidden rounded-[1rem] bg-[#fffaf1]/72 px-2.5 py-2 pr-16 shadow-[0_5px_14px_rgba(93,107,77,0.08)]">
+                          <span className="relative block min-w-0 max-w-full overflow-hidden rounded-[1rem] bg-[#fffaf1]/72 px-2.5 py-2 shadow-[0_5px_14px_rgba(93,107,77,0.08)]">
                             <span className="block whitespace-normal break-words text-[12px] font-semibold leading-5 text-[#33402a] [overflow-wrap:anywhere]">
                               {page.title || t('sessionDetail.untitledPage')}
                             </span>
                             <span className="mt-1 block whitespace-normal break-words text-[11px] leading-4 text-[#716654] [overflow-wrap:anywhere]">
                               {outlineText || t('sessionDetail.outlineEmpty')}
                             </span>
+                            {!editing && onUpdatePageOutline ? (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <button
+                                    type="button"
+                                    disabled={pageManagementDisabled || disabled}
+                                    onClick={(event) => {
+                                      event.stopPropagation()
+                                      handleStartEditOutline(page, outlineText)
+                                    }}
+                                    className="absolute right-9 top-2 inline-flex h-6 w-6 items-center justify-center rounded bg-white p-1 text-[#5d6b4d] opacity-0 shadow-sm transition-colors hover:bg-[#f5f1e8] hover:text-[#3e4a32] group-hover:opacity-100 focus-visible:opacity-100 disabled:cursor-not-allowed disabled:opacity-0"
+                                    aria-label={t('pageManagement.editPageOutline')}
+                                  >
+                                    <PencilLine className="h-3.5 w-3.5" />
+                                  </button>
+                                </TooltipTrigger>
+                                <TooltipContent side="right">
+                                  {t('pageManagement.editPageOutline')}
+                                </TooltipContent>
+                              </Tooltip>
+                            ) : null}
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button
+                                  type="button"
+                                  disabled={!outlineText || editing}
+                                  onClick={(event) => {
+                                    event.stopPropagation()
+                                    void handleCopyOutline(page, outlineText)
+                                  }}
+                                  className={`absolute right-2 top-2 inline-flex h-6 w-6 items-center justify-center rounded-full transition-all ${
+                                    copied
+                                      ? 'bg-[#5d6b4d] text-white shadow-sm'
+                                      : 'bg-white text-[#5d6b4d] opacity-0 shadow-sm hover:bg-[#f5f1e8] hover:text-[#3e4a32] group-hover:opacity-100 focus-visible:opacity-100'
+                                  } disabled:cursor-not-allowed disabled:opacity-0`}
+                                  aria-label={
+                                    copied
+                                      ? t('sessionDetail.outlineCopied')
+                                      : t('sessionDetail.copyOutline')
+                                  }
+                                >
+                                  {copied ? (
+                                    <Check className="h-3.5 w-3.5" />
+                                  ) : (
+                                    <Copy className="h-3.5 w-3.5" />
+                                  )}
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent side="right">
+                                {copied
+                                  ? t('sessionDetail.outlineCopied')
+                                  : t('sessionDetail.copyOutline')}
+                              </TooltipContent>
+                            </Tooltip>
                           </span>
-                        </button>
+                        </div>
                       )}
-                      {!editing && onUpdatePageOutline ? (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <button
-                              type="button"
-                              disabled={pageManagementDisabled || disabled}
-                              onClick={(event) => {
-                                event.stopPropagation()
-                                handleStartEditOutline(page, outlineText)
-                              }}
-                              className="absolute right-10 top-3 inline-flex h-6 w-6 items-center justify-center rounded-full bg-[#f5f1e8]/88 text-[#697659] opacity-0 shadow-[0_4px_10px_rgba(93,107,77,0.12)] transition-all hover:bg-[#d4e4c1] hover:text-[#3e4a32] group-hover:opacity-100 focus-visible:opacity-100 disabled:cursor-not-allowed disabled:opacity-0"
-                              aria-label={t('pageManagement.editPageOutline')}
-                            >
-                              <PencilLine className="h-3.5 w-3.5" />
-                            </button>
-                          </TooltipTrigger>
-                          <TooltipContent side="right">
-                            {t('pageManagement.editPageOutline')}
-                          </TooltipContent>
-                        </Tooltip>
-                      ) : null}
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <button
-                            type="button"
-                            disabled={!outlineText || editing}
-                            onClick={(event) => {
-                              event.stopPropagation()
-                              void handleCopyOutline(page, outlineText)
-                            }}
-                            className={`absolute right-3 top-3 inline-flex h-6 w-6 items-center justify-center rounded-full transition-all ${
-                              copied
-                                ? 'bg-[#5d6b4d] text-white shadow-[0_5px_12px_rgba(62,74,50,0.2)]'
-                                : 'bg-[#f5f1e8]/88 text-[#697659] opacity-0 shadow-[0_4px_10px_rgba(93,107,77,0.12)] hover:bg-[#d4e4c1] hover:text-[#3e4a32] group-hover:opacity-100 focus-visible:opacity-100'
-                            } disabled:cursor-not-allowed disabled:opacity-0`}
-                            aria-label={
-                              copied
-                                ? t('sessionDetail.outlineCopied')
-                                : t('sessionDetail.copyOutline')
-                            }
-                          >
-                            {copied ? (
-                              <Check className="h-3.5 w-3.5" />
-                            ) : (
-                              <Copy className="h-3.5 w-3.5" />
-                            )}
-                          </button>
-                        </TooltipTrigger>
-                        <TooltipContent side="right">
-                          {copied ? t('sessionDetail.outlineCopied') : t('sessionDetail.copyOutline')}
-                        </TooltipContent>
-                      </Tooltip>
                       <span className="relative mt-1.5 flex items-center justify-between gap-1 px-0.5">
                         <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[#5c6c47]">
                           P{page.pageNumber}

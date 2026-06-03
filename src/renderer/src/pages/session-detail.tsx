@@ -29,25 +29,28 @@ import {
 import { MessagePanel } from '../components/session-detail/MessagePanel'
 import { PageSidebar } from '../components/session-detail/PageSidebar'
 import { PreviewStage } from '../components/session-detail/PreviewStage'
-import { PreviewToolbar } from '../components/session-detail/PreviewToolbar'
 import { ElementInspectorPanel } from '../components/session-detail/ElementInspectorPanel'
+import { WorkspaceRibbon } from '../components/presentation-workspace/WorkspaceRibbon'
+import { EmptyEditWorkbenchPanel } from '../components/presentation-workspace/workbench'
 import { SessionToolbar } from '../components/session-detail/SessionToolbar'
 import { AssetPickerDialog } from '../components/session-detail/AssetPickerDialog'
 import { SpeechScriptDrawer } from '../components/session-detail/SpeechScriptDrawer'
 import { SaveTemplateDialog } from '../components/templates/SaveTemplateDialog'
 import type { ElementEditDraft } from '../components/session-detail/ElementInspectorPanel'
 import type { ChatType, SessionPreviewPage } from '../components/session-detail/types'
-import { useSessionStore, useGenerateStore, useTemplateStore } from '../store'
 import {
+  useEditHistoryStore,
+  useGenerateStore,
   useSessionDetailUiStore,
+  useSessionStore,
+  useTemplateStore,
+  useToastStore,
   type ImageGenerationMessage
-} from '../store/sessionDetailStore'
-import { useEditHistoryStore } from '../store/editHistoryStore'
+} from '../store'
 import type { GenerateChunkEvent } from '@shared/generation.js'
 import type { HistoryVersion } from '@shared/history.js'
 import type { GeneratedImageAsset, ImageGenerationHistoryRecord } from '@shared/image-generation.js'
 import type { SpeechConfig } from '@shared/speech'
-import { useToastStore } from '../store'
 import { getEditorGate, parseSessionMetadata } from '../lib/sessionMetadata'
 import { escapeHtmlText } from '../lib/utils'
 import { useT } from '../i18n'
@@ -283,7 +286,8 @@ export function SessionDetailPage(): React.JSX.Element {
     loadSession,
     loadMessages,
     setMessages,
-    addMessage
+    addMessage,
+    resetRuntimeState
   } = useSessionStore()
   const { createTemplateFromSession } = useTemplateStore()
   const { isGenerating, updateProgress, cancelGeneration, progress, currentPages, error } =
@@ -291,6 +295,7 @@ export function SessionDetailPage(): React.JSX.Element {
   const chatType = useSessionDetailUiStore((state) => state.chatType)
   const selectedPageId = useSessionDetailUiStore((state) => state.selectedPageId)
   const interactionMode = useSessionDetailUiStore((state) => state.interactionMode)
+  const workspaceTab = useSessionDetailUiStore((state) => state.workspaceTab)
   const setChatType = useSessionDetailUiStore((state) => state.setChatType)
   const resetForPageChange = useSessionDetailUiStore((state) => state.resetForPageChange)
   const resetForSessionChange = useSessionDetailUiStore((state) => state.resetForSessionChange)
@@ -362,7 +367,6 @@ export function SessionDetailPage(): React.JSX.Element {
   useEffect(() => {
     resetForPageChange()
     window.setTimeout(() => {
-      useEditHistoryStore.getState().clear()
       setTextSelection(null)
       setTextDraft(EMPTY_ELEMENT_DRAFT)
     }, 0)
@@ -1429,7 +1433,6 @@ export function SessionDetailPage(): React.JSX.Element {
       setTextSelection(null)
       setTextDraft(EMPTY_ELEMENT_DRAFT)
       setPreviewRefreshKey((key) => key + 1)
-      useSessionDetailUiStore.getState().setInteractionMode('preview')
       return
     }
     setIsSavingEdits(true)
@@ -1480,13 +1483,12 @@ export function SessionDetailPage(): React.JSX.Element {
         prompt
       })
       if (!result.success) throw new Error(t('sessionDetail.layoutSaveFailed'))
-      editHistory.clearPage(selectedPage.pageId)
+      editHistory.markPageSaved(selectedPage.pageId)
       previewIframeRef.current?.clearEditModeSelection()
       setTextSelection(null)
       setTextDraft(EMPTY_ELEMENT_DRAFT)
       useSessionDetailUiStore.getState().bumpThumbnailVersion(selectedPage.pageId)
       setPreviewRefreshKey((key) => key + 1)
-      useSessionDetailUiStore.getState().setInteractionMode('preview')
       const totalCount =
         result.dragCount +
         result.textCount +
@@ -1515,6 +1517,7 @@ export function SessionDetailPage(): React.JSX.Element {
     setTextSelection(null)
     setTextDraft(EMPTY_ELEMENT_DRAFT)
     useSessionDetailUiStore.getState().setInteractionMode('preview')
+    useSessionDetailUiStore.getState().setWorkspaceTab('preview')
     if (hadPending) {
       setPreviewRefreshKey((key) => key + 1)
     }
@@ -1905,7 +1908,9 @@ export function SessionDetailPage(): React.JSX.Element {
   }
 
   const handleUndo = (): void => {
-    if (!editHistory.undo()) return
+    if (!selectedPage?.pageId) return
+    commitCurrentElementEdit()
+    if (!editHistory.undo(selectedPage.pageId)) return
     previewIframeRef.current?.clearEditModeSelection()
     setTextSelection(null)
     setTextDraft(EMPTY_ELEMENT_DRAFT)
@@ -1913,7 +1918,8 @@ export function SessionDetailPage(): React.JSX.Element {
   }
 
   const handleRedo = (): void => {
-    if (!editHistory.redo()) return
+    if (!selectedPage?.pageId) return
+    if (!editHistory.redo(selectedPage.pageId)) return
     previewIframeRef.current?.clearEditModeSelection()
     setTextSelection(null)
     setTextDraft(EMPTY_ELEMENT_DRAFT)
@@ -2128,15 +2134,15 @@ export function SessionDetailPage(): React.JSX.Element {
       useSessionDetailUiStore.getState().bumpThumbnailVersion(selectedPage.pageId)
     } else {
       if (isBackground) {
-        backgroundSelectors.forEach((selector) => {
-          editHistory.addDelete({
-            pageId: selectedPage.pageId,
-            htmlPath: selectedHtmlPath,
-            selector
-          })
-        })
+        const deletes = backgroundSelectors.map((selector) => ({
+          pageId: selectedPage.pageId,
+          htmlPath: selectedHtmlPath,
+          selector
+        }))
+        editHistory.addElementWithDeletes(addElementItem, deletes)
+      } else {
+        editHistory.addElement(addElementItem)
       }
-      editHistory.addElement(addElementItem)
     }
     if (isBackground) {
       backgroundSelectors.forEach((selector) => previewIframeRef.current?.hideElement(selector))
@@ -2169,6 +2175,7 @@ export function SessionDetailPage(): React.JSX.Element {
         prompt: '从生图结果添加图片到画布'
       })
       if (added) {
+        useSessionDetailUiStore.getState().setWorkspaceTab('edit')
         toastSuccess(t('sessionDetail.imageAddedToCanvas'))
       }
     } catch (err) {
@@ -2184,6 +2191,7 @@ export function SessionDetailPage(): React.JSX.Element {
       return
     }
     useSessionDetailUiStore.getState().setInteractionMode('edit')
+    useSessionDetailUiStore.getState().setWorkspaceTab('ai')
     previewIframeRef.current?.clearEditModeSelection()
     try {
       const added = await handleAddElement(asset.relativePath, asset.fileName, {
@@ -2205,6 +2213,13 @@ export function SessionDetailPage(): React.JSX.Element {
     if (result.cancelled || !result.assets?.length) return
     const asset = result.assets[0]
     await handleAddElement(asset.relativePath, asset.originalName || asset.fileName)
+  }
+
+  const handleBackToSessions = (): void => {
+    useGenerateStore.getState().reset()
+    useSessionDetailUiStore.getState().resetForSessionChange()
+    resetRuntimeState()
+    navigate('/sessions')
   }
 
   const handleSaveTemplate = async (payload: {
@@ -2278,52 +2293,59 @@ export function SessionDetailPage(): React.JSX.Element {
           </div>
         </header>
 
-        <div className="flex min-h-0 flex-1 bg-[#f5f1e8]">
-          <PageSidebar
-            pages={normalizedOrderedPages}
-            disabled={interactionMode === 'ai-inspect' && isGenerating}
-            onAddBlankPage={handleOpenBlankPageDialog}
-            onAddPage={handleOpenAddPageDialog}
-            onRetryFailedPage={handleRetryFailedPage}
-            onReorderPages={handleReorderPages}
-            onDeletePage={handleDeletePage}
-            onRenamePage={handleOpenTitleEditDialog}
-            onUpdatePageOutline={handleUpdatePageOutline}
-            pageManagementDisabled={isGenerating || isAddingPage || isRetryingSinglePage || isManagingPages}
-            collapsed={sidebarCollapsed}
-            onToggleCollapsed={toggleSidebarCollapsed}
+        <div className="flex min-h-0 flex-1 flex-col bg-[#f5f1e8]">
+          <WorkspaceRibbon
+            selectedPageKey={
+              selectedPage?.htmlPath ? `${selectedPage.pageId}:${selectedPage.htmlPath}` : null
+            }
+            isGenerating={isGenerating}
+            isSavingEdits={isSavingEdits}
+            canUndo={editHistory.canUndo(selectedPage?.pageId)}
+            canRedo={editHistory.canRedo(selectedPage?.pageId)}
+            hasPendingEdits={
+              selectedPage
+                ? (() => {
+                    const s = editHistory.getSnapshotForPage(selectedPage.pageId)
+                    return (
+                      s.dragEdits.length > 0 ||
+                      s.textEdits.length > 0 ||
+                      s.propertyEdits.length > 0 ||
+                      s.deletes.length > 0 ||
+                      s.addElements.length > 0
+                    )
+                  })()
+                : false
+            }
+            actions={{
+              onUndo: handleUndo,
+              onRedo: handleRedo,
+              onSaveCurrentPage: () => void handleSaveAllEdits(),
+              onBackToSessions: handleBackToSessions,
+              onAddText: () => void handleAddTextElement(),
+              onAddFromLibrary: (type) => setAssetPickerOpen(true, type),
+              onAddFromLocal: (type) => void handleUploadAndAdd(type),
+              onOpenSpeechScript: handleOpenSpeechDialog
+            }}
           />
 
-          <div className="flex min-h-0 flex-1 flex-col">
-            <PreviewToolbar
-              selectedPage={selectedPage}
-              isGenerating={isGenerating}
-              isSavingEdits={isSavingEdits}
-              canUndo={editHistory.canUndo()}
-              canRedo={editHistory.canRedo()}
-              hasPendingEdits={
-                selectedPage
-                  ? (() => {
-                      const s = editHistory.getSnapshotForPage(selectedPage.pageId)
-                      return (
-                        s.dragEdits.length > 0 ||
-                        s.textEdits.length > 0 ||
-                        s.propertyEdits.length > 0 ||
-                        s.deletes.length > 0 ||
-                        s.addElements.length > 0
-                      )
-                    })()
-                  : false
+          <div className="flex min-h-0 flex-1">
+            <PageSidebar
+              pages={normalizedOrderedPages}
+              disabled={interactionMode === 'ai-inspect' && isGenerating}
+              onAddBlankPage={handleOpenBlankPageDialog}
+              onAddPage={handleOpenAddPageDialog}
+              onRetryFailedPage={handleRetryFailedPage}
+              onReorderPages={handleReorderPages}
+              onDeletePage={handleDeletePage}
+              onRenamePage={handleOpenTitleEditDialog}
+              onUpdatePageOutline={handleUpdatePageOutline}
+              pageManagementDisabled={
+                isGenerating || isAddingPage || isRetryingSinglePage || isManagingPages
               }
-              onUndo={handleUndo}
-              onRedo={handleRedo}
-              onSaveAllEdits={() => void handleSaveAllEdits()}
-              onDiscardAllEdits={handleDiscardAllEdits}
-              onAddText={() => void handleAddTextElement()}
-              onAddFromLibrary={(type) => setAssetPickerOpen(true, type)}
-              onAddFromLocal={(type) => void handleUploadAndAdd(type)}
-              onOpenSpeechScript={handleOpenSpeechDialog}
+              collapsed={sidebarCollapsed}
+              onToggleCollapsed={toggleSidebarCollapsed}
             />
+
             <div className="flex min-h-0 flex-1">
               <PreviewStage
                 ref={previewIframeRef}
@@ -2336,13 +2358,15 @@ export function SessionDetailPage(): React.JSX.Element {
                 onElementSelected={handleElementSelected}
                 onCancelTextEdit={handleCancelTextEdit}
                 onDiscardAllEdits={handleDiscardAllEdits}
+                onUndo={handleUndo}
+                onRedo={handleRedo}
                 onReplayPendingEdits={replayPendingEdits}
                 onDeleteRequest={(selector) => {
                   setPendingDeleteSelector(selector)
                   setDeleteConfirmOpen(true)
                 }}
               />
-              {speechScriptDialogOpen && id && (
+              {speechScriptDialogOpen && id ? (
                 <SpeechScriptDrawer
                   sessionId={id}
                   isGenerating={isGeneratingSpeechScript}
@@ -2350,22 +2374,14 @@ export function SessionDetailPage(): React.JSX.Element {
                   speechConfig={speechConfig}
                   onConfigChange={setSpeechConfig}
                   onGenerate={(config) => void handleDoGenerateSpeechScript(config)}
-                  onClose={() => setSpeechScriptDialogOpen(false)}
+                  onClose={() => {
+                    setSpeechScriptDialogOpen(false)
+                    useSessionDetailUiStore.getState().setWorkspaceTab('preview')
+                  }}
                   currentPageNumber={selectedPage?.pageNumber}
                   currentPageTitle={selectedPage?.title || undefined}
                 />
-              )}
-              {interactionMode === 'edit' && textSelection && (
-                <ElementInspectorPanel
-                  selection={textSelection}
-                  draft={textDraft}
-                  onDraftChange={handleTextDraftChange}
-                  onClose={handleCancelTextEdit}
-                  onCopy={handleCopyElement}
-                  onDelete={handleDeleteElement}
-                />
-              )}
-              {interactionMode === 'ai-inspect' && (
+              ) : workspaceTab === 'ai' ? (
                 <MessagePanel
                   sessionId={id}
                   selectedPageExists={Boolean(selectedPage?.pageId)}
@@ -2389,7 +2405,18 @@ export function SessionDetailPage(): React.JSX.Element {
                   onRevealImageFile={(filePath) => void handleRevealImageFile(filePath)}
                   cleanMessageContent={cleanMessageContent}
                 />
-              )}
+              ) : workspaceTab === 'edit' && textSelection ? (
+                <ElementInspectorPanel
+                  selection={textSelection}
+                  draft={textDraft}
+                  onDraftChange={handleTextDraftChange}
+                  onClose={handleCancelTextEdit}
+                  onCopy={handleCopyElement}
+                  onDelete={handleDeleteElement}
+                />
+              ) : workspaceTab === 'edit' ? (
+                <EmptyEditWorkbenchPanel />
+              ) : null}
             </div>
           </div>
 

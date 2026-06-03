@@ -1,6 +1,6 @@
 import { useEffect, forwardRef } from 'react'
 import { Loader2, Sparkles } from 'lucide-react'
-import { useSessionDetailUiStore } from '@renderer/store/sessionDetailStore'
+import { useSessionDetailUiStore } from '@renderer/store'
 import { PreviewIframe, type PreviewIframeHandle } from '../preview/PreviewIframe'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/Tooltip'
 import type { EditModeMovePayload, EditSelectionPayload } from '../preview/edit-mode-script'
@@ -19,6 +19,8 @@ export const PreviewStage = forwardRef<
     onElementSelected: (payload: EditSelectionPayload) => void
     onCancelTextEdit: () => void
     onDiscardAllEdits: () => void
+    onUndo: () => void
+    onRedo: () => void
     onReplayPendingEdits: () => void
     onDeleteRequest?: (selector: string) => void
   }
@@ -33,6 +35,8 @@ export const PreviewStage = forwardRef<
     onElementSelected,
     onCancelTextEdit,
     onDiscardAllEdits,
+    onUndo,
+    onRedo,
     onReplayPendingEdits,
     onDeleteRequest
   },
@@ -42,6 +46,7 @@ export const PreviewStage = forwardRef<
   const previewKey = useSessionDetailUiStore((state) => state.previewKey)
   const interactionMode = useSessionDetailUiStore((state) => state.interactionMode)
   const setInteractionMode = useSessionDetailUiStore((state) => state.setInteractionMode)
+  const setWorkspaceTab = useSessionDetailUiStore((state) => state.setWorkspaceTab)
   const setSelectedElement = useSessionDetailUiStore((state) => state.setSelectedElement)
   const displayTitle = sessionTitle || t('sessionDetail.sessionFallback')
 
@@ -51,18 +56,46 @@ export const PreviewStage = forwardRef<
   useEffect(() => {
     if (interactionMode === 'preview') return
     const onKeyDown = (event: KeyboardEvent): void => {
+      const target = event.target
+      const isEditableTarget =
+        target instanceof Element &&
+        Boolean(target.closest('input, textarea, select, [contenteditable="true"], [contenteditable=""]'))
+      if (isEditing && !isEditableTarget && (event.metaKey || event.ctrlKey)) {
+        const key = event.key.toLowerCase()
+        if (key === 'z') {
+          event.preventDefault()
+          if (event.shiftKey) onRedo()
+          else onUndo()
+          return
+        }
+        if (key === 'y') {
+          event.preventDefault()
+          onRedo()
+          return
+        }
+      }
       if (event.key === 'Escape') {
         if (isEditing) {
           onDiscardAllEdits()
         } else {
           setInteractionMode('preview')
+          setWorkspaceTab('preview')
           onCancelTextEdit()
         }
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [interactionMode, isEditing, onDiscardAllEdits, onCancelTextEdit, setInteractionMode])
+  }, [
+    interactionMode,
+    isEditing,
+    onDiscardAllEdits,
+    onCancelTextEdit,
+    onUndo,
+    onRedo,
+    setInteractionMode,
+    setWorkspaceTab
+  ])
 
   return (
     <main className="flex min-h-0 flex-1 flex-col px-3 pb-3 pt-1">
@@ -97,6 +130,7 @@ export const PreviewStage = forwardRef<
               onElementSelected={onElementSelected}
               onInspectExit={() => {
                 setInteractionMode('preview')
+                setWorkspaceTab('preview')
                 onCancelTextEdit()
               }}
               onDidReload={onReplayPendingEdits}

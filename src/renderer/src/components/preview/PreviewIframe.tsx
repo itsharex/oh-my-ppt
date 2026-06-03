@@ -16,7 +16,7 @@ import {
   type EditSelectionPayload
 } from './edit-mode-script'
 import { ipc } from '@renderer/lib/ipc'
-import type { InteractionMode } from '@renderer/store/sessionDetailStore'
+import type { InteractionMode } from '@renderer/store'
 
 const buildPreviewClickAnimationInjectScript = (): string => `
 (() => {

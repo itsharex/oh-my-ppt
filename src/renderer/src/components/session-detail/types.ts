@@ -1,5 +1,4 @@
-import type { GeneratedPage } from '@renderer/store/sessionStore'
-import type { SessionDetailChatType } from '@renderer/store/sessionDetailStore'
+import type { GeneratedPage, SessionDetailChatType } from '@renderer/store'
 
 export type ChatType = SessionDetailChatType
 

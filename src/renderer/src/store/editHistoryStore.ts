@@ -86,6 +86,8 @@ export interface EditSnapshot {
   addElements: AddElementItem[]
 }
 
+type PageEditStacks = Record<string, EditSnapshot[]>
+
 // ─── Helpers ──────────────────────────────────────────
 
 function cloneSnapshot(s: EditSnapshot): EditSnapshot {
@@ -116,14 +118,73 @@ function cloneSnapshot(s: EditSnapshot): EditSnapshot {
   }
 }
 
-function takeSnapshot(
-  dragEdits: DragEditItem[],
-  textEdits: TextEditItem[],
-  propertyEdits: PropertyEditItem[],
-  deletes: DeleteItem[],
-  addElements: AddElementItem[]
+function emptySnapshot(): EditSnapshot {
+  return {
+    dragEdits: [],
+    textEdits: [],
+    propertyEdits: [],
+    deletes: [],
+    addElements: []
+  }
+}
+
+function getSnapshotForPageFromState(
+  state: Pick<
+    EditHistoryState,
+    'dragEdits' | 'textEdits' | 'propertyEdits' | 'deletes' | 'addElements'
+  >,
+  pageId: string
 ): EditSnapshot {
-  return cloneSnapshot({ dragEdits, textEdits, propertyEdits, deletes, addElements })
+  return {
+    dragEdits: state.dragEdits.filter((e) => e.pageId === pageId),
+    textEdits: state.textEdits.filter((e) => e.pageId === pageId),
+    propertyEdits: state.propertyEdits.filter((e) => e.pageId === pageId),
+    deletes: state.deletes.filter((e) => e.pageId === pageId),
+    addElements: state.addElements.filter((e) => e.pageId === pageId)
+  }
+}
+
+function replacePageSnapshot<
+  T extends Pick<
+    EditHistoryState,
+    'dragEdits' | 'textEdits' | 'propertyEdits' | 'deletes' | 'addElements'
+  >
+>(state: T, pageId: string, snapshot: EditSnapshot): Pick<
+  EditHistoryState,
+  'dragEdits' | 'textEdits' | 'propertyEdits' | 'deletes' | 'addElements'
+> {
+  return {
+    dragEdits: [
+      ...state.dragEdits.filter((item) => item.pageId !== pageId),
+      ...snapshot.dragEdits
+    ],
+    textEdits: [
+      ...state.textEdits.filter((item) => item.pageId !== pageId),
+      ...snapshot.textEdits
+    ],
+    propertyEdits: [
+      ...state.propertyEdits.filter((item) => item.pageId !== pageId),
+      ...snapshot.propertyEdits
+    ],
+    deletes: [...state.deletes.filter((item) => item.pageId !== pageId), ...snapshot.deletes],
+    addElements: [
+      ...state.addElements.filter((item) => item.pageId !== pageId),
+      ...snapshot.addElements
+    ]
+  }
+}
+
+function pushPageStack(stacks: PageEditStacks, pageId: string, snapshot: EditSnapshot): PageEditStacks {
+  return {
+    ...stacks,
+    [pageId]: [...(stacks[pageId] || []), cloneSnapshot(snapshot)]
+  }
+}
+
+function clearPageStack(stacks: PageEditStacks, pageId: string): PageEditStacks {
+  const next = { ...stacks }
+  delete next[pageId]
+  return next
 }
 
 function compactPatchObject<T extends Record<string, unknown>>(value: T | undefined): Partial<T> {
@@ -153,18 +214,21 @@ interface EditHistoryState {
   propertyEdits: PropertyEditItem[]
   deletes: DeleteItem[]
   addElements: AddElementItem[]
-  undoStack: EditSnapshot[]
-  redoStack: EditSnapshot[]
+  undoStacks: PageEditStacks
+  redoStacks: PageEditStacks
+  savedCheckpoints: Record<string, EditSnapshot>
 
   upsertDragEdit: (edit: DragEditItem) => void
   upsertTextEdit: (edit: TextEditItem) => void
   upsertPropertyEdit: (edit: PropertyEditItem) => void
   addDelete: (item: DeleteItem) => void
   addElement: (item: AddElementItem) => void
-  undo: () => EditSnapshot | null
-  redo: () => EditSnapshot | null
-  canUndo: () => boolean
-  canRedo: () => boolean
+  addElementWithDeletes: (item: AddElementItem, deletes: DeleteItem[]) => void
+  undo: (pageId: string) => EditSnapshot | null
+  redo: (pageId: string) => EditSnapshot | null
+  canUndo: (pageId?: string | null) => boolean
+  canRedo: (pageId?: string | null) => boolean
+  markPageSaved: (pageId: string) => void
   clearPage: (pageId: string) => void
   clear: () => void
   getSnapshotForPage: (pageId: string) => EditSnapshot
@@ -176,12 +240,13 @@ export const useEditHistoryStore = create<EditHistoryState>((set, get) => ({
   propertyEdits: [],
   deletes: [],
   addElements: [],
-  undoStack: [],
-  redoStack: [],
+  undoStacks: {},
+  redoStacks: {},
+  savedCheckpoints: {},
 
   upsertDragEdit: (edit) =>
     set((state) => {
-      const snapshot = takeSnapshot(state.dragEdits, state.textEdits, state.propertyEdits, state.deletes, state.addElements)
+      const snapshot = getSnapshotForPageFromState(state, edit.pageId)
       const idx = state.dragEdits.findIndex(
         (item) =>
           item.pageId === edit.pageId &&
@@ -215,15 +280,15 @@ export const useEditHistoryStore = create<EditHistoryState>((set, get) => ({
         next = state.dragEdits.map((item, i) => (i === idx ? merged : item))
       }
       return {
-        undoStack: [...state.undoStack, snapshot],
-        redoStack: [],
+        undoStacks: pushPageStack(state.undoStacks, edit.pageId, snapshot),
+        redoStacks: clearPageStack(state.redoStacks, edit.pageId),
         dragEdits: next
       }
     }),
 
   upsertTextEdit: (edit) =>
     set((state) => {
-      const snapshot = takeSnapshot(state.dragEdits, state.textEdits, state.propertyEdits, state.deletes, state.addElements)
+      const snapshot = getSnapshotForPageFromState(state, edit.pageId)
       const idx = state.textEdits.findIndex(
         (item) =>
           item.pageId === edit.pageId &&
@@ -234,15 +299,15 @@ export const useEditHistoryStore = create<EditHistoryState>((set, get) => ({
           ? [...state.textEdits, edit]
           : state.textEdits.map((item, i) => (i === idx ? edit : item))
       return {
-        undoStack: [...state.undoStack, snapshot],
-        redoStack: [],
+        undoStacks: pushPageStack(state.undoStacks, edit.pageId, snapshot),
+        redoStacks: clearPageStack(state.redoStacks, edit.pageId),
         textEdits: next
       }
     }),
 
   upsertPropertyEdit: (edit) =>
     set((state) => {
-      const snapshot = takeSnapshot(state.dragEdits, state.textEdits, state.propertyEdits, state.deletes, state.addElements)
+      const snapshot = getSnapshotForPageFromState(state, edit.pageId)
       const idx = state.propertyEdits.findIndex(
         (item) =>
           item.pageId === edit.pageId &&
@@ -272,68 +337,91 @@ export const useEditHistoryStore = create<EditHistoryState>((set, get) => ({
         return state
       }
       return {
-        undoStack: [...state.undoStack, snapshot],
-        redoStack: [],
+        undoStacks: pushPageStack(state.undoStacks, edit.pageId, snapshot),
+        redoStacks: clearPageStack(state.redoStacks, edit.pageId),
         propertyEdits: next
       }
     }),
 
   addDelete: (item) =>
     set((state) => {
-      const snapshot = takeSnapshot(state.dragEdits, state.textEdits, state.propertyEdits, state.deletes, state.addElements)
+      const snapshot = getSnapshotForPageFromState(state, item.pageId)
       return {
-        undoStack: [...state.undoStack, snapshot],
-        redoStack: [],
+        undoStacks: pushPageStack(state.undoStacks, item.pageId, snapshot),
+        redoStacks: clearPageStack(state.redoStacks, item.pageId),
         deletes: [...state.deletes, item]
       }
     }),
 
   addElement: (item) =>
     set((state) => {
-      const snapshot = takeSnapshot(state.dragEdits, state.textEdits, state.propertyEdits, state.deletes, state.addElements)
+      const snapshot = getSnapshotForPageFromState(state, item.pageId)
       return {
-        undoStack: [...state.undoStack, snapshot],
-        redoStack: [],
+        undoStacks: pushPageStack(state.undoStacks, item.pageId, snapshot),
+        redoStacks: clearPageStack(state.redoStacks, item.pageId),
         addElements: [...state.addElements, item]
       }
     }),
 
-  undo: () => {
+  addElementWithDeletes: (item, deletes) =>
+    set((state) => {
+      const pageId = item.pageId
+      const snapshot = getSnapshotForPageFromState(state, pageId)
+      return {
+        undoStacks: pushPageStack(state.undoStacks, pageId, snapshot),
+        redoStacks: clearPageStack(state.redoStacks, pageId),
+        deletes: [...state.deletes, ...deletes],
+        addElements: [...state.addElements, item]
+      }
+    }),
+
+  undo: (pageId) => {
     const state = get()
-    if (state.undoStack.length === 0) return null
-    const prev = state.undoStack[state.undoStack.length - 1]
-    const current = takeSnapshot(state.dragEdits, state.textEdits, state.propertyEdits, state.deletes, state.addElements)
+    const pageUndoStack = state.undoStacks[pageId] || []
+    if (pageUndoStack.length === 0) return null
+    const prev = pageUndoStack[pageUndoStack.length - 1]
+    const current = getSnapshotForPageFromState(state, pageId)
     set({
-      undoStack: state.undoStack.slice(0, -1),
-      redoStack: [...state.redoStack, current],
-      dragEdits: prev.dragEdits,
-      textEdits: prev.textEdits,
-      propertyEdits: prev.propertyEdits,
-      deletes: prev.deletes,
-      addElements: prev.addElements
+      undoStacks: {
+        ...state.undoStacks,
+        [pageId]: pageUndoStack.slice(0, -1)
+      },
+      redoStacks: pushPageStack(state.redoStacks, pageId, current),
+      ...replacePageSnapshot(state, pageId, prev)
     })
     return cloneSnapshot(prev)
   },
 
-  redo: () => {
+  redo: (pageId) => {
     const state = get()
-    if (state.redoStack.length === 0) return null
-    const next = state.redoStack[state.redoStack.length - 1]
-    const current = takeSnapshot(state.dragEdits, state.textEdits, state.propertyEdits, state.deletes, state.addElements)
+    const pageRedoStack = state.redoStacks[pageId] || []
+    if (pageRedoStack.length === 0) return null
+    const next = pageRedoStack[pageRedoStack.length - 1]
+    const current = getSnapshotForPageFromState(state, pageId)
     set({
-      redoStack: state.redoStack.slice(0, -1),
-      undoStack: [...state.undoStack, current],
-      dragEdits: next.dragEdits,
-      textEdits: next.textEdits,
-      propertyEdits: next.propertyEdits,
-      deletes: next.deletes,
-      addElements: next.addElements
+      redoStacks: {
+        ...state.redoStacks,
+        [pageId]: pageRedoStack.slice(0, -1)
+      },
+      undoStacks: pushPageStack(state.undoStacks, pageId, current),
+      ...replacePageSnapshot(state, pageId, next)
     })
     return cloneSnapshot(next)
   },
 
-  canUndo: () => get().undoStack.length > 0,
-  canRedo: () => get().redoStack.length > 0,
+  canUndo: (pageId) => Boolean(pageId && (get().undoStacks[pageId]?.length || 0) > 0),
+  canRedo: (pageId) => Boolean(pageId && (get().redoStacks[pageId]?.length || 0) > 0),
+
+  markPageSaved: (pageId) =>
+    set((state) => ({
+      ...replacePageSnapshot(state, pageId, emptySnapshot()),
+      undoStacks: clearPageStack(state.undoStacks, pageId),
+      redoStacks: clearPageStack(state.redoStacks, pageId),
+      savedCheckpoints: {
+        ...state.savedCheckpoints,
+        [pageId]: emptySnapshot()
+      }
+    })),
 
   clearPage: (pageId) =>
     set((state) => ({
@@ -342,8 +430,12 @@ export const useEditHistoryStore = create<EditHistoryState>((set, get) => ({
       propertyEdits: state.propertyEdits.filter((item) => item.pageId !== pageId),
       deletes: state.deletes.filter((item) => item.pageId !== pageId),
       addElements: state.addElements.filter((item) => item.pageId !== pageId),
-      undoStack: [],
-      redoStack: []
+      undoStacks: clearPageStack(state.undoStacks, pageId),
+      redoStacks: clearPageStack(state.redoStacks, pageId),
+      savedCheckpoints: {
+        ...state.savedCheckpoints,
+        [pageId]: emptySnapshot()
+      }
     })),
 
   clear: () =>
@@ -353,18 +445,12 @@ export const useEditHistoryStore = create<EditHistoryState>((set, get) => ({
       propertyEdits: [],
       deletes: [],
       addElements: [],
-      undoStack: [],
-      redoStack: []
+      undoStacks: {},
+      redoStacks: {},
+      savedCheckpoints: {}
     }),
 
   getSnapshotForPage: (pageId) => {
-    const state = get()
-    return {
-      dragEdits: state.dragEdits.filter((e) => e.pageId === pageId),
-      textEdits: state.textEdits.filter((e) => e.pageId === pageId),
-      propertyEdits: state.propertyEdits.filter((e) => e.pageId === pageId),
-      deletes: state.deletes.filter((e) => e.pageId === pageId),
-      addElements: state.addElements.filter((e) => e.pageId === pageId)
-    }
+    return cloneSnapshot(getSnapshotForPageFromState(get(), pageId))
   }
 }))

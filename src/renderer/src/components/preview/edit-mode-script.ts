@@ -2003,8 +2003,7 @@ export function buildEditModeInjectScript(previewScale = 1): string {
         });
         const el = selectable || nodes.find((node) => node instanceof Element) || null;
         if (el && selectAfterInsert) {
-          selectedElement = el;
-          el.classList.add(SELECTED_CLASS);
+          setSelected(el);
           requestAnimationFrame(() => {
             updateOverlay();
           });
