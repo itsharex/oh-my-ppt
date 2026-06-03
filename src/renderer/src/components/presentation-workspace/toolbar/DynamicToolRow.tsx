@@ -1,7 +1,6 @@
 import type { SessionWorkspaceTab } from '@renderer/store'
 import { AiToolRow } from './tool-rows/AiToolRow'
 import { AnimationToolRow } from './tool-rows/AnimationToolRow'
-import { EditToolRow } from './tool-rows/EditToolRow'
 import { InsertToolRow } from './tool-rows/InsertToolRow'
 import { PreviewToolRow } from './tool-rows/PreviewToolRow'
 import { SpeechToolRow } from './tool-rows/SpeechToolRow'
@@ -12,8 +11,7 @@ const toolRows: Record<
   (props: ToolRowProps) => React.JSX.Element | null
 > = {
   preview: PreviewToolRow,
-  edit: EditToolRow,
-  insert: InsertToolRow,
+  edit: InsertToolRow,
   animation: AnimationToolRow,
   speech: SpeechToolRow,
   ai: AiToolRow

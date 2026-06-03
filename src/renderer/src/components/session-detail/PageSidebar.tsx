@@ -303,14 +303,14 @@ export const PageSidebar = memo(function PageSidebar({
       ) : (
         // Expanded: full sidebar
         <>
-          <div className="mb-2 grid grid-cols-2 rounded-full border border-[#ded2bd]/60 bg-[#e8e0d0]/46 p-0.5 text-[11px] font-medium text-[#6a705d]">
+          <div className="mx-1 mb-2 grid grid-cols-2 rounded-lg bg-[#e8e0d0]/38 p-0.5 text-[10.5px] font-medium text-[#6a705d]">
             <button
               type="button"
               onClick={() => setActiveView('pages')}
-              className={`h-7 rounded-full transition-all ${
+              className={`h-6 rounded-md transition-all ${
                 activeView === 'pages'
-                  ? 'bg-[#fffaf1]/90 text-[#3e4a32] shadow-[0_4px_10px_rgba(93,107,77,0.1)]'
-                  : 'hover:bg-[#fffaf1]/42 hover:text-[#4f6340]'
+                  ? 'bg-[#fffaf1]/86 text-[#3e4a32] shadow-[0_1px_4px_rgba(93,107,77,0.08)]'
+                  : 'hover:bg-[#fffaf1]/36 hover:text-[#4f6340]'
               }`}
             >
               {t('sessionDetail.pageTab')}
@@ -318,10 +318,10 @@ export const PageSidebar = memo(function PageSidebar({
             <button
               type="button"
               onClick={() => setActiveView('outline')}
-              className={`h-7 rounded-full transition-all ${
+              className={`h-6 rounded-md transition-all ${
                 activeView === 'outline'
-                  ? 'bg-[#fffaf1]/90 text-[#3e4a32] shadow-[0_4px_10px_rgba(93,107,77,0.1)]'
-                  : 'hover:bg-[#fffaf1]/42 hover:text-[#4f6340]'
+                  ? 'bg-[#fffaf1]/86 text-[#3e4a32] shadow-[0_1px_4px_rgba(93,107,77,0.08)]'
+                  : 'hover:bg-[#fffaf1]/36 hover:text-[#4f6340]'
               }`}
             >
               {t('sessionDetail.outlineTab')}

@@ -2234,15 +2234,15 @@ export function SessionDetailPage(): React.JSX.Element {
         sessionId: id,
         ...payload
       })
-      toastSuccess('已保存为模板', {
+      toastSuccess(t('sessionDetail.templateSaved'), {
         action: {
-          label: '查看模板',
+          label: t('sessionDetail.viewTemplates'),
           onClick: () => navigate('/templates')
         }
       })
       setSaveTemplateOpen(false)
     } catch (err) {
-      toastError('保存模板失败', {
+      toastError(t('sessionDetail.templateSaveFailed'), {
         description: err instanceof Error ? err.message : t('common.retryLater')
       })
     } finally {

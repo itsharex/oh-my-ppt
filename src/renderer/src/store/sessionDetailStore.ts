@@ -6,7 +6,7 @@ import type { SpeechConfig } from '@shared/speech'
 export type SessionDetailChatType = 'main' | 'page'
 export type SessionDetailAiPanelMode = 'chat' | 'image'
 export type InteractionMode = 'preview' | 'ai-inspect' | 'edit'
-export type SessionWorkspaceTab = 'preview' | 'edit' | 'insert' | 'animation' | 'speech' | 'ai'
+export type SessionWorkspaceTab = 'preview' | 'edit' | 'animation' | 'speech' | 'ai'
 export type ImageGenerationMessage = {
   id: string
   role: 'user' | 'assistant'

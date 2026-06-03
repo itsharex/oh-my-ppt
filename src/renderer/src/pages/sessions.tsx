@@ -189,15 +189,15 @@ export function SessionsPage(): React.JSX.Element {
         sessionId: saveTemplateTarget.id,
         ...payload
       })
-      success('已保存为模板', {
+      success(t('sessionDetail.templateSaved'), {
         action: {
-          label: '查看模板',
+          label: t('sessionDetail.viewTemplates'),
           onClick: () => navigate('/templates')
         }
       })
       setSaveTemplateTarget(null)
     } catch (err) {
-      error('保存模板失败', {
+      error(t('sessionDetail.templateSaveFailed'), {
         description: err instanceof Error ? err.message : t('common.retryLater')
       })
     } finally {

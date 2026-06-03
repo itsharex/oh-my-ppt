@@ -16,7 +16,6 @@ export function WorkspaceTabs({
   const tabs: Array<{ id: SessionWorkspaceTab; label: string; icon?: React.JSX.Element }> = [
     { id: 'preview', label: t('sessionDetail.previewMode') },
     { id: 'edit', label: t('sessionDetail.editMode'), icon: <Pencil className="h-3 w-3" /> },
-    { id: 'insert', label: t('sessionDetail.insertTab') },
     { id: 'animation', label: t('sessionDetail.animationTab') },
     { id: 'speech', label: t('sessionDetail.speechScript'), icon: <ScrollText className="h-3 w-3" /> },
     { id: 'ai', label: t('sessionDetail.aiMode'), icon: <Sparkles className="h-3 w-3" /> }
