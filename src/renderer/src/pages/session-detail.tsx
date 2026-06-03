@@ -1538,19 +1538,12 @@ export function SessionDetailPage(): React.JSX.Element {
   const handleDeleteElement = (): void => {
     if (!selectedPage?.htmlPath || !selectedPage.pageId || !textSelection) return
     const selector = textSelection.selector
-    const artTextStyleSelector =
-      textSelection.snapshot?.attrs.artTextTemplate && textSelection.blockId
-        ? `[data-ppt-art-text-style="${textSelection.blockId}"]`
-        : ''
     editHistory.addDelete({
       pageId: selectedPage.pageId,
       htmlPath: selectedPage.htmlPath,
       selector
     })
     previewIframeRef.current?.hideElement(selector)
-    if (artTextStyleSelector) {
-      previewIframeRef.current?.hideElement(artTextStyleSelector)
-    }
     previewIframeRef.current?.clearEditModeSelection()
     setTextSelection(null)
     setTextDraft(EMPTY_ELEMENT_DRAFT)
@@ -1558,11 +1551,6 @@ export function SessionDetailPage(): React.JSX.Element {
 
   const handleDeleteBySelector = (selector: string): void => {
     if (!selectedPage?.htmlPath || !selectedPage.pageId || !selector) return
-    const selectionForDelete = textSelection && textSelection.selector === selector ? textSelection : null
-    const artTextStyleSelector =
-      selectionForDelete?.snapshot?.attrs.artTextTemplate && selectionForDelete.blockId
-        ? `[data-ppt-art-text-style="${selectionForDelete.blockId}"]`
-        : ''
     // Commit any pending inspector edit for the element being deleted.
     if (textSelection && textSelection.selector === selector) {
       commitCurrentElementEdit()
@@ -1573,9 +1561,6 @@ export function SessionDetailPage(): React.JSX.Element {
       selector
     })
     previewIframeRef.current?.hideElement(selector)
-    if (artTextStyleSelector) {
-      previewIframeRef.current?.hideElement(artTextStyleSelector)
-    }
     previewIframeRef.current?.clearEditModeSelection()
     setTextSelection(null)
     setTextDraft(EMPTY_ELEMENT_DRAFT)

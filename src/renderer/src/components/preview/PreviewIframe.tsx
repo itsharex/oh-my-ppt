@@ -441,6 +441,11 @@ export const PreviewIframe = forwardRef<
             `var __el = document.querySelector(${JSON.stringify(selector)});` +
             `if (!__el) return;` +
             `__el.setAttribute('data-ppt-pending-delete', '1');` +
+            `if (__el.hasAttribute && __el.hasAttribute('data-ppt-art-text')) {` +
+            `  var __blockId = __el.getAttribute('data-block-id') || '';` +
+            `  var __style = __blockId ? Array.from(document.querySelectorAll('style[data-ppt-art-text-style]')).find(function(s){ return s.getAttribute('data-ppt-art-text-style') === __blockId; }) : null;` +
+            `  if (__style) { __style.setAttribute('data-ppt-pending-delete', '1'); __style.disabled = true; }` +
+            `}` +
             `if (__el.tagName === 'STYLE') { __el.disabled = true; return; }` +
             `__el.style.setProperty('display', 'none', 'important');` +
           `})()`
@@ -454,6 +459,11 @@ export const PreviewIframe = forwardRef<
           `(function(){` +
             `var __el = document.querySelector(${JSON.stringify(selector)});` +
             `if (!__el || __el.getAttribute('data-ppt-pending-delete') !== '1') return;` +
+            `if (__el.hasAttribute && __el.hasAttribute('data-ppt-art-text')) {` +
+            `  var __blockId = __el.getAttribute('data-block-id') || '';` +
+            `  var __style = __blockId ? Array.from(document.querySelectorAll('style[data-ppt-art-text-style]')).find(function(s){ return s.getAttribute('data-ppt-art-text-style') === __blockId; }) : null;` +
+            `  if (__style) { __style.disabled = false; __style.removeAttribute('data-ppt-pending-delete'); }` +
+            `}` +
             `if (__el.tagName === 'STYLE') { __el.disabled = false; __el.removeAttribute('data-ppt-pending-delete'); return; }` +
             `__el.style.removeProperty('display');` +
             `__el.removeAttribute('data-ppt-pending-delete');` +
