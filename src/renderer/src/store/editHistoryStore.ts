@@ -206,6 +206,73 @@ function propertyPatchEquals(a: PropertyEditItem['patch'], b: PropertyEditItem['
   )
 }
 
+export function extractSelectorBlockIds(selector: string): string[] {
+  if (!selector || !selector.includes('data-block-id')) return []
+  const pattern = /data-block-id\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\]\s]+))/g
+  const ids: string[] = []
+  let match: RegExpExecArray | null
+  while ((match = pattern.exec(selector)) !== null) {
+    const id = match[1] || match[2] || match[3]
+    if (id && !ids.includes(id)) ids.push(id)
+  }
+  return ids
+}
+
+export function selectorReferencesBlockId(selector: string, blockId: string): boolean {
+  return extractSelectorBlockIds(selector).includes(blockId)
+}
+
+export function selectorsTargetSameBlock(selectorA: string, selectorB: string): boolean {
+  if (!selectorA || !selectorB) return false
+  if (selectorA === selectorB) return true
+  const idsA = extractSelectorBlockIds(selectorA)
+  if (idsA.length === 0) return false
+  const idsB = extractSelectorBlockIds(selectorB)
+  return idsB.some((id) => idsA.includes(id))
+}
+
+export function editTargetMatchesDeletedSelector(
+  editSelector: string,
+  deletedSelector: string,
+  editBlockId?: string
+): boolean {
+  if (selectorsTargetSameBlock(editSelector, deletedSelector)) return true
+  return Boolean(editBlockId && selectorReferencesBlockId(deletedSelector, editBlockId))
+}
+
+function deleteItemsTargetSameElement(a: DeleteItem, b: DeleteItem): boolean {
+  return (
+    a.pageId === b.pageId &&
+    a.htmlPath === b.htmlPath &&
+    selectorsTargetSameBlock(a.selector, b.selector)
+  )
+}
+
+function isGeneratedBackgroundAdd(item: AddElementItem): boolean {
+  return (
+    item.htmlFragment.includes('data-ppt-generated-background="1"') ||
+    item.htmlFragment.includes("data-ppt-generated-background='1'")
+  )
+}
+
+function isGeneratedBackgroundDelete(item: DeleteItem): boolean {
+  return (
+    item.selector === '[data-ppt-generated-background="1"]' ||
+    item.selector === "[data-ppt-generated-background='1']" ||
+    item.selector === '[data-ppt-generated-background-style="1"]' ||
+    item.selector === "[data-ppt-generated-background-style='1']"
+  )
+}
+
+function appendUniqueDeletes(existing: DeleteItem[], incoming: DeleteItem[]): DeleteItem[] {
+  const next = [...existing]
+  for (const item of incoming) {
+    const duplicate = next.some((deleteItem) => deleteItemsTargetSameElement(deleteItem, item))
+    if (!duplicate) next.push(item)
+  }
+  return next
+}
+
 // ─── Store ────────────────────────────────────────────
 
 interface EditHistoryState {
@@ -346,6 +413,54 @@ export const useEditHistoryStore = create<EditHistoryState>((set, get) => ({
   addDelete: (item) =>
     set((state) => {
       const snapshot = getSnapshotForPageFromState(state, item.pageId)
+      const pendingAdd = state.addElements.find(
+        (add) =>
+          add.pageId === item.pageId &&
+          add.htmlPath === item.htmlPath &&
+          selectorReferencesBlockId(item.selector, add.assignedBlockId)
+      )
+      if (pendingAdd) {
+        const cancelGeneratedBackgroundReplacement = isGeneratedBackgroundAdd(pendingAdd)
+        return {
+          undoStacks: pushPageStack(state.undoStacks, item.pageId, snapshot),
+          redoStacks: clearPageStack(state.redoStacks, item.pageId),
+          dragEdits: state.dragEdits.filter(
+            (edit) =>
+              edit.pageId !== item.pageId ||
+              !editTargetMatchesDeletedSelector(edit.selector, item.selector)
+          ),
+          textEdits: state.textEdits.filter(
+            (edit) =>
+              edit.pageId !== item.pageId ||
+              !editTargetMatchesDeletedSelector(edit.selector, item.selector)
+          ),
+          propertyEdits: state.propertyEdits.filter(
+            (edit) =>
+              edit.pageId !== item.pageId ||
+              !editTargetMatchesDeletedSelector(edit.selector, item.selector, edit.blockId)
+          ),
+          deletes: cancelGeneratedBackgroundReplacement
+            ? state.deletes.filter(
+                (deleteItem) =>
+                  deleteItem.pageId !== item.pageId ||
+                  deleteItem.htmlPath !== item.htmlPath ||
+                  !isGeneratedBackgroundDelete(deleteItem)
+              )
+            : state.deletes,
+          addElements: state.addElements.filter(
+            (add) =>
+              add !== pendingAdd &&
+              !(
+                cancelGeneratedBackgroundReplacement &&
+                add.pageId === item.pageId &&
+                add.htmlPath === item.htmlPath &&
+                isGeneratedBackgroundAdd(add)
+              )
+          )
+        }
+      }
+      const exists = state.deletes.some((deleteItem) => deleteItemsTargetSameElement(deleteItem, item))
+      if (exists) return state
       return {
         undoStacks: pushPageStack(state.undoStacks, item.pageId, snapshot),
         redoStacks: clearPageStack(state.redoStacks, item.pageId),
@@ -367,11 +482,28 @@ export const useEditHistoryStore = create<EditHistoryState>((set, get) => ({
     set((state) => {
       const pageId = item.pageId
       const snapshot = getSnapshotForPageFromState(state, pageId)
+      const generatedBackgroundAdd = isGeneratedBackgroundAdd(item)
+      const existingDeletes = generatedBackgroundAdd
+        ? state.deletes.filter(
+            (deleteItem) =>
+              deleteItem.pageId !== pageId ||
+              deleteItem.htmlPath !== item.htmlPath ||
+              !isGeneratedBackgroundDelete(deleteItem)
+          )
+        : state.deletes
+      const existingAddElements = generatedBackgroundAdd
+        ? state.addElements.filter(
+            (add) =>
+              add.pageId !== pageId ||
+              add.htmlPath !== item.htmlPath ||
+              !isGeneratedBackgroundAdd(add)
+          )
+        : state.addElements
       return {
         undoStacks: pushPageStack(state.undoStacks, pageId, snapshot),
         redoStacks: clearPageStack(state.redoStacks, pageId),
-        deletes: [...state.deletes, ...deletes],
-        addElements: [...state.addElements, item]
+        deletes: appendUniqueDeletes(existingDeletes, deletes),
+        addElements: [...existingAddElements, item]
       }
     }),
 

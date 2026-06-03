@@ -39,6 +39,7 @@ import { SaveTemplateDialog } from '../components/templates/SaveTemplateDialog'
 import type { ElementEditDraft } from '../components/session-detail/ElementInspectorPanel'
 import type { ChatType, SessionPreviewPage } from '../components/session-detail/types'
 import {
+  editTargetMatchesDeletedSelector,
   useEditHistoryStore,
   useGenerateStore,
   useSessionDetailUiStore,
@@ -1453,11 +1454,14 @@ export function SessionDetailPage(): React.JSX.Element {
           }
         })
       )
-      // Filter out drag/text edits for elements that are also pending deletion
-      const deletedSelectors = new Set(snapshot.deletes.map((d) => d.selector))
-      const safeDragEdits = snapshot.dragEdits.filter((e) => !deletedSelectors.has(e.selector))
-      const safeTextEdits = snapshot.textEdits.filter((e) => !deletedSelectors.has(e.selector))
-      const safePropertyEdits = snapshot.propertyEdits.filter((e) => !deletedSelectors.has(e.selector))
+      // Filter out edits for elements that are also pending deletion.
+      const isDeletedTarget = (selector: string, blockId?: string): boolean =>
+        snapshot.deletes.some((d) => editTargetMatchesDeletedSelector(selector, d.selector, blockId))
+      const safeDragEdits = snapshot.dragEdits.filter((e) => !isDeletedTarget(e.selector))
+      const safeTextEdits = snapshot.textEdits.filter((e) => !isDeletedTarget(e.selector))
+      const safePropertyEdits = snapshot.propertyEdits.filter(
+        (e) => !isDeletedTarget(e.selector, e.blockId)
+      )
       // Build descriptive prompt for history
       const parts: string[] = []
       const ac = snapshot.addElements.length
