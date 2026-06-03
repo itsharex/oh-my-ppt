@@ -5,7 +5,7 @@
 
 ![AI PPT Generator](https://img.shields.io/badge/AI%20PPT-Generator-2f6d49)
 ![Local-first](https://img.shields.io/badge/Local--first-Private-3b7a57)
-![License](https://img.shields.io/badge/license-MIT-green)
+![License](https://img.shields.io/badge/license-Apache--2.0-green)
 ![Electron](https://img.shields.io/badge/Electron-Desktop-47848f)
 ![React](https://img.shields.io/badge/React-App-61dafb)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178c6)
@@ -310,4 +310,4 @@ Thanks to all contributors!
 <a id="license"></a>
 ## License
 
-This project is licensed under the [MIT License](LICENSE) © 2026 arcsin1 &lt;zy19931129@gmail.com&gt;.
+This project is licensed under the [Apache License 2.0](LICENSE) © 2026 arcsin1 &lt;zy19931129@gmail.com&gt;.

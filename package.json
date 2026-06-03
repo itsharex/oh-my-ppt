@@ -5,7 +5,7 @@
   "main": "./out/main/index.js",
   "author": "arcsin1",
   "homepage": "https://github.com/arcsin1/oh-my-ppt",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "type": "module",
   "scripts": {
     "format": "prettier --write .",
