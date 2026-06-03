@@ -704,6 +704,7 @@ export const zh = {
     zIndexNegativeHint: '负值图层会被压到内容下方，需要按住 Alt / Option 点击或拖动。',
     saveAdjustments: '保存调整',
     copyElement: '复制',
+    copyElementFailed: '复制元素失败',
     deleteElement: '删除元素',
     deleteElementConfirm: '确定删除该元素吗？',
     nonTextElementHint: '遇到点问题，目前还在完善中，\n可以先用AI模式检选元素操作',

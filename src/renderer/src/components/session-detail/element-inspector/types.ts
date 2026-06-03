@@ -1,7 +1,4 @@
-import type {
-  EditableCapability,
-  EditSelectionPayload
-} from '../../preview/edit-mode-script'
+import type { EditableCapability, EditSelectionPayload } from '../../preview/edit-mode-script'
 
 export interface ElementEditDraft {
   html: string
@@ -26,6 +23,7 @@ export interface ElementEditDraft {
   autoplay: boolean
   playsInline: boolean
   preload: string
+  artTextTemplateId: string
 }
 
 export interface ElementEditorProps {
@@ -42,6 +40,10 @@ export function hasCapability(
   capability: EditableCapability
 ): boolean {
   return Boolean(selection?.capabilities?.includes(capability))
+}
+
+export function isArtTextSelection(selection: EditSelectionPayload | null): boolean {
+  return Boolean(selection?.snapshot?.attrs.artTextTemplate)
 }
 
 export function getElementKindLabel(selection: EditSelectionPayload): string {

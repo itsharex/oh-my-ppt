@@ -120,7 +120,10 @@ export interface PreviewIframeHandle {
     style: { x: number; y: number; width?: number; height?: number; isAbsoluteMode?: boolean }
   ) => void
   applyZIndex: (selector: string, zIndex: number) => void
-  copyElement: (selector: string, newBlockId: string) => string | null
+  copyElement: (
+    selector: string,
+    newBlockId: string
+  ) => Promise<{ selector: string; htmlFragment: string } | null>
   readElementHtml: (selector: string) => Promise<string>
   readElementSnapshot: (selector: string) => Promise<EditableElementSnapshot | null>
   applyChildUpdates: (
@@ -434,7 +437,13 @@ export const PreviewIframe = forwardRef<
         if (!wv) return
         safeExecuteJavaScript(
           wv,
-          `var __el = document.querySelector(${JSON.stringify(selector)}); if (__el) { __el.style.setProperty('display', 'none', 'important'); __el.setAttribute('data-ppt-pending-delete', '1'); }`
+          `(function(){` +
+            `var __el = document.querySelector(${JSON.stringify(selector)});` +
+            `if (!__el) return;` +
+            `__el.setAttribute('data-ppt-pending-delete', '1');` +
+            `if (__el.tagName === 'STYLE') { __el.disabled = true; return; }` +
+            `__el.style.setProperty('display', 'none', 'important');` +
+          `})()`
         )
       },
       showElement(selector: string): void {
@@ -442,7 +451,13 @@ export const PreviewIframe = forwardRef<
         if (!wv) return
         safeExecuteJavaScript(
           wv,
-          `var __el = document.querySelector(${JSON.stringify(selector)}); if (__el && __el.getAttribute('data-ppt-pending-delete') === '1') { __el.style.removeProperty('display'); __el.removeAttribute('data-ppt-pending-delete'); }`
+          `(function(){` +
+            `var __el = document.querySelector(${JSON.stringify(selector)});` +
+            `if (!__el || __el.getAttribute('data-ppt-pending-delete') !== '1') return;` +
+            `if (__el.tagName === 'STYLE') { __el.disabled = false; __el.removeAttribute('data-ppt-pending-delete'); return; }` +
+            `__el.style.removeProperty('display');` +
+            `__el.removeAttribute('data-ppt-pending-delete');` +
+          `})()`
         )
       },
       applyDragStyle(
@@ -499,7 +514,10 @@ export const PreviewIframe = forwardRef<
           `})()`
         )
       },
-      copyElement(selector: string, newBlockId: string): string | null {
+      async copyElement(
+        selector: string,
+        newBlockId: string
+      ): Promise<{ selector: string; htmlFragment: string } | null> {
         const wv = webviewRef.current
         if (!wv || !canExecuteJavaScript(wv)) return null
         const scope = selector.match(/\[data-page-id="([^"]+)"\]/)?.[1] || ''
@@ -510,17 +528,32 @@ export const PreviewIframe = forwardRef<
         try {
           // Pre-generate child block IDs with nanoid (same pattern as host code)
           const childIds = Array.from({ length: 20 }, () => 'select-arcsin1-' + nanoid(8))
-          wv.executeJavaScript(
+          const copyResult = (await wv.executeJavaScript(
             `(function(){` +
             `var __src = document.querySelector(${JSON.stringify(selector)});` +
-            `if (!__src) return;` +
+            `if (!__src) return null;` +
             `var __root = document.querySelector(${JSON.stringify(root)});` +
-            `if (!__root) return;` +
+            `if (!__root) return null;` +
             `var __clone = __src.cloneNode(true);` +
             `var __childIds = ${JSON.stringify(childIds)};` +
+            `var __oldBlockId = __src.getAttribute("data-block-id") || "";` +
+            `var __styleClone = null;` +
+            `var __styleHtml = "";` +
             `__clone.setAttribute("data-block-id", ${JSON.stringify(newBlockId)});` +
             `__clone.querySelectorAll("[data-block-id]").forEach(function(c,i){if(__childIds[i])c.setAttribute("data-block-id",__childIds[i]);});` +
             `__clone.classList.remove("ppt-edit-mode-selected","ppt-edit-mode-hover");` +
+            `if (__src.hasAttribute("data-ppt-art-text") && __oldBlockId) {` +
+            `  var __style = Array.from(document.querySelectorAll("style[data-ppt-art-text-style]")).find(function(s){ return s.getAttribute("data-ppt-art-text-style") === __oldBlockId; });` +
+            `  if (__style) {` +
+            `    __styleClone = __style.cloneNode(true);` +
+            `    __styleClone.setAttribute("data-ppt-art-text-style", ${JSON.stringify(newBlockId)});` +
+            `    __styleClone.textContent = String(__styleClone.textContent || "").split(__oldBlockId).join(${JSON.stringify(newBlockId)});` +
+            `    __styleClone.disabled = false;` +
+            `    __styleClone.removeAttribute("data-ppt-pending-delete");` +
+            `    __styleHtml = __styleClone.outerHTML;` +
+            `    __root.appendChild(__styleClone);` +
+            `  }` +
+            `}` +
             `var __rect = __src.getBoundingClientRect();` +
             `var __pos = __src.style.position || getComputedStyle(__src).position;` +
             `if (__pos === "absolute" || __src.hasAttribute("data-ppt-layout-converted")) {` +
@@ -539,10 +572,13 @@ export const PreviewIframe = forwardRef<
             `__clone.removeAttribute("data-ppt-layout-converted");` +
             `__clone.removeAttribute("data-ppt-last-vp-x");` +
             `__clone.removeAttribute("data-ppt-last-vp-y");` +
+            `var __htmlFragment = __styleHtml + __clone.outerHTML;` +
             `__root.appendChild(__clone);` +
+            `return { selector: ${JSON.stringify(newSelector)}, htmlFragment: __htmlFragment };` +
             `})()`
-          )
-          return newSelector
+          )) as { selector?: string; htmlFragment?: string } | null
+          if (!copyResult?.selector || !copyResult.htmlFragment) return null
+          return { selector: copyResult.selector, htmlFragment: copyResult.htmlFragment }
         } catch {
           return null
         }
@@ -552,7 +588,16 @@ export const PreviewIframe = forwardRef<
         if (!wv || !canExecuteJavaScript(wv)) return ''
         try {
           return (await wv.executeJavaScript(
-            `document.querySelector(${JSON.stringify(selector)})?.outerHTML || ''`
+            `(function(){` +
+              `var __el = document.querySelector(${JSON.stringify(selector)});` +
+              `if (!__el) return '';` +
+              `if (__el.hasAttribute && __el.hasAttribute('data-ppt-art-text')) {` +
+              `  var __blockId = __el.getAttribute('data-block-id') || '';` +
+              `  var __style = __blockId ? Array.from(document.querySelectorAll('style[data-ppt-art-text-style]')).find(function(s){ return s.getAttribute('data-ppt-art-text-style') === __blockId; }) : null;` +
+              `  return (__style ? __style.outerHTML : '') + __el.outerHTML;` +
+              `}` +
+              `return __el.outerHTML || '';` +
+            `})()`
           )) || ''
         } catch {
           return ''
@@ -618,6 +663,12 @@ export const PreviewIframe = forwardRef<
           `var __parent = document.querySelector(__parentSelector); if (!__parent) return;` +
           `var __template = document.createElement("template"); __template.innerHTML = __html;` +
           `var __nodes = Array.from(__template.content.children); if (__nodes.length === 0) return;` +
+          `var __existingBlock = null;` +
+          `for (var __k = 0; __k < __nodes.length; __k++) {` +
+          `  var __blockId = __nodes[__k] instanceof Element ? __nodes[__k].getAttribute("data-block-id") : "";` +
+          `  if (__blockId && document.querySelector('[data-block-id="' + __blockId.replace(/"/g, '\\\\"') + '"]')) { __existingBlock = __blockId; break; }` +
+          `}` +
+          `if (__existingBlock) return;` +
           `var __anchor = Number.isInteger(__insertIndex) && __insertIndex >= 0 && __insertIndex < __parent.children.length ? __parent.children[__insertIndex] : null;` +
           `__nodes.forEach(function(__node){ if (__anchor) __parent.insertBefore(__node, __anchor); else __parent.appendChild(__node); });` +
           `})()`

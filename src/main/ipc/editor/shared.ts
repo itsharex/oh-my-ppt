@@ -493,6 +493,7 @@ function stripUnsafeRichTextHtml(html: string): string {
         name === 'style' ||
         name === 'class' ||
         name === 'data-block-id' ||
+        (name === 'data-text' && el.hasClass('ppt-art-text')) ||
         name === 'href' ||
         name === 'target' ||
         name === 'rel'

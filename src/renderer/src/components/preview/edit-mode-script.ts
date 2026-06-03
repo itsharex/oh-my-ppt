@@ -49,6 +49,7 @@ export interface EditableElementSnapshot {
   attrs: {
     src?: string
     alt?: string
+    artTextTemplate?: string
     poster?: string
     controls?: boolean
     muted?: boolean
@@ -500,6 +501,15 @@ export function buildEditModeInjectScript(previewScale = 1): string {
     return findAtomicHost(origin, ".katex, .katex-display, math, annotation, semantics");
   };
 
+  const pickArtTextTarget = (origin) => {
+    if (!(origin instanceof Element)) return null;
+    const host = origin.closest("[data-ppt-art-text][data-block-id]");
+    if (host && isInsidePageRoot(host) && !isScaffoldBlock(host) && buildStableSelector(host)) {
+      return host;
+    }
+    return null;
+  };
+
   const pickLooseContentTarget = (origin) => {
     const contentRoot = getContentRoot(origin) || getPageRoot(origin);
     if (!contentRoot) return null;
@@ -531,12 +541,16 @@ export function buildEditModeInjectScript(previewScale = 1): string {
 
   const pickTarget = (origin, clientX, clientY) => {
     if (!(origin instanceof Element)) return null;
+    const artTextTarget = pickArtTextTarget(origin);
+    if (artTextTarget) return artTextTarget;
     const chartTarget = pickCanvasTarget(origin);
     if (chartTarget) return chartTarget;
     const formulaTarget = pickFormulaTarget(origin);
     if (formulaTarget) return formulaTarget;
     if (Number.isFinite(clientX) && Number.isFinite(clientY)) {
       const pointTarget = getPointTarget(origin, clientX, clientY);
+      const artTextPointTarget = pickArtTextTarget(pointTarget);
+      if (artTextPointTarget) return artTextPointTarget;
       const atomicPointTarget = pickCanvasTarget(pointTarget) || pickFormulaTarget(pointTarget);
       if (atomicPointTarget) return atomicPointTarget;
       if (pointTarget) return promoteToWrapper(pointTarget);
@@ -1209,6 +1223,8 @@ export function buildEditModeInjectScript(previewScale = 1): string {
     const attrs = {};
     if (!(element instanceof Element)) return attrs;
     const tag = element.tagName ? element.tagName.toLowerCase() : "";
+    const artTextTemplate = element.getAttribute("data-ppt-art-text") || "";
+    if (artTextTemplate) attrs.artTextTemplate = artTextTemplate;
     if (tag === "img" || tag === "video") {
       const src = element.getAttribute("src") || "";
       const alt = element.getAttribute("alt") || "";
@@ -1989,6 +2005,19 @@ export function buildEditModeInjectScript(previewScale = 1): string {
       temp.innerHTML = html;
       const nodes = Array.from(temp.children);
       if (nodes.length > 0) {
+        const existingBlock = nodes
+          .map((node) => node instanceof Element ? node.getAttribute("data-block-id") : "")
+          .find((blockId) => blockId && document.querySelector('[data-block-id="' + attrEscape(blockId) + '"]'));
+        if (existingBlock) {
+          const existing = document.querySelector('[data-block-id="' + attrEscape(existingBlock) + '"]');
+          if (existing && selectAfterInsert) {
+            setSelected(existing);
+            requestAnimationFrame(() => {
+              updateOverlay();
+            });
+          }
+          return;
+        }
         const anchor =
           Number.isInteger(insertIndex) && insertIndex >= 0 && insertIndex < parent.children.length
             ? parent.children[insertIndex]

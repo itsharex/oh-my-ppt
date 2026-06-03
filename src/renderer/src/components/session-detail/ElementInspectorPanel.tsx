@@ -1,13 +1,14 @@
 import { X } from 'lucide-react'
 import type { EditSelectionPayload } from '../preview/edit-mode-script'
 import { AppearanceInspector } from './element-inspector/AppearanceInspector'
+import { ArtTextInspector } from './element-inspector/ArtTextInspector'
 import { InspectorActions } from './element-inspector/InspectorActions'
 import { LayerInspector } from './element-inspector/LayerInspector'
 import { LayoutInspector } from './element-inspector/LayoutInspector'
 import { MediaInspector } from './element-inspector/MediaInspector'
 import { TextInspector } from './element-inspector/TextInspector'
 import type { ElementEditDraft } from './element-inspector/types'
-import { getElementKindLabel, hasCapability } from './element-inspector/types'
+import { getElementKindLabel, hasCapability, isArtTextSelection } from './element-inspector/types'
 import { useT } from '@renderer/i18n'
 
 export type { ElementEditDraft } from './element-inspector/types'
@@ -32,6 +33,7 @@ export function ElementInspectorPanel({
 }): React.JSX.Element {
   const t = useT()
   const snapshot = selection?.snapshot
+  const isArtText = isArtTextSelection(selection)
 
   return (
     <div className="mr-3 mb-3 mt-1 flex min-h-0 w-[260px] shrink-0 flex-col overflow-hidden rounded-[2rem] border border-[#ded2bd]/60 bg-[#f3ecdf]/76 shadow-[0_14px_32px_rgba(74,59,42,0.11)] backdrop-blur-xl">
@@ -44,7 +46,7 @@ export function ElementInspectorPanel({
             </div>
             {selection && (
               <div className="mt-1 text-[11px] text-[#a0977e]">
-                {getElementKindLabel(selection)}
+                {isArtText ? t('editMode.artText') : getElementKindLabel(selection)}
               </div>
             )}
           </div>
@@ -73,7 +75,10 @@ export function ElementInspectorPanel({
             {hasCapability(selection, 'layer') && (
               <LayerInspector selection={selection} draft={draft} onDraftChange={onDraftChange} />
             )}
-            {hasCapability(selection, 'text') && (
+            {isArtText && (
+              <ArtTextInspector selection={selection} draft={draft} onDraftChange={onDraftChange} />
+            )}
+            {!isArtText && hasCapability(selection, 'text') && (
               <TextInspector selection={selection} draft={draft} onDraftChange={onDraftChange} />
             )}
             {hasCapability(selection, 'appearance') && (

@@ -53,6 +53,10 @@ import type { HistoryVersion } from '@shared/history.js'
 import type { GeneratedImageAsset, ImageGenerationHistoryRecord } from '@shared/image-generation.js'
 import type { SpeechConfig } from '@shared/speech'
 import { getEditorGate, parseSessionMetadata } from '../lib/sessionMetadata'
+import {
+  buildArtTextHtmlFragment,
+  type ArtTextTemplateId
+} from '../lib/artTextTemplates'
 import { escapeHtmlText } from '../lib/utils'
 import { useT } from '../i18n'
 import dayjs from 'dayjs'
@@ -66,6 +70,8 @@ const ADDED_TEXT_MIN_HEIGHT = 96
 const ADDED_TEXT_BASE_LEFT = 590
 const ADDED_TEXT_BASE_TOP = 360
 const ADDED_TEXT_OFFSET_STEP = 28
+const ADDED_ART_TEXT_WIDTH = 560
+const ADDED_ART_TEXT_MIN_HEIGHT = 130
 const ADDED_MEDIA_OFFSET_STEP = 30
 
 const EMPTY_ELEMENT_DRAFT: ElementEditDraft = {
@@ -90,7 +96,8 @@ const EMPTY_ELEMENT_DRAFT: ElementEditDraft = {
   loop: false,
   autoplay: false,
   playsInline: true,
-  preload: 'metadata'
+  preload: 'metadata',
+  artTextTemplateId: ''
 }
 
 type ElementPropertyStylePatch = {
@@ -1531,12 +1538,19 @@ export function SessionDetailPage(): React.JSX.Element {
   const handleDeleteElement = (): void => {
     if (!selectedPage?.htmlPath || !selectedPage.pageId || !textSelection) return
     const selector = textSelection.selector
+    const artTextStyleSelector =
+      textSelection.snapshot?.attrs.artTextTemplate && textSelection.blockId
+        ? `[data-ppt-art-text-style="${textSelection.blockId}"]`
+        : ''
     editHistory.addDelete({
       pageId: selectedPage.pageId,
       htmlPath: selectedPage.htmlPath,
       selector
     })
     previewIframeRef.current?.hideElement(selector)
+    if (artTextStyleSelector) {
+      previewIframeRef.current?.hideElement(artTextStyleSelector)
+    }
     previewIframeRef.current?.clearEditModeSelection()
     setTextSelection(null)
     setTextDraft(EMPTY_ELEMENT_DRAFT)
@@ -1544,6 +1558,11 @@ export function SessionDetailPage(): React.JSX.Element {
 
   const handleDeleteBySelector = (selector: string): void => {
     if (!selectedPage?.htmlPath || !selectedPage.pageId || !selector) return
+    const selectionForDelete = textSelection && textSelection.selector === selector ? textSelection : null
+    const artTextStyleSelector =
+      selectionForDelete?.snapshot?.attrs.artTextTemplate && selectionForDelete.blockId
+        ? `[data-ppt-art-text-style="${selectionForDelete.blockId}"]`
+        : ''
     // Commit any pending inspector edit for the element being deleted.
     if (textSelection && textSelection.selector === selector) {
       commitCurrentElementEdit()
@@ -1554,6 +1573,9 @@ export function SessionDetailPage(): React.JSX.Element {
       selector
     })
     previewIframeRef.current?.hideElement(selector)
+    if (artTextStyleSelector) {
+      previewIframeRef.current?.hideElement(artTextStyleSelector)
+    }
     previewIframeRef.current?.clearEditModeSelection()
     setTextSelection(null)
     setTextDraft(EMPTY_ELEMENT_DRAFT)
@@ -1595,7 +1617,8 @@ export function SessionDetailPage(): React.JSX.Element {
         loop: Boolean(attrs.loop),
         autoplay: Boolean(attrs.autoplay),
         playsInline: attrs.playsInline !== false,
-        preload: attrs.preload || 'metadata'
+        preload: attrs.preload || 'metadata',
+        artTextTemplateId: attrs.artTextTemplate || ''
       })
     } else {
       setTextDraft({
@@ -1615,7 +1638,8 @@ export function SessionDetailPage(): React.JSX.Element {
         loop: Boolean(attrs.loop),
         autoplay: Boolean(attrs.autoplay),
         playsInline: attrs.playsInline !== false,
-        preload: attrs.preload || 'metadata'
+        preload: attrs.preload || 'metadata',
+        artTextTemplateId: attrs.artTextTemplate || ''
       })
     }
   }
@@ -1938,11 +1962,21 @@ export function SessionDetailPage(): React.JSX.Element {
     setTextDraft(EMPTY_ELEMENT_DRAFT)
   }
 
-  const handleCopyElement = (): void => {
+  const handleCopyElement = async (): Promise<void> => {
     if (!textSelection || !selectedPage?.pageId || !selectedPage.htmlPath) return
     const blockId = 'select-arcsin1-' + nanoid(8)
-    const newSelector = previewIframeRef.current?.copyElement(textSelection.selector, blockId)
-    if (!newSelector) return
+    let copyResult: { selector: string; htmlFragment: string } | null | undefined
+    try {
+      copyResult = await previewIframeRef.current?.copyElement(textSelection.selector, blockId)
+    } catch (error) {
+      toastError(error instanceof Error ? error.message : t('sessionDetail.copyElementFailed'))
+      return
+    }
+    if (!copyResult) {
+      toastError(t('sessionDetail.copyElementFailed'))
+      return
+    }
+    const newSelector = copyResult.selector
     const bounds = textSelection.pageBounds || textSelection.bounds
     const zValue = textSelection.zIndex !== undefined ? String(textSelection.zIndex + 1) : '10'
     const nextSnapshot = textSelection.snapshot
@@ -1968,7 +2002,7 @@ export function SessionDetailPage(): React.JSX.Element {
       pageId: selectedPage.pageId,
       htmlPath: selectedPage.htmlPath,
       parentSelector: `body[data-page-id="${selectedPage.pageId}"] [data-ppt-guard-root="1"]`,
-      htmlFragment: '',
+      htmlFragment: copyResult.htmlFragment,
       assignedBlockId: blockId,
       insertIndex: -1
     })
@@ -2045,6 +2079,58 @@ export function SessionDetailPage(): React.JSX.Element {
       'font-family:inherit'
     ].join('; ')
     const htmlFragment = `<p data-block-id="${blockId}" style="${textStyle};">${escapeHtmlText(defaultText)}</p>`
+
+    commitCurrentElementEdit()
+    editHistory.addElement({
+      pageId: selectedPage.pageId,
+      htmlPath: selectedPage.htmlPath,
+      parentSelector,
+      htmlFragment,
+      assignedBlockId: blockId,
+      insertIndex: -1
+    })
+    previewIframeRef.current?.injectElement(parentSelector, htmlFragment)
+
+    const selector = `body[data-page-id="${selectedPage.pageId}"] [data-block-id="${blockId}"]`
+    if (useSessionDetailUiStore.getState().selectedPageId !== selectedPage.id) return
+    const snapshot = await readElementSnapshotWithRetry(selector)
+    if (!snapshot) return
+    handleElementSelected(
+      buildSelectedElementFromSnapshot({
+        selector,
+        blockId,
+        snapshot
+      })
+    )
+  }
+
+  const handleAddArtTextElement = async (templateId: ArtTextTemplateId): Promise<void> => {
+    if (!id || !selectedPage?.pageId || !selectedPage.htmlPath) return
+    const blockId = 'select-arcsin1-' + nanoid(8)
+    const parentSelector = `body[data-page-id="${selectedPage.pageId}"] [data-ppt-guard-root="1"]`
+    const existingCount = editHistory.addElements.filter(
+      (e) => e.pageId === selectedPage.pageId
+    ).length
+    const offset = existingCount * ADDED_TEXT_OFFSET_STEP
+    const w = ADDED_ART_TEXT_WIDTH
+    const h = ADDED_ART_TEXT_MIN_HEIGHT
+    const left = Math.min(
+      ADDED_TEXT_BASE_LEFT + offset,
+      PPT_PAGE_WIDTH - w - ADDED_ELEMENT_EDGE_PADDING
+    )
+    const top = Math.min(
+      ADDED_TEXT_BASE_TOP + offset,
+      PPT_PAGE_HEIGHT - h - ADDED_ELEMENT_EDGE_PADDING
+    )
+    const zIdx = 10 + existingCount
+    const htmlFragment = buildArtTextHtmlFragment(templateId, {
+      blockId,
+      left,
+      top,
+      width: w,
+      minHeight: h,
+      zIndex: zIdx
+    })
 
     commitCurrentElementEdit()
     editHistory.addElement({
@@ -2326,6 +2412,7 @@ export function SessionDetailPage(): React.JSX.Element {
               onSaveCurrentPage: () => void handleSaveAllEdits(),
               onBackToSessions: handleBackToSessions,
               onAddText: () => void handleAddTextElement(),
+              onAddArtText: (templateId) => void handleAddArtTextElement(templateId),
               onAddFromLibrary: (type) => setAssetPickerOpen(true, type),
               onAddFromLocal: (type) => void handleUploadAndAdd(type),
               onOpenSpeechScript: handleOpenSpeechDialog

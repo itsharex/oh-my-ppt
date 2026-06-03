@@ -730,6 +730,7 @@ Business presentations, product introductions, project summaries — formal but 
       'Negative layers sit behind content. Hold Alt / Option to click or drag them.',
     saveAdjustments: 'Save adjustments',
     copyElement: 'Copy',
+    copyElementFailed: 'Failed to copy element',
     deleteElement: 'Delete element',
     deleteElementConfirm: 'Are you sure you want to delete this element? This cannot be undone.',
     nonTextElementHint: 'Still working on this feature.\nYou can use AI mode to inspect and edit elements for now.',
