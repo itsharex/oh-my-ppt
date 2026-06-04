@@ -5,6 +5,7 @@ import {
   CHART_SKILL_NAME,
   DATA_ANIM_SKILL_NAME,
   LAYOUT_SKILL_NAME,
+  SOURCE_READING_SKILL_NAME,
   formatSkillUsageRequirement,
 } from '../skills/skill-contract'
 
@@ -26,6 +27,32 @@ export const CONTENT_LANGUAGE_RULES = [
   '- If source materials are primarily Chinese, write slide titles, body text, outlines, and user-facing summaries in Chinese.',
   '- For mixed-language materials, prefer the latest user instruction language.',
   '- Preserve proper nouns, brand names, technical terms, quoted source text, and metrics when appropriate.'
+].join('\n')
+
+export const SOURCE_UNSUPPORTED_CLAIMS =
+  'exact facts, metrics, dates, system names, status claims, examples, risks, decisions, or conclusions'
+
+export const SOURCE_MATERIAL_PLANNING_RULES = [
+  '## Source-grounded planning rules',
+  '- Apply these rules only when source documents, parsed reference-document outlines, or source-material briefs are present.',
+  '- Treat source materials as the primary content authority. Stay source-grounded and avoid creative drift.',
+  `- Every source-backed slide title and key point must be traceable to the user requirements or source materials. Do not invent ${SOURCE_UNSUPPORTED_CLAIMS} not present in the source.`,
+  '- Preserve source order, hierarchy, terminology, and stated conclusions unless the user explicitly asks for a different structure.',
+  '- If the source material does not naturally fill the target slide count, split source-backed sections into finer-grained slides. Do not add generic agenda, data overview, synthesis, next steps, outlook, background, summary, or transition slides unless the user request or source material explicitly contains them.'
+].join('\n')
+
+export const SOURCE_DOCUMENT_LOCATE_THEN_READ_RULE = [
+  `- Before using source documents: ${formatSkillUsageRequirement(SOURCE_READING_SKILL_NAME)}`,
+  '- No retrieved snippets matched. Locate relevant source passages before writing; do not freestyle from the outline.'
+].join('\n')
+
+export const SOURCE_DOCUMENT_READ_STRATEGY = [
+  `- Before using source documents: ${formatSkillUsageRequirement(SOURCE_READING_SKILL_NAME)}`,
+  '- Treat retrieved snippets as an index into the source, not as final evidence or permission to freestyle.'
+].join('\n')
+
+export const SOURCE_DOCUMENT_FACT_RULE = [
+  `- Do not invent ${SOURCE_UNSUPPORTED_CLAIMS} not present in the source document.`
 ].join('\n')
 
 export const STABLE_HTML_FRAGMENT_PROTOCOL = [

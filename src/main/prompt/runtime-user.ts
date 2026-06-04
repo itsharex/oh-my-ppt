@@ -1,12 +1,25 @@
-import { CONTENT_LANGUAGE_RULES, STABLE_HTML_FRAGMENT_PROTOCOL } from "./shared";
+import {
+  CONTENT_LANGUAGE_RULES,
+  SOURCE_MATERIAL_PLANNING_RULES,
+  STABLE_HTML_FRAGMENT_PROTOCOL
+} from "./shared";
 import type { DeckEditScope } from "../tools/types";
+
+const hasSourceMaterialCue = (value: string): boolean =>
+  /参考文档|源文档|参考资料|源资料|解析.*大纲|建议大纲|每页要点|必须保留|reference[-\s]?document|source[-\s]?document|source[-\s]?material|recommended outline|per-page points|facts\/metrics/i.test(
+    value
+  );
 
 export function buildPlanningUserPrompt(args: {
   topic: string;
   totalPages: number;
   userMessage: string;
+  hasSourceMaterials?: boolean;
 }): string {
   const hasExplicitPageHint = /第\s*\d+\s*页|(?:page|slide)\s*\d+/i.test(args.userMessage);
+  const sourcePlanningRules = args.hasSourceMaterials || hasSourceMaterialCue(args.userMessage)
+    ? SOURCE_MATERIAL_PLANNING_RULES
+    : "";
   return [
     `Topic: ${args.topic}`,
     `Target slide count: ${args.totalPages}`,
@@ -14,6 +27,7 @@ export function buildPlanningUserPrompt(args: {
     hasExplicitPageHint ? "The user provided page/slide hints. Preserve that pagination intent when possible." : "",
     "",
     "Plan each slide title, key points, and layout intent. Use short phrases, not long paragraphs.",
+    sourcePlanningRules,
     "Output must be a JSON array. Each item must be exactly { title, keyPoints, layoutIntent }; keyPoints must contain 1-6 strings.",
     `The array length must be exactly ${args.totalPages}.`,
     "User requirements:",

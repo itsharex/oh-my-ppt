@@ -339,6 +339,8 @@ export const planDeckWithLLM = async (args: {
   modelTimeoutMs?: number
   topic: string
   userMessage: string
+  sourceDocumentPaths?: string[]
+  hasSourceMaterials?: boolean
   emit?: (chunk: GenerateChunkEvent) => void
   runId?: string
   signal?: AbortSignal
@@ -355,7 +357,8 @@ export const planDeckWithLLM = async (args: {
   const userPrompt = buildPlanningUserPrompt({
     topic: args.topic,
     totalPages: args.totalPages,
-    userMessage: args.userMessage
+    userMessage: args.userMessage,
+    hasSourceMaterials: args.hasSourceMaterials || Boolean(args.sourceDocumentPaths?.length)
   })
   const parsePlanningItems = (responseText: string): OutlineItem[] => {
     const parsed = parseModelJson(responseText, args.appLocale)

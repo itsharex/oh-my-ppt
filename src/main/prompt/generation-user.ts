@@ -7,6 +7,10 @@ import {
   FRONTEND_CAPABILITIES,
   LAYOUT_COLLISION_RULES,
   PAGE_SEMANTIC_STRUCTURE,
+  SOURCE_DOCUMENT_FACT_RULE,
+  SOURCE_DOCUMENT_LOCATE_THEN_READ_RULE,
+  SOURCE_DOCUMENT_READ_STRATEGY,
+  SOURCE_UNSUPPORTED_CLAIMS,
   STABLE_HTML_FRAGMENT_PROTOCOL,
   buildOutlinePageList,
   formatDesignContract
@@ -14,6 +18,18 @@ import {
 
 export function buildDeckGenerationPrompt(context: SessionDeckGenerationContext): string {
   const pageList = buildOutlinePageList(context)
+  const sourceDocumentPaths = (context.sourceDocumentPaths || []).filter(Boolean)
+  const sourceDocumentRequirements =
+    sourceDocumentPaths.length > 0
+      ? [
+          '',
+          'Source document requirements:',
+          '- Source documents are the highest-priority content evidence. Do not rely only on the summary or page outline.',
+          `- Source document paths: ${sourceDocumentPaths.join(', ')}`,
+          SOURCE_DOCUMENT_READ_STRATEGY,
+          `- Preserve source facts, terminology, hierarchy, and conclusions. Do not add unsupported ${SOURCE_UNSUPPORTED_CLAIMS} or generic narrative pages.`
+        ]
+      : []
   return [
     'Use the tools to write the deck content into each /<pageId>.html according to the user requirements and page outline below:',
     '',
@@ -24,6 +40,7 @@ export function buildDeckGenerationPrompt(context: SessionDeckGenerationContext)
     '',
     'Additional user requirements:',
     context.userMessage,
+    ...sourceDocumentRequirements,
     '',
     CONTENT_LANGUAGE_RULES,
     '',
@@ -99,25 +116,26 @@ export function buildSinglePageGenerationPrompt(args: {
             args.referenceDocumentSnippets.trim(),
             '',
             'Source document requirements:',
-            '- This slide already has program-side retrieved snippets. Prioritize these snippets when generating slide content.',
-            '- If the snippets cover this slide title and content points, you do not need to reread the entire source document.',
-            `- If snippets are insufficient, conflicting, or missing key facts, use read_file to confirm the source document: ${args.sourceDocumentPaths.join(', ')}`,
-            '- Use only source-document facts directly relevant to this slide outline. Do not move material for other slides into this slide.',
+            '- This slide already has program-side retrieved snippets.',
+            `- Source document paths: ${args.sourceDocumentPaths.join(', ')}`,
+            SOURCE_DOCUMENT_READ_STRATEGY,
+            SOURCE_DOCUMENT_FACT_RULE,
             args.isRetryMode
               ? '- This is a failed-slide retry. Match source material only around this slide title and content points; do not reconstruct the whole deck outline.'
-              : '',
-            '- Do not expand only from the outline. Do not invent exact numbers, dates, system names, or status claims not present in the snippets or source document.'
+              : ''
           ].filter(Boolean)
         : [
             '',
             'Source document requirements:',
-            `- No retrieved snippets matched this slide. Before generating the slide, use read_file to read the source document: ${args.sourceDocumentPaths.join(', ')}`,
+            `- Source document paths: ${args.sourceDocumentPaths.join(', ')}`,
+            '- No retrieved snippets matched this slide.',
+            SOURCE_DOCUMENT_LOCATE_THEN_READ_RULE,
             '- First extract keywords, business objects, time points, system names, and metrics from this slide title and content points; then match relevant source passages.',
-            '- Do not copy the whole document indiscriminately. Use only source-document facts directly relevant to this slide outline.',
+            '- Do not copy the whole document indiscriminately.',
+            SOURCE_DOCUMENT_FACT_RULE,
             args.isRetryMode
               ? '- This is a failed-slide retry. Match source material only around this slide title and content points; do not reconstruct the whole deck outline.'
-              : '',
-            '- Do not expand only from the outline. Do not invent exact numbers, dates, system names, or status claims not present in the source document.'
+              : ''
           ].filter(Boolean)
       : []
   return [
@@ -149,6 +167,8 @@ export function buildSinglePageGenerationPrompt(args: {
     '',
     'Expansion rules:',
     '- Treat content points as short seed phrases. Expand each seed into presentable modules such as headings, explanations, lists, charts, comparisons, or conclusions.',
+    '- When source documents are present, expansion must be source-grounded: elaborate only from the source passages you inspected and the retrieved snippets.',
+    `- Do not add new arguments, generic industry framing, unsupported ${SOURCE_UNSUPPORTED_CLAIMS}, or polished-sounding conclusions that are absent from the source document.`,
     '- If there are 2-4 points, the final slide should cover all of them. You may add 1-2 supporting information blocks by priority.',
     '- You may complete reasonable data framing, examples, and structure, but do not drift away from the slide title and points.',
     '- Prefer visualization-friendly expression. When points involve trends, comparisons, or proportions, use charts or data cards when appropriate.',

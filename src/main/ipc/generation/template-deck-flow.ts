@@ -229,6 +229,7 @@ export async function executeTemplateDeckGeneration(
         appLocale: context.appLocale,
         topic: context.topic,
         userMessage: context.userMessage,
+        sourceDocumentPaths: context.sourceDocumentPaths,
         emit: (chunk) => emitDeckChunk(chunk),
         runId: context.runId,
         signal: context.entry.abortController.signal
