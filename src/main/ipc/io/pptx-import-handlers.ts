@@ -21,7 +21,7 @@ type PptxImportPayload = {
   styleId?: unknown
 }
 
-const MAX_PPTX_SIZE_MB = 100
+const MAX_PPTX_SIZE_MB = 500
 const MAX_PPTX_SIZE = MAX_PPTX_SIZE_MB * 1024 * 1024
 
 const parsePayload = (payload: unknown): { filePath: string; title: string; styleId: string | null } => {

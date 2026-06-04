@@ -17,6 +17,16 @@ import { resolveOutlinesForPages } from './page-outline-utils'
 const THINKING_ID_RE = /^[a-zA-Z0-9_-]{6,32}$/
 const THINKING_IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp'])
 const THINKING_REFERENCE_SOURCE_EXTENSIONS = new Set(['.md', '.txt', '.text', '.csv'])
+const MAX_PAGE_COUNT = 500
+
+const normalizeRequestedPageCount = (value: unknown): number | undefined => {
+  if (value === null || value === undefined || (typeof value === 'string' && !value.trim())) {
+    return undefined
+  }
+  const numberValue = Number(value)
+  if (!Number.isFinite(numberValue)) return undefined
+  return Math.max(1, Math.min(MAX_PAGE_COUNT, Math.floor(numberValue)))
+}
 
 const isPathInside = (candidate: string, root: string): boolean => {
   const relative = path.relative(root, candidate)
@@ -243,15 +253,18 @@ export function registerSessionHandlers(ctx: IpcContext): void {
   }
 
   ipcMain.handle('session:create', async (_event, payload) => {
-    const { topic, styleId, pageCount } = payload
-    const fontSelection = normalizeFontSelection(payload?.fontSelection)
+    const record = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {}
+    const { topic, styleId } = record
+    const pageCount = normalizeRequestedPageCount(record.pageCount)
+    const fontSelection = normalizeFontSelection(record.fontSelection)
     const referenceDocumentPath =
-      typeof payload?.referenceDocumentPath === 'string' ? payload.referenceDocumentPath.trim() : ''
+      typeof record.referenceDocumentPath === 'string' ? record.referenceDocumentPath.trim() : ''
     const locale = await readAppLocale(ctx)
     const storagePath = await resolveStoragePath()
     const activeModel = await resolveActiveModelConfig(ctx)
     const { provider, model } = activeModel
     const baseUrl = activeModel.baseUrl
+    const normalizedTopic = typeof topic === 'string' && topic.trim() ? topic.trim() : 'Untitled'
     const normalizedStyleId = typeof styleId === 'string' ? styleId.trim() : ''
     if (!normalizedStyleId) {
       throw new Error(
@@ -343,7 +356,7 @@ export function registerSessionHandlers(ctx: IpcContext): void {
       model,
       baseUrl,
       projectDir,
-      topic,
+      topic: normalizedTopic,
       styleId: normalizedStyleId,
       pageCount,
       referenceDocumentPath: sessionReferenceDocumentPath
@@ -355,7 +368,7 @@ export function registerSessionHandlers(ctx: IpcContext): void {
 
     await db.createProject({
       session_id: sessionId,
-      title: String(topic || 'Untitled'),
+      title: normalizedTopic,
       output_path: projectDir,
       root_path: projectDir
     })

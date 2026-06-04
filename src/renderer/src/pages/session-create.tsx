@@ -32,7 +32,7 @@ import { useT } from '../i18n'
 import { isSupportedImageMimeType } from '@shared/image-mime'
 
 const MIN_PAGE_COUNT = 1
-const MAX_PAGE_COUNT = 40
+const MAX_PAGE_COUNT = 500
 const DEFAULT_PAGE_COUNT = 5
 const MAX_DOCUMENT_SIZE_MB = 10
 const MAX_DOCUMENT_SIZE_BYTES = MAX_DOCUMENT_SIZE_MB * 1024 * 1024

@@ -26,6 +26,15 @@ import { useModelAction } from '@renderer/hooks/useModelAction'
 
 type FontPairRef = Extract<FontSelection, { mode: 'pair' }>['title']
 
+const MIN_PAGE_COUNT = 1
+const MAX_PAGE_COUNT = 500
+
+const resolvePageCount = (value: string, fallback: number): number => {
+  const parsed = Number.parseInt(value, 10)
+  const resolved = Number.isFinite(parsed) ? parsed : fallback
+  return Math.min(MAX_PAGE_COUNT, Math.max(MIN_PAGE_COUNT, resolved))
+}
+
 interface StyleOption {
   id: string
   styleKey?: string
@@ -227,7 +236,7 @@ export function GenerationConfirmDialog({
     try {
       onConfirm({
         topic: topic.trim() || prepared.topic,
-        pageCount: Number.parseInt(pageCount, 10) || prepared.pageCount,
+        pageCount: resolvePageCount(pageCount, prepared.pageCount),
         styleId: resolvedConfirmStyleId,
         fontSelection: resolveFontSelection(),
         referenceDocumentPath: prepared.thinkingDocumentPath,
@@ -293,6 +302,9 @@ export function GenerationConfirmDialog({
                 onChange={(e) => {
                   const next = e.target.value
                   if (next === '' || /^\d+$/.test(next)) setPageCount(next)
+                }}
+                onBlur={() => {
+                  setPageCount(String(resolvePageCount(pageCount, prepared.pageCount)))
                 }}
               />
             </div>

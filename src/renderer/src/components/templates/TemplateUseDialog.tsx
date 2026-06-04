@@ -20,7 +20,7 @@ import { useTemplateStore, useToastStore } from '@renderer/store'
 import type { ParsedDocumentPlanResult } from '@shared/generation'
 
 const MIN_PAGE_COUNT = 1
-const MAX_PAGE_COUNT = 40
+const MAX_PAGE_COUNT = 500
 const MAX_DOCUMENT_SIZE_MB = 10
 const MAX_DOCUMENT_SIZE_BYTES = MAX_DOCUMENT_SIZE_MB * 1024 * 1024
 

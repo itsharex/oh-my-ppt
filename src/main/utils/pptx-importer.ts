@@ -1237,6 +1237,26 @@ ${hasImportedAnimations ? buildImportedPptxMotionScript() : ''}`
   }
 }
 
+/**
+ * 等距抽样：从 slides 中均匀选取 count 页，保证首尾都包含，中间按等距取。
+ */
+type SelectedSlide<T> = { slide: T; originalIndex: number }
+
+function selectSlidesEvenly<T>(slides: T[], count: number): SelectedSlide<T>[] {
+  const entries = slides.map((slide, originalIndex) => ({ slide, originalIndex }))
+  if (count >= slides.length) return entries
+  if (count <= 2) return [entries[0], entries[entries.length - 1]]
+  const result: SelectedSlide<T>[] = [entries[0]]
+  const middle = slides.slice(1, -1)
+  const middleCount = count - 2
+  for (let i = 0; i < middleCount; i++) {
+    const idx = Math.floor((i + 0.5) * middle.length / middleCount)
+    result.push(entries[idx + 1])
+  }
+  result.push(entries[entries.length - 1])
+  return result
+}
+
 export async function importPptxToEditableHtml(args: {
   filePath: string
   projectDir: string
@@ -1268,9 +1288,13 @@ export async function importPptxToEditableHtml(args: {
   const rawMaxPages = typeof args.maxPages === 'number' ? Math.floor(args.maxPages) : null
   const maxPages = rawMaxPages && rawMaxPages > 0 ? rawMaxPages : null
   const effectiveSlides = maxPages && maxPages < slides.length
-    ? slides.slice(0, maxPages)
-    : slides
-  const animationPlans = readPptxAnimationPlans(buffer, effectiveSlides.length, parsed.size)
+    ? selectSlidesEvenly(slides, maxPages)
+    : slides.map((slide, originalIndex) => ({ slide, originalIndex }))
+  const animationPlans = readPptxAnimationPlans(
+    buffer,
+    effectiveSlides.map(({ originalIndex }) => originalIndex),
+    parsed.size
+  )
   args.onProgress?.({
     stage: 'media',
     progress: 24,
@@ -1285,7 +1309,8 @@ export async function importPptxToEditableHtml(args: {
     for (let i = 0; i < effectiveSlides.length; i += 1) {
       const pageNumber = i + 1
       const pageId = `page-${pageNumber}`
-      const pageTitle = titleFromSlide(effectiveSlides[i], pageNumber)
+      const selectedSlide = effectiveSlides[i]
+      const pageTitle = titleFromSlide(selectedSlide.slide, pageNumber)
       args.onProgress?.({
         stage: 'pages',
         progress: 25 + Math.round((pageNumber / effectiveSlides.length) * 58),
@@ -1295,7 +1320,7 @@ export async function importPptxToEditableHtml(args: {
       })
       const htmlPath = path.join(args.projectDir, `${pageId}.html`)
       const rendered = await buildSlideHtml({
-        slide: effectiveSlides[i],
+        slide: selectedSlide.slide,
         pageNumber,
         pageId,
         title: pageTitle,

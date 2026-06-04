@@ -556,7 +556,7 @@ export async function createSessionFromTemplate(
   const title = typeof record.title === 'string' && record.title.trim() ? record.title.trim() : ''
   const requestedPageCount = Number(record.pageCount)
   const pageCount = Number.isFinite(requestedPageCount)
-    ? Math.max(1, Math.min(40, Math.floor(requestedPageCount)))
+    ? Math.max(1, Math.min(500, Math.floor(requestedPageCount)))
     : undefined
   const referenceDocumentPath =
     typeof record.referenceDocumentPath === 'string' ? record.referenceDocumentPath.trim() : ''

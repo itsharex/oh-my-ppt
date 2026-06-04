@@ -13,7 +13,7 @@ import {
   Sparkles
 } from 'lucide-react'
 
-const MAX_PPTX_SIZE_MB = 100
+const MAX_PPTX_SIZE_MB = 500
 const MAX_PPTX_SIZE_BYTES = MAX_PPTX_SIZE_MB * 1024 * 1024
 
 export function HomePage(): ReactElement {

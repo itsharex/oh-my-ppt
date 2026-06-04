@@ -29,7 +29,7 @@ type PreparedSourceFile = ParsedDocumentPlanResult['files'][number] & {
 
 const MAX_DOCUMENT_FILES = 1
 const MAX_DOCUMENT_SIZE = 10 * 1024 * 1024
-const MAX_PAGE_COUNT = 40
+const MAX_PAGE_COUNT = 500
 
 const SUPPORTED_EXTENSIONS = new Set(['.md', '.txt', '.text', '.csv', '.docx'])
 const SUPPORTED_IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp'])

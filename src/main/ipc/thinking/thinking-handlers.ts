@@ -372,7 +372,7 @@ export function registerThinkingHandlers(ctx: IpcContext): void {
       const result: ThinkingPrepareGenerationResult = {
         thinkingDocumentPath,
         topic,
-        pageCount: Math.max(1, Math.min(40, pageCount)),
+        pageCount: Math.max(1, Math.min(500, pageCount)),
         styleId: '',
         styleText,
         fontSelection

@@ -185,14 +185,17 @@ export const parsePptxSlideAnimationPlan = (
 
 export const readPptxAnimationPlans = (
   buffer: Buffer,
-  slideCount: number,
+  slideCountOrIndexes: number | number[],
   slideSize: { width: number; height: number }
 ): SlideAnimationPlan[] => {
+  const slideIndexes = Array.isArray(slideCountOrIndexes)
+    ? slideCountOrIndexes
+    : Array.from({ length: slideCountOrIndexes }, (_, index) => index)
   try {
     const files = unzipSync(new Uint8Array(buffer))
     const slideEmuSize = readSlideEmuSize(files)
-    return Array.from({ length: slideCount }, (_, index) => {
-      const slideXml = files[`ppt/slides/slide${index + 1}.xml`]
+    return slideIndexes.map((slideIndex) => {
+      const slideXml = files[`ppt/slides/slide${slideIndex + 1}.xml`]
       if (!slideXml) return { animations: [], byName: new Map() }
       return parsePptxSlideAnimationPlan(
         Buffer.from(slideXml).toString('utf-8'),
@@ -201,6 +204,6 @@ export const readPptxAnimationPlans = (
       )
     })
   } catch {
-    return Array.from({ length: slideCount }, () => ({ animations: [], byName: new Map() }))
+    return slideIndexes.map(() => ({ animations: [], byName: new Map() }))
   }
 }

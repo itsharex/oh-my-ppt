@@ -1,6 +1,5 @@
 import fs from 'fs'
 import path from 'path'
-import crypto from 'crypto'
 import log from 'electron-log/main.js'
 import { nanoid } from 'nanoid'
 import { FilesystemBackend, createDeepAgent } from 'deepagents'
@@ -12,7 +11,7 @@ import { extractJsonBlock, extractModelText } from '../ipc/utils'
 import { logAgentToolEvents } from './agent-tool-logger'
 import type { StyleParseResult } from './style-import'
 
-const MAX_PPTX_SIZE_MB = 100
+const MAX_PPTX_SIZE_MB = 500
 const MAX_PPTX_SIZE = MAX_PPTX_SIZE_MB * 1024 * 1024
 const MAX_IMPORT_PAGES = 40
 
@@ -50,8 +49,7 @@ export async function parseStylePptx(args: {
     })
 
     const samplePages = selectSamplePagePaths(
-      imported.pages.map((page) => `/${path.basename(page.htmlPath)}`),
-      sourcePath
+      imported.pages.map((page) => `/${path.basename(page.htmlPath)}`)
     )
     const response = await runStylePptxImportAgent({
       provider: args.provider,
@@ -96,7 +94,7 @@ export async function parseStylePptx(args: {
   }
 }
 
-export function selectSamplePagePaths(pagePaths: string[], filePath: string): string[] {
+export function selectSamplePagePaths(pagePaths: string[]): string[] {
   if (pagePaths.length <= 4) return pagePaths
   const sorted = [...pagePaths].sort()
   const first = sorted[0]
@@ -104,27 +102,18 @@ export function selectSamplePagePaths(pagePaths: string[], filePath: string): st
   const middle = sorted.slice(1, -1)
   if (middle.length === 0) return [first, last]
 
-  // 按比例抽样中间页：≤10 页取 2，11-20 页取 3，21-40 页取 4
-  const middleCount = Math.min(
+  // 等距抽样中间页：将中间页均分为 N 个桶，每桶取一页，保证从头到尾均匀覆盖，最多 20 页
+  const maxSamples = Math.min(
     middle.length,
-    pagePaths.length <= 10 ? 2 : pagePaths.length <= 20 ? 3 : 4
+    Math.max(2, Math.min(20, Math.ceil(Math.sqrt(pagePaths.length))))
   )
-
-  const seedHex = crypto.createHash('sha1').update(filePath).digest('hex').slice(0, 8)
-  let seed = Number.parseInt(seedHex, 16) || 1
-  const nextRand = (): number => {
-    seed = (seed * 1664525 + 1013904223) % 4294967296
-    return seed / 4294967296
+  const sampled: string[] = []
+  for (let i = 0; i < maxSamples; i++) {
+    const idx = Math.floor((i + 0.5) * middle.length / maxSamples)
+    sampled.push(middle[idx])
   }
 
-  const shuffledMiddle = [...middle]
-  for (let i = shuffledMiddle.length - 1; i > 0; i -= 1) {
-    const j = Math.floor(nextRand() * (i + 1))
-    const tmp = shuffledMiddle[i]
-    shuffledMiddle[i] = shuffledMiddle[j]
-    shuffledMiddle[j] = tmp
-  }
-  return [first, ...shuffledMiddle.slice(0, middleCount), last]
+  return [first, ...sampled, last]
 }
 
 async function runStylePptxImportAgent(args: {
@@ -265,8 +254,7 @@ export async function extractStyleFromExistingHtml(args: {
   modelTimeoutMs: number
 }): Promise<StyleParseResult> {
   const samplePages = selectSamplePagePaths(
-    args.pageHtmlPaths.map((p) => `/${path.basename(p)}`),
-    args.sourceFilePath
+    args.pageHtmlPaths.map((p) => `/${path.basename(p)}`)
   )
 
   const response = await runStylePptxImportAgent({
