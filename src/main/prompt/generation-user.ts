@@ -138,6 +138,17 @@ export function buildSinglePageGenerationPrompt(args: {
               : ''
           ].filter(Boolean)
       : []
+  const hasSourceRange = /Source range:\s*lines\s+\d+\s*-\s*\d+/i.test(args.pageOutline || '')
+  const sourceRangeInstructions =
+    args.sourceDocumentPaths && args.sourceDocumentPaths.length > 0 && hasSourceRange
+      ? [
+          '',
+          'Range-bound source reading:',
+          '- Content points include a Source range. Before writing this slide, inspect that source heading/range first through the source-reading skill.',
+          '- Use retrieved snippets as an index only. If snippets are missing or broad, the Source range remains the primary content boundary.',
+          '- Do not pull facts from unrelated sections just because they match keywords.'
+        ]
+      : []
   return [
     'Generate and write only this slide. Do not modify other slides.',
     '',
@@ -148,6 +159,7 @@ export function buildSinglePageGenerationPrompt(args: {
     `Content points: ${args.pageOutline || 'Expand from the topic with moderate information density.'}`,
     args.layoutIntent ? formatLayoutIntentPrompt(args.layoutIntent) : '',
     ...sourceDocumentInstructions,
+    ...sourceRangeInstructions,
     '',
     CONTENT_LANGUAGE_RULES,
     '',

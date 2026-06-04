@@ -24,7 +24,8 @@ import {
   buildOutlineTitles,
   buildTotalPages,
   normalizeGeneratePayload,
-  resolveCommonContext
+  resolveCommonContext,
+  resolveSourceDocuments
 } from './context'
 import {
   ensureHistoryBaselineSafe,
@@ -41,6 +42,13 @@ export async function resolveEditContext(
   if (!input.sessionId) throw new Error('sessionId 不能为空')
 
   const common = await resolveCommonContext(ctx, input.sessionId)
+  const sourceDocumentPaths = await resolveSourceDocuments(ctx, {
+    sessionId: input.sessionId,
+    projectDir: common.projectDir,
+    rawDocPaths: input.rawDocPaths,
+    mode: 'edit',
+    sessionRecord: common.sessionRecord
+  })
   const imagePaths = input.rawImagePaths
   const videoPaths = input.rawVideoPaths
   const userMessage = `${input.rawUserMessage}${formatImagePathsForPrompt(imagePaths, videoPaths)}`
@@ -92,7 +100,8 @@ export async function resolveEditContext(
     messagePageId: chatType === 'page' ? chatPageId : undefined,
     imagePaths,
     videoPaths,
-    sourceDocumentPaths: [],
+    sourceDocumentPaths,
+    sourcePlan: common.sourcePlan,
     topic: common.topic,
     deckTitle: common.deckTitle,
     appLocale: common.appLocale,
@@ -282,6 +291,7 @@ export async function executeEditGeneration(
     userMessage: context.userMessage,
     outlineTitles,
     outlineItems,
+    sourceDocumentPaths: context.sourceDocumentPaths,
     projectDir: context.entry.projectDir,
     indexPath,
     pageFileMap,

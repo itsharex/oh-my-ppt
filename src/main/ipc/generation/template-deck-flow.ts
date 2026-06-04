@@ -12,6 +12,7 @@ import type { DeckContext, EmitAssistantFn } from './types'
 import { resolveDeckContext } from './deck-flow'
 import { parseJsonObject } from '../utils'
 import { resolveTemplateDesignContract } from '../templates/template-design-contract'
+import { canUseSourcePlanDirectly, mapSourcePlanToOutlineItems } from './source-plan'
 
 type TemplateSeedPage = {
   id: string
@@ -205,6 +206,13 @@ export async function executeTemplateDeckGeneration(
   const latestPageSnapshot = context.templateRetry
     ? await db.listLatestGenerationPageSnapshot(context.sessionId)
     : []
+  const shouldUseSourcePlan =
+    !context.templateRetry &&
+    canUseSourcePlanDirectly({
+      sourcePlan: context.sourcePlan,
+      totalPages: pageRefs.length,
+      userMessage: context.userMessage
+    })
   const plannedOutlineItems = context.templateRetry
     ? pageRefs.map((page) => {
         const snapshot = latestPageSnapshot.find((item) => item.page_id === page.pageId)
@@ -216,6 +224,8 @@ export async function executeTemplateDeckGeneration(
             : undefined
         }
       })
+    : shouldUseSourcePlan && context.sourcePlan
+      ? mapSourcePlanToOutlineItems(context.sourcePlan)
     : await planDeckWithLLM({
         provider: context.provider,
         apiKey: context.apiKey,

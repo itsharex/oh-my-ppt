@@ -163,9 +163,9 @@ export const en = {
     analyzingReference: 'Analyzing...',
     referenceAttachHint:
       'Upload only attaches source material; AI analysis consumes model tokens and suggests form values.',
-    analysisSuggestionTitle: 'AI analysis suggestions',
+    analysisSuggestionTitle: 'Suggestions',
     analysisSuggestionDescription:
-      'Choose which fields to apply to the creation form. Unchecked fields will not overwrite your input.',
+      'Edit or remove suggestions before applying them to the creation form. Unchecked fields are not written to the form.',
     currentValue: 'Current',
     suggestedValue: 'AI Suggested',
     emptyValue: 'Empty',
@@ -197,6 +197,13 @@ export const en = {
     fontSourceBuiltIn: 'Built-in',
     pageCount: 'Pages',
     brief: 'Detailed brief',
+    documentOutline: 'Document outline',
+    outlinePageCount: '{count} pages',
+    outlineRoleChapter: 'Chapter',
+    outlineRoleContent: 'Content',
+    outlineItemTitle: 'Title',
+    outlineItemContent: 'Brief summary',
+    outlineSourceRange: 'Source lines {start}-{end}',
     briefPlaceholder:
       'You can include:\n- The outline structure and what each section or page should cover\n- Which parts of the source document matter most, including conclusions, data, or examples to keep\n- How each page should present the content, such as chart, comparison, process, or summary; for click animation, say "click to reveal items", "keyboard reveal", "step-by-step narration", "expand item by item", or "presentation pacing control"\n- How to organize the source material, such as background, solution, then summary\n- Anything to emphasize, de-emphasize, or avoid',
     creating: 'Creating...',

@@ -7,6 +7,8 @@ import {
   FRONTEND_CAPABILITIES,
   LAYOUT_COLLISION_RULES,
   PAGE_SEMANTIC_STRUCTURE,
+  SOURCE_DOCUMENT_FACT_RULE,
+  SOURCE_DOCUMENT_READ_STRATEGY,
   STABLE_HTML_FRAGMENT_PROTOCOL,
   buildOutlinePageList,
   formatDesignContract,
@@ -41,6 +43,19 @@ export function buildEditAgentSystemPrompt(
   return buildSinglePageEditPrompt(styleId, context)
 }
 
+function buildSourceDocumentEditInstructions(context: SessionDeckGenerationContext): string {
+  const sourceDocumentPaths = (context.sourceDocumentPaths || []).filter(Boolean)
+  if (sourceDocumentPaths.length === 0) return ''
+  return [
+    '## Source documents (content evidence)',
+    'The session has user-imported reference documents. When the edit changes slide facts, examples, metrics, terminology, conclusions, or source-backed page content, use the source document as the authority.',
+    `- sourceDocumentPaths: ${sourceDocumentPaths.join(', ')}`,
+    SOURCE_DOCUMENT_READ_STRATEGY,
+    '- For pure visual/style-only edits, do not reread the source document unless the user asks for source-backed content changes.',
+    SOURCE_DOCUMENT_FACT_RULE
+  ].join('\n')
+}
+
 /**
  * task (index.html)
  */
@@ -57,6 +72,7 @@ function buildContainerEditPrompt(
   const existingInfo = context.existingPageIds?.length
     ? `Existing page IDs: ${context.existingPageIds.join(', ')}`
     : ''
+  const sourceDocumentInstructions = buildSourceDocumentEditInstructions(context)
 
   return [
     'You are a PPT presentation-container (index.html) editing expert.',
@@ -97,6 +113,7 @@ function buildContainerEditPrompt(
     stylePrompt,
     context.designContract ? '\n设计契约（本次演示的统一视觉参考）：' : '',
     context.designContract ? formatDesignContract(context.designContract) : '',
+    sourceDocumentInstructions ? '\n' + sourceDocumentInstructions : '',
     '',
     '## Current Task',
     `Topic: ${context.topic}`,
@@ -136,6 +153,7 @@ function buildSelectorEditPrompt(
   const existingInfo = context.existingPageIds?.length
     ? `Existing page IDs: ${context.existingPageIds.join(', ')}`
     : ''
+  const sourceDocumentInstructions = buildSourceDocumentEditInstructions(context)
 
   return [
     'You are a PPT incremental editing expert focused on precision element-level changes.',
@@ -179,6 +197,7 @@ function buildSelectorEditPrompt(
     PAGE_SEMANTIC_STRUCTURE,
     '',
     FRONTEND_CAPABILITIES,
+    sourceDocumentInstructions ? '\n' + sourceDocumentInstructions : '',
     '',
     '## Execution Flow',
     '1. get_session_context — read the session context',
@@ -222,6 +241,7 @@ function buildSinglePageEditPrompt(
   const existingInfo = context.existingPageIds?.length
     ? `Existing page IDs: ${context.existingPageIds.join(', ')}`
     : ''
+  const sourceDocumentInstructions = buildSourceDocumentEditInstructions(context)
 
   return [
     'You are a PPT incremental editing expert focused on modifying a single target page.',
@@ -263,6 +283,7 @@ function buildSinglePageEditPrompt(
     PAGE_SEMANTIC_STRUCTURE,
     '',
     FRONTEND_CAPABILITIES,
+    sourceDocumentInstructions ? '\n' + sourceDocumentInstructions : '',
     '',
     '## Execution Flow',
     '1. get_session_context — read the session context',
@@ -300,6 +321,7 @@ function buildDeckEditPrompt(
   const existingInfo = context.existingPageIds?.length
     ? `Existing page IDs: ${context.existingPageIds.join(', ')}`
     : ''
+  const sourceDocumentInstructions = buildSourceDocumentEditInstructions(context)
 
   return [
     'You are a PPT incremental editing expert focused on modifying multiple pages across the deck.',
@@ -339,6 +361,7 @@ function buildDeckEditPrompt(
     PAGE_SEMANTIC_STRUCTURE,
     '',
     FRONTEND_CAPABILITIES,
+    sourceDocumentInstructions ? '\n' + sourceDocumentInstructions : '',
     '',
     '## Execution Flow',
     '1. get_session_context — read the session context',

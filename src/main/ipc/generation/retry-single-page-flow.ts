@@ -10,7 +10,7 @@ import {
   generatePagesWithRetry,
   resolvePageHtmlPath
 } from './generation-utils'
-import { resolveCommonContext } from './context'
+import { resolveCommonContext, resolveSourceDocuments } from './context'
 import type { DesignContract } from '../../tools/types'
 import type { ModelTimeoutProfile } from '@shared/model-timeout'
 import { normalizeLayoutIntent, type LayoutIntent } from '@shared/layout-intent'
@@ -49,6 +49,7 @@ export type RetrySinglePageContext = {
   messagePageId: string
   projectId: string
   effectiveMode: 'retrySinglePage'
+  sourceDocumentPaths: string[]
 }
 
 export async function resolveRetrySinglePageContext(
@@ -61,6 +62,14 @@ export async function resolveRetrySinglePageContext(
   log.info('[generate:retrySinglePage] resolving context', { sessionId, pageId })
   const common = await resolveCommonContext(ctx, sessionId)
   const { sessionRecord } = common
+  const sourceDocumentPaths = await resolveSourceDocuments(ctx, {
+    sessionId,
+    projectDir: common.projectDir,
+    // Single-page retry should reproduce the saved deck context, not consume transient edit attachments.
+    rawDocPaths: [],
+    mode: 'retrySinglePage',
+    sessionRecord
+  })
 
   const sessionPages = await db.listSessionPages(sessionId)
   const sessionPage = sessionPages.find((page) => page.file_slug === pageId || page.id === pageId)
@@ -87,7 +96,8 @@ export async function resolveRetrySinglePageContext(
     sessionId,
     pageId: fileSlug,
     pageNumber,
-    projectDir: common.projectDir
+    projectDir: common.projectDir,
+    sourceDocumentCount: sourceDocumentPaths.length
   })
 
   return {
@@ -102,7 +112,8 @@ export async function resolveRetrySinglePageContext(
     sessionRecord,
     messageScope: 'page' as const,
     messagePageId: sessionPage.id,
-    effectiveMode: 'retrySinglePage' as const
+    effectiveMode: 'retrySinglePage' as const,
+    sourceDocumentPaths
   }
 }
 
@@ -213,7 +224,7 @@ export async function executeRetrySinglePageGeneration(
         contentOutline: context.contentOutline,
         layoutIntent: context.layoutIntent
       }],
-      sourceDocumentPaths: [],
+      sourceDocumentPaths: context.sourceDocumentPaths,
       generationMode: 'generate',
       pageTasks: [{
         pageNumber: context.pageNumber,

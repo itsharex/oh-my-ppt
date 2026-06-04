@@ -10,6 +10,7 @@ import type {
   ParsedDocumentPlanResult,
   PrepareReferenceDocumentPayload,
   PreparedReferenceDocumentResult,
+  SourceDocumentPlan,
   PptxImportPayload,
   PptxImportProgressPayload,
   PptxImportResult,
@@ -216,6 +217,7 @@ export interface CreateSessionPayload {
   pageCount?: number
   referenceDocumentPath?: string
   fontSelection?: FontSelection
+  sourcePlan?: SourceDocumentPlan
 }
 
 export interface ModelConfig {
@@ -427,6 +429,7 @@ export const ipc = {
     title?: string
     pageCount?: number
     referenceDocumentPath?: string
+    sourcePlan?: SourceDocumentPlan
   }) =>
     getIpc().invoke('templates:createSession', payload) as Promise<{
       success: true

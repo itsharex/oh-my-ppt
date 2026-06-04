@@ -17,6 +17,7 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/Popover'
 import { useLang, useT, type I18nKey } from '../i18n'
 import { Clock3, FileText, History, Loader2, Plus, Trash2 } from 'lucide-react'
+import type { SourceDocumentPlan } from '@shared/generation'
 import type {
   ThinkingChatMessage,
   ThinkingSource,
@@ -253,6 +254,7 @@ export function ThinkingDetailPage(): ReactElement {
     styleId: string
     fontSelection: import('@shared/generation').FontSelection
     referenceDocumentPath: string
+    sourcePlan?: SourceDocumentPlan
     modelConfigId?: string
   }): Promise<void> => {
     if (generating || !prepared) return
@@ -263,7 +265,8 @@ export function ThinkingDetailPage(): ReactElement {
         styleId: params.styleId,
         pageCount: params.pageCount,
         referenceDocumentPath: params.referenceDocumentPath,
-        fontSelection: params.fontSelection
+        fontSelection: params.fontSelection,
+        sourcePlan: params.sourcePlan
       })
       success(t('home.sessionCreated'), {
         description: t('home.generationStarted'),
@@ -287,13 +290,12 @@ export function ThinkingDetailPage(): ReactElement {
     }
   }
 
-  const restoredContextMessage = useMemo(
-    () => buildContextMessage(contextMd, t),
-    [contextMd, t]
-  )
+  const restoredContextMessage = useMemo(() => buildContextMessage(contextMd, t), [contextMd, t])
   const displayMessages =
     messages.length > 0
-      ? restoredContextMessage && !loading && !messages.some((message) => message.role === 'assistant')
+      ? restoredContextMessage &&
+        !loading &&
+        !messages.some((message) => message.role === 'assistant')
         ? [...messages, restoredContextMessage]
         : messages
       : restoredContextMessage

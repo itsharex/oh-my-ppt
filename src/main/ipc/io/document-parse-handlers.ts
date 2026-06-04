@@ -5,7 +5,6 @@ import path from 'path'
 import log from 'electron-log/main.js'
 import { nanoid } from 'nanoid'
 import { resolveModel } from '../../agent'
-import { FilesystemBackend, createDeepAgent } from 'deepagents'
 import { extractModelText } from '../utils'
 import type { IpcContext } from '../context'
 import type {
@@ -20,6 +19,18 @@ import { resolveActiveModelConfig, resolveGlobalModelTimeouts } from '../config/
 import { assertImageWasRead, isImageUnsupportedError } from '../../utils/style-image-import'
 import { invokeVisionModelText } from '../../utils/vision-model'
 import { normalizeGeneratedPlan as normalizeDocumentPlan } from './document-plan-normalizer'
+import { convertCsvTextToMarkdown } from './document-csv-to-markdown'
+import {
+  deriveOutlinePageCandidates,
+  estimateOutlinePageCount,
+  formatDocumentOutlineScanForPrompt,
+  scanDocumentOutline,
+  scanHasMultipleSlideCandidates,
+  scanHeadingTitles,
+  type DocumentOutlinePageCandidate,
+  type DocumentOutlineScan
+} from './document-outline-scan'
+import { buildDocumentPlanPageSkeleton } from './document-plan-page-skeleton'
 
 type PreparedSourceFile = ParsedDocumentPlanResult['files'][number] & {
   originalPath: string
@@ -30,6 +41,7 @@ type PreparedSourceFile = ParsedDocumentPlanResult['files'][number] & {
 const MAX_DOCUMENT_FILES = 1
 const MAX_DOCUMENT_SIZE = 10 * 1024 * 1024
 const MAX_PAGE_COUNT = 500
+const MAX_PARSE_SOURCE_PREVIEW_CHARS = 20_000
 
 const SUPPORTED_EXTENSIONS = new Set(['.md', '.txt', '.text', '.csv', '.docx'])
 const SUPPORTED_IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp'])
@@ -124,193 +136,6 @@ const stripInlineImagesFromHtml = (html: string): string =>
 const stripMarkdownDataImages = (markdown: string): string =>
   markdown.replace(/!\[[^\]]*]\(data:[^)]+\)/gi, '').replace(/!\[[^\]]*]\(\s*\)/g, '')
 
-const previewValue = (value: unknown, maxLength = 240): string => {
-  const source =
-    typeof value === 'string'
-      ? value
-      : value === undefined
-        ? ''
-        : (() => {
-            try {
-              return JSON.stringify(value)
-            } catch {
-              return String(value)
-            }
-          })()
-  const compact = source.replace(/\s+/g, ' ').trim()
-  return compact.length > maxLength ? `${compact.slice(0, maxLength)}...` : compact
-}
-
-const getObject = (value: unknown): Record<string, unknown> | null =>
-  value && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null
-
-const readMessageField = (message: Record<string, unknown>, key: string): unknown => {
-  const direct = message[key]
-  if (direct !== undefined) return direct
-  const kwargs = getObject(message.kwargs)
-  if (kwargs && kwargs[key] !== undefined) return kwargs[key]
-  return undefined
-}
-
-const summarizeToolCall = (
-  toolCall: unknown
-): {
-  id: string
-  name: string
-  argsPreview: string
-  argsLength: number
-} | null => {
-  const record = getObject(toolCall)
-  if (!record) return null
-  const functionRecord = getObject(record.function)
-  const rawArgs = record.args ?? record.arguments ?? functionRecord?.arguments ?? ''
-  const argsText = typeof rawArgs === 'string' ? rawArgs : previewValue(rawArgs, 10_000)
-  const name = String(record.name ?? functionRecord?.name ?? '').trim()
-  const id = String(record.id ?? record.tool_call_id ?? '').trim()
-  if (!name && !id && !argsText) return null
-  return {
-    id,
-    name,
-    argsPreview: previewValue(argsText),
-    argsLength: argsText.length
-  }
-}
-
-const logDocumentPlanToolEvents = (
-  data: unknown,
-  seenToolEvents: Set<string>,
-  source: 'updates' | 'messages'
-): void => {
-  const visitMessage = (message: unknown): void => {
-    const record = getObject(message)
-    if (!record) return
-    const toolCallsSources = [
-      readMessageField(record, 'tool_calls'),
-      readMessageField(record, 'tool_call_chunks'),
-      getObject(readMessageField(record, 'additional_kwargs'))?.tool_calls
-    ]
-    for (const calls of toolCallsSources) {
-      if (!Array.isArray(calls)) continue
-      for (const call of calls) {
-        const summary = summarizeToolCall(call)
-        if (!summary) continue
-        const key = `call:${summary.id}:${summary.name}:${summary.argsPreview}`
-        if (seenToolEvents.has(key)) continue
-        seenToolEvents.add(key)
-        log.info('[documents:parsePlan] tool_call', {
-          source,
-          toolCallId: summary.id || null,
-          toolName: summary.name || null,
-          argsLength: summary.argsLength,
-          argsPreview: summary.argsPreview
-        })
-      }
-    }
-
-    const messageType = String(
-      readMessageField(record, 'type') ?? readMessageField(record, 'role') ?? ''
-    )
-    const toolCallId = String(readMessageField(record, 'tool_call_id') ?? '').trim()
-    const toolName = String(readMessageField(record, 'name') ?? '').trim()
-    if (toolCallId || messageType === 'tool') {
-      const content = readMessageField(record, 'content')
-      const contentText = typeof content === 'string' ? content : previewValue(content, 10_000)
-      const key = `result:${toolCallId}:${toolName}:${contentText.length}`
-      if (!seenToolEvents.has(key)) {
-        seenToolEvents.add(key)
-        log.info('[documents:parsePlan] tool_result', {
-          source,
-          toolCallId: toolCallId || null,
-          toolName: toolName || null,
-          contentLength: contentText.length
-        })
-      }
-    }
-  }
-
-  const visit = (value: unknown): void => {
-    if (Array.isArray(value)) {
-      value.forEach(visit)
-      return
-    }
-    const record = getObject(value)
-    if (!record) return
-    if (
-      readMessageField(record, 'tool_calls') !== undefined ||
-      readMessageField(record, 'tool_call_chunks') !== undefined ||
-      readMessageField(record, 'tool_call_id') !== undefined ||
-      readMessageField(record, 'role') === 'tool' ||
-      readMessageField(record, 'type') === 'tool'
-    ) {
-      visitMessage(record)
-    }
-    for (const nested of Object.values(record)) {
-      if (nested && typeof nested === 'object') visit(nested)
-    }
-  }
-
-  visit(data)
-}
-
-const extractAssistantTextsFromState = (data: unknown): string[] => {
-  const texts: string[] = []
-  const seenObjects = new Set<object>()
-
-  const visitMessage = (message: unknown): void => {
-    const record = getObject(message)
-    if (!record) return
-    const role = String(readMessageField(record, 'role') ?? '').toLowerCase()
-    const type = String(readMessageField(record, 'type') ?? '').toLowerCase()
-    const constructorName = String(
-      getObject(readMessageField(record, 'lc_kwargs'))?.type ??
-        getObject(readMessageField(record, 'kwargs'))?.type ??
-        ''
-    ).toLowerCase()
-    const isAssistant =
-      role === 'assistant' || type === 'ai' || type === 'assistant' || constructorName === 'ai'
-    const isToolOrHuman =
-      role === 'tool' ||
-      role === 'user' ||
-      role === 'system' ||
-      type === 'tool' ||
-      type === 'human' ||
-      type === 'system'
-    if (!isAssistant || isToolOrHuman) return
-    const text = extractModelText(record).trim()
-    if (text) texts.push(text)
-  }
-
-  const visit = (value: unknown): void => {
-    if (Array.isArray(value)) {
-      const looksLikeMessages = value.some((item) => {
-        const record = getObject(item)
-        if (!record) return false
-        return (
-          readMessageField(record, 'content') !== undefined &&
-          (readMessageField(record, 'role') !== undefined ||
-            readMessageField(record, 'type') !== undefined ||
-            readMessageField(record, 'tool_calls') !== undefined)
-        )
-      })
-      if (looksLikeMessages) value.forEach(visitMessage)
-      value.forEach(visit)
-      return
-    }
-    const record = getObject(value)
-    if (!record) return
-    if (seenObjects.has(record)) return
-    seenObjects.add(record)
-    for (const nested of Object.values(record)) {
-      if (nested && typeof nested === 'object') visit(nested)
-    }
-  }
-
-  visit(data)
-  return texts
-}
-
 const convertDocxToMarkdown = async (filePath: string): Promise<string> => {
   const result = await mammoth.convertToHtml({ path: filePath })
   if (result.messages.length > 0) {
@@ -363,22 +188,21 @@ const prepareSourceFile = async (
     typeof file.name === 'string' && file.name.trim().length > 0
       ? file.name.trim()
       : path.basename(filePath)
-  const type: PreparedSourceFile['type'] =
-    isImage
-      ? 'image'
-      : ext === '.docx'
-        ? 'docx'
-        : ext === '.md'
-          ? 'markdown'
-          : ext === '.csv'
-            ? 'csv'
-            : 'text'
+  let type: PreparedSourceFile['type'] = isImage
+    ? 'image'
+    : ext === '.docx'
+      ? 'docx'
+      : ext === '.md'
+        ? 'markdown'
+        : ext === '.csv'
+          ? 'csv'
+          : 'text'
 
   const safeBaseName = toSafeFileName(path.basename(name, ext))
   const stamp = Date.now()
   const uniqueId = nanoid(8)
   const workspaceName =
-    ext === '.docx'
+    ext === '.docx' || ext === '.csv'
       ? `${stamp}-${uniqueId}-${safeBaseName || 'source'}.md`
       : `${stamp}-${uniqueId}-${safeBaseName}${ext}`
   const workspacePath = path.join(workspaceDir, workspaceName)
@@ -413,6 +237,20 @@ const prepareSourceFile = async (
       workspaceName,
       characterCount
     })
+  } else if (ext === '.csv') {
+    const csvText = await fs.promises.readFile(filePath, 'utf-8')
+    const markdown = convertCsvTextToMarkdown(csvText, {
+      title: path.basename(name, ext)
+    })
+    if (!markdown) throw new Error(`${name} 未解析出可用文本`)
+    await fs.promises.writeFile(workspacePath, markdown, 'utf-8')
+    type = 'markdown'
+    characterCount = markdown.length
+    log.info('[documents:parsePlan] csv converted for reading', {
+      originalName: name,
+      workspaceName,
+      characterCount
+    })
   } else {
     if (path.resolve(filePath) !== path.resolve(workspacePath)) {
       await fs.promises.copyFile(filePath, workspacePath)
@@ -435,163 +273,258 @@ const prepareSourceFile = async (
   }
 }
 
-const buildDocumentPlanPrompt = (args: {
+const resolveOutlineScanFormat = (file: PreparedSourceFile): DocumentOutlineScan['format'] => {
+  if (file.type === 'csv') return 'csv'
+  if (file.type === 'text') return 'text'
+  return 'markdown'
+}
+
+const scanPreparedSourceOutline = async (
+  file: PreparedSourceFile
+): Promise<{
+  scan: DocumentOutlineScan
+  pageCandidates: DocumentOutlinePageCandidate[]
+} | null> => {
+  if (file.type === 'image') {
+    log.info('[documents:parsePlan] document outline scan skipped', {
+      sourceVirtualPath: file.virtualPath,
+      reason: 'image-source'
+    })
+    return null
+  }
+  const content = await fs.promises.readFile(file.workspacePath, 'utf-8').catch((error) => {
+    log.warn('[documents:parsePlan] document outline scan read failed', {
+      sourceVirtualPath: file.virtualPath,
+      message: error instanceof Error ? error.message : String(error)
+    })
+    return ''
+  })
+  if (!content.trim()) {
+    log.info('[documents:parsePlan] document outline scan skipped', {
+      sourceVirtualPath: file.virtualPath,
+      reason: 'empty-source'
+    })
+    return null
+  }
+  const scan = scanDocumentOutline(content, resolveOutlineScanFormat(file))
+  const pageCandidates = deriveOutlinePageCandidates(scan)
+  log.info('[documents:parsePlan] document outline scanned', {
+    sourceVirtualPath: file.virtualPath,
+    format: scan.format,
+    headingCount: scan.headingCount,
+    topLevelTitle: scan.topLevelTitle,
+    pageCandidateCount: pageCandidates.length,
+    splitHintCount: scan.recommendedSplitHints.length,
+    headingPreview: scanHeadingTitles(scan).slice(0, 15),
+    splitHintsPreview: scan.recommendedSplitHints.slice(0, 5)
+  })
+  return { scan, pageCandidates }
+}
+
+const assertPlanMatchesDocumentOutline = (args: {
+  scan: DocumentOutlineScan | null
+  pageCandidates: DocumentOutlinePageCandidate[]
+  plan: Pick<ParsedDocumentPlanResult, 'pageCount' | 'briefText'>
+  userPageCount: number | null
+}): void => {
+  if (args.userPageCount !== null && args.plan.pageCount !== args.userPageCount) {
+    throw new RetryableDocumentPlanQualityError(
+      `The user-provided page count is ${args.userPageCount}, but the plan returned pageCount=${args.plan.pageCount}. Return pageCount=${args.userPageCount} exactly.`
+    )
+  }
+  if (!args.scan || !scanHasMultipleSlideCandidates(args.scan)) return
+  if (args.userPageCount === null && args.plan.pageCount <= 1) {
+    throw new RetryableDocumentPlanQualityError(
+      'The source document has multiple Markdown/source sections, but the plan collapsed it to one slide. Rebuild the outline from the document heading structure and infer a multi-slide pageCount.'
+    )
+  }
+  const pageCountEstimate = estimateOutlinePageCount(args.scan, args.pageCandidates)
+  if (
+    args.userPageCount === null &&
+    args.pageCandidates.length > 0 &&
+    pageCountEstimate &&
+    args.plan.pageCount !== pageCountEstimate.preferredPageCount
+  ) {
+    throw new RetryableDocumentPlanQualityError(
+      `The source document scan provided an authoritative page candidate skeleton of ${pageCountEstimate.preferredPageCount} slides, but the plan returned pageCount=${args.plan.pageCount}. Rebuild the outline from the page candidate skeleton without compressing or expanding it.`
+    )
+  }
+  if (
+    args.userPageCount === null &&
+    pageCountEstimate &&
+    (args.plan.pageCount < pageCountEstimate.minPageCount ||
+      args.plan.pageCount > pageCountEstimate.maxPageCount)
+  ) {
+    throw new RetryableDocumentPlanQualityError(
+      `The source document structure suggests ${pageCountEstimate.preferredPageCount} slides with acceptable range ${pageCountEstimate.minPageCount}-${pageCountEstimate.maxPageCount}, but the plan returned pageCount=${args.plan.pageCount}. Rebuild the outline using the deterministic source-structure page-count estimate.`
+    )
+  }
+
+  const briefText = args.plan.briefText
+  const hasSourceHeadingLabel =
+    /源文档结构|来源标题|Source document structure|Source heading/i.test(briefText)
+  const headingTitles = scanHeadingTitles(args.scan)
+  const mentionedHeadingCount = headingTitles.filter((title) => briefText.includes(title)).length
+  if (!hasSourceHeadingLabel && mentionedHeadingCount < Math.min(2, headingTitles.length)) {
+    throw new RetryableDocumentPlanQualityError(
+      'The source document has a heading structure, but briefText does not preserve source headings. Include a compact source-structure section and source heading for each page entry.'
+    )
+  }
+}
+
+const isDocumentOutlineQualityError = (error: unknown): boolean =>
+  error instanceof RetryableDocumentPlanQualityError &&
+  /multiple Markdown\/source sections|heading structure|source-structure page-count estimate|page candidate skeleton|user-provided page count/i.test(
+    error.message
+  )
+
+const hasOutlinePageCandidateSkeleton = (pageCandidates: DocumentOutlinePageCandidate[]): boolean =>
+  pageCandidates.length > 0
+
+const buildSingleShotDocumentPlanPrompt = (args: {
   topic: string
   pageCount: number | null
   existingBrief: string
   file: PreparedSourceFile
+  outlineScan: DocumentOutlineScan | null
+  pageCandidates: DocumentOutlinePageCandidate[]
+  sourcePreview: string
+  sourcePreviewLimit: number
+  sourcePreviewTruncated: boolean
   retryHint?: string
 }): string =>
   [
-    'Use the filesystem tool to read the uploaded document and produce the fixed structure needed by the PPT creation form.',
-    'This is a source-grounded extraction task, not a creative planning task. The output must stay tightly bound to the source document.',
+    'Turn the uploaded document into the fixed JSON needed by the PPT creation form.',
+    'This is a single-shot document parsing task. The host already scanned the source document with Markdown/GFM AST when possible.',
+    'Do not ask to read the file, do not mention tools, and do not reconstruct the source document.',
+    hasOutlinePageCandidateSkeleton(args.pageCandidates)
+      ? 'Use the page candidate skeleton as the authoritative outline. Do not need source body text during parsing; later slide generation will read source passages by line range.'
+      : 'No authoritative page candidate skeleton is available. Use the bounded source preview and any structure scan to infer a concise source-ordered page outline.',
     '',
     'Return only a JSON object. Do not return Markdown, explanations, or extra fields.',
     'Use exactly these fields: topic, pageCount, briefText.',
     '',
     'Output language rules:',
-    '- First determine the dominant language of the source document and the latest user-provided topic/brief.',
-    '- If the user explicitly asks for a language, use that language.',
-    '- Otherwise, topic and briefText must use the dominant language of the source document.',
-    '- If the source document is primarily English, topic and briefText must be written in English. Do not translate the outline into Chinese.',
-    '- If the source document is primarily Chinese, topic and briefText must be written in Chinese.',
-    '- The section labels inside briefText must also use the selected output language. For Chinese output, use Chinese labels such as 演示目标、受众/场景、核心观点、建议大纲、每页要点、必须保留的事实/指标/术语、风格/表达要求.',
-    '- Do not use English template labels such as Presentation goal, Audience/context, Core argument, Recommended outline, Per-page points, Facts/metrics/terms to preserve, or Style or expression notes when the source document is Chinese.',
+    '- Use the dominant language of the source structure, user topic, and existing brief.',
+    '- If the source structure is primarily Chinese, use Chinese labels in briefText.',
+    '- If the source structure is primarily English, use English labels in briefText.',
     '- Keep proper nouns, product names, technical terms, quoted text, and metrics in their original form when appropriate.',
     '',
     'Field rules:',
-    '- topic: a concise title suitable for the creation form topic input, in the selected output language.',
-    `- pageCount: an integer suitable for the creation form page-count input, from 1 to ${MAX_PAGE_COUNT}.`,
-    '- IMPORTANT: pageCount means the target number of PPT slides to generate. It is NOT the number of uploaded files, NOT the number of source-document pages, and NOT the number of pages/screens shown in the source.',
-    '- Use pageCount=1 only when the source is extremely short and contains one single presentation point. For ordinary multi-section documents, infer a multi-slide deck, usually at least 4-8 slides depending on density.',
-    '- briefText: a concise but source-faithful structured outline suitable for the creation form detailed-brief input, in the selected output language.',
-    '- briefText must capture enough concrete source evidence for later generation: source headings, key conclusions, named entities, metrics, time points, examples, risks, actions, and terminology.',
-    '- Do not rewrite the source into a new storyline, generic consulting framework, marketing narrative, or inspirational theme.',
-    '- Do not add generic pages such as agenda, background, outlook, summary, next steps, or transition pages unless the source document or user brief clearly requires them.',
-    '- briefText should include these sections in the selected output language: presentation goal, audience/context, core argument, recommended outline, per-page points, facts/metrics/terms to preserve, and style/expression notes when useful.',
-    '- Decide pageCount before writing briefText by estimating how many slides are needed to faithfully cover the document at presentation density.',
-    '- Base pageCount on the document structure, information density, major sections, narrative flow, and required cover/closing pages when useful.',
-    '- The recommended outline must contain exactly pageCount numbered items.',
-    '- The per-page points section must contain exactly pageCount page entries.',
-    '- Per-page points must be specific to the source content and should include concrete source anchors; avoid vague placeholders such as background/goals/value.',
-    '- Preserve the source order and hierarchy unless the user explicitly asks for a different structure.',
-    '- Before returning, silently check consistency: pageCount must match the number of recommended outline items and per-page point entries.',
-    '- If pageCount, recommended outline, and per-page points are inconsistent, fix them before returning the final JSON. Do not include the self-check.',
-    '- If no page count is provided by the user, infer it only from the document. Do not copy an example pageCount.',
-    '- If a page count is provided by the user, treat it as a hard target: pageCount must equal that number, and outline/per-page entries must be adapted to exactly that number.',
-    '- Later PPT generation will read the source document again, so briefText should focus on clear direction and structure.',
-    '- Preserve key facts, numbers, proper nouns, conclusions, product names, systems, timelines, roles, risks, and terminology from the document.',
-    '- Compress the source; do not paste long passages verbatim.',
-    '- Do not invent exact data that is not present in the document.',
+    '- topic: a concise title suitable for the creation form topic input.',
+    `- pageCount: an integer from 1 to ${MAX_PAGE_COUNT}.`,
     args.pageCount
       ? `- User-provided page count: ${args.pageCount}. Return pageCount=${args.pageCount} exactly.`
-      : '- No page count was provided. Infer the target PPT slide count from the document structure and information density. Do not return 1 merely because one file was uploaded.',
+      : hasOutlinePageCandidateSkeleton(args.pageCandidates)
+        ? '- No page count was provided. Return pageCount equal to the page candidate skeleton count.'
+        : '- No page count was provided. Infer pageCount from source structure, information density, paragraphs, lists, tables, and semantic transitions. Do not return 1 for ordinary multi-section documents.',
+    '- briefText: a compact page skeleton, not a detailed fact summary.',
+    '- briefText must include source document structure, recommended outline, and per-page points.',
+    '- Recommended outline must contain exactly pageCount numbered items.',
+    '- Per-page points must contain exactly pageCount page entries.',
+    hasOutlinePageCandidateSkeleton(args.pageCandidates)
+      ? '- Each page entry should include only: page title, page role, source heading, source line range, and one short page purpose.'
+      : '- Each page entry should include: page title, page role, source anchor when available, and one short page purpose.',
+    '- Do not write detailed facts, metrics, scripts, examples, risks, or per-page summaries during parsing. Later slide generation will inspect source passages again.',
+    '- Preserve source order and hierarchy. Do not rewrite the source into a generic storyline, marketing narrative, consulting framework, or inspirational theme.',
+    '- Keep chapter divider slides as standalone section-divider pages and include a role marker such as 页面角色：章节页 or Page role: chapter divider.',
+    '- Do not add agenda/background/outlook/summary/next-step pages unless present in the source skeleton or requested by the user.',
     '',
-    'Reading requirements:',
-    `- Document path: ${args.file.virtualPath}`,
-    '- You must call read_file on relevant document sections before producing the result.',
-    '- Read the document carefully enough to cover all major sections before returning. Do not only read the beginning.',
-    '- For long documents, first use grep to map headings, section names, tables, metrics, dates, named entities, and other cues, then call read_file on the relevant sections. Do not read the whole file into context at once.',
-    '- If the file is long, call read_file multiple times in targeted sections and summarize progressively, keeping track of source headings and concrete facts.',
-    '- If some later section cannot be read within context, say so inside briefText and avoid inventing content for it.',
-    '- If the document is a Word file, it has already been converted to Markdown for reading.',
+    args.outlineScan ? 'Host-provided document structure:' : '',
+    args.outlineScan
+      ? formatDocumentOutlineScanForPrompt(args.outlineScan, args.pageCandidates)
+      : '',
+    '',
+    args.sourcePreview ? 'Bounded source preview for unstructured parsing:' : '',
+    args.sourcePreviewTruncated
+      ? `The preview is capped at ${args.sourcePreviewLimit} characters. Use it conservatively with the structure scan; do not invent unsupported later-section details.`
+      : '',
+    args.sourcePreview ? '```text' : '',
+    args.sourcePreview,
+    args.sourcePreview ? '```' : '',
     args.retryHint
       ? `\nRetry requirement: the previous output failed validation because: ${args.retryHint}. Fix this issue. Ensure briefText is non-empty and pageCount exactly matches the page-level outline and per-page points.`
       : '',
     args.topic
       ? `\nUser-provided topic: ${args.topic}`
-      : '\nThe user did not provide a topic; infer it from the document.',
+      : '\nThe user did not provide a topic; infer it from the document structure.',
     args.existingBrief ? `\nExisting user brief:\n${args.existingBrief}` : '',
+    `\nSource document path for later generation only: ${args.file.virtualPath}`,
     '',
-    'Return format example:',
-    'For Chinese source: {"topic":"AI动漫产业发展分析","pageCount":7,"briefText":"演示目标：...\\n受众/场景：...\\n核心观点：...\\n建议大纲：\\n1. ...\\n2. ...\\n每页要点：\\n第 1 页：...\\n第 2 页：...\\n必须保留的事实/指标/术语：...\\n风格/表达要求：..."}',
-    'For English source: {"topic":"Product Launch Readiness Review","pageCount":8,"briefText":"Presentation goal: ...\\nAudience/context: ...\\nCore argument: ...\\nRecommended outline:\\n1. ...\\n2. ...\\nPer-page points:\\nPage 1: ...\\nPage 2: ...\\nFacts/metrics/terms to preserve: ...\\nStyle or expression notes: ..."}'
+    'Return format examples:',
+    'For Chinese source: {"topic":"直播与短视频自然流增长——汽车经销商新媒体实战指南","pageCount":65,"briefText":"演示目标：...\\n源文档结构：...\\n建议大纲：\\n1. 手册结构导航\\n2. 阅读角色指引\\n每页要点：\\n第 1 页：手册结构导航\\n页面角色：内容页\\n来源标题：### 手册结构导航\\n来源范围：lines 17-32\\n页面目的：说明本手册的结构导航。"}',
+    'For English source: {"topic":"Product Launch Readiness Review","pageCount":8,"briefText":"Presentation goal: ...\\nSource document structure: ...\\nRecommended outline:\\n1. Launch Readiness\\nPer-page points:\\nPage 1: Launch Readiness\\nPage role: content\\nSource heading: ## Launch Readiness\\nSource range: lines 10-32\\nPage purpose: Anchor the launch readiness section."}'
   ].join('\n')
 
-const runDocumentPlanAgent = async (args: {
+const runSingleShotDocumentPlanModel = async (args: {
   provider: string
   apiKey: string
   model: string
   baseUrl: string
-  maxTokens?: number
+  maxTokens: number | undefined
   modelTimeoutMs: number
-  workspaceDir: string
   file: PreparedSourceFile
+  outlineScan: DocumentOutlineScan | null
+  pageCandidates: DocumentOutlinePageCandidate[]
   topic: string
   pageCount: number | null
   existingBrief: string
   retryHint?: string
 }): Promise<string> => {
-  const model = resolveModel(args.provider, args.apiKey, args.model, args.baseUrl, 0.2, args.maxTokens)
-  const prompt = buildDocumentPlanPrompt({
+  const client = resolveModel(
+    args.provider,
+    args.apiKey,
+    args.model,
+    args.baseUrl,
+    0.2,
+    args.maxTokens
+  )
+  const sourceText = await fs.promises.readFile(args.file.workspacePath, 'utf-8')
+  const pageCandidateCount = args.pageCandidates.length
+  const hasPageCandidateSkeleton = pageCandidateCount > 0
+  const sourcePreview = hasPageCandidateSkeleton
+    ? ''
+    : sourceText.slice(0, MAX_PARSE_SOURCE_PREVIEW_CHARS)
+  const sourcePreviewTruncated =
+    !hasPageCandidateSkeleton && sourceText.length > sourcePreview.length
+  const prompt = buildSingleShotDocumentPlanPrompt({
     topic: args.topic,
     pageCount: args.pageCount,
     existingBrief: args.existingBrief,
     file: args.file,
+    outlineScan: args.outlineScan,
+    pageCandidates: args.pageCandidates,
+    sourcePreview,
+    sourcePreviewLimit: MAX_PARSE_SOURCE_PREVIEW_CHARS,
+    sourcePreviewTruncated,
     retryHint: args.retryHint
   })
-  log.info('[documents:parsePlan] agent read_file requested', {
-    virtualPath: args.file.virtualPath,
-    workspaceName: path.basename(args.file.workspacePath)
+  log.info('[documents:parsePlan] single-shot model invoke', {
+    sourceVirtualPath: args.file.virtualPath,
+    headingCount: args.outlineScan?.headingCount ?? 0,
+    pageCandidateCount,
+    sourceLength: sourceText.length,
+    sourcePreviewLength: sourcePreview.length,
+    sourcePreviewTruncated,
+    promptLength: prompt.length
   })
-  const agent = createDeepAgent({
-    model,
-    backend: new FilesystemBackend({
-      rootDir: args.workspaceDir,
-      virtualMode: true
-    }),
-    systemPrompt:
-      'You are a document-to-PPT-creation-form parsing agent. This is source-grounded extraction, not creative ideation. You must inspect the uploaded document carefully, using grep first for long documents to map headings, section names, tables, metrics, dates, named entities, and other cues, then read_file only on targeted sections as needed. Extract topic, pageCount, and a structured briefText outline that preserves source order, source hierarchy, concrete facts, named entities, metrics, dates, conclusions, risks, and terminology. Do not read the whole file into context at once. Do not rewrite the source into a generic storyline, marketing narrative, consulting framework, or inspirational theme. Do not add agenda/background/outlook/summary/next-step pages unless the source or user explicitly requires them. pageCount means the target number of PPT slides to generate; it is not the number of uploaded files or source-document pages. If no page count is provided, infer pageCount from the document structure and information density, and do not return 1 merely because one file was uploaded. If a page count is provided, return that exact pageCount. Keep topic and briefText in the dominant language of the source document unless the user explicitly asks for another language. The section labels inside briefText must also use that language. If the source document is primarily Chinese, do not use English template labels. If the source document is primarily English, do not translate the outline into Chinese. Before returning, silently verify that pageCount, recommended outline count, and per-page point count are consistent. Return strict JSON only: topic, pageCount, briefText.'
-  })
-  const stream = await agent.stream(
+  const result = await client.invoke(
+    [
+      {
+        role: 'system' as const,
+        content:
+          'You are a document-to-PPT-creation-form parser. You have no filesystem tools in this call. Use the host-provided structure scan and any bounded source preview. Return strict JSON only: topic, pageCount, briefText.'
+      },
+      {
+        role: 'user' as const,
+        content: prompt
+      }
+    ],
     {
-      messages: [
-        {
-          role: 'user',
-          content: prompt
-        }
-      ]
-    },
-    {
-      streamMode: ['updates', 'messages'],
-      subgraphs: true,
       signal: AbortSignal.timeout(resolveModelTimeoutMs(args.modelTimeoutMs, 'document'))
     }
   )
-
-  let messageBuffer = ''
-  let latestAssistantStateText = ''
-  const seenToolEvents = new Set<string>()
-  for await (const chunk of stream as AsyncIterable<unknown>) {
-    if (!Array.isArray(chunk) || chunk.length < 3) continue
-    const mode = chunk[1] as string
-    const data = chunk[2]
-    if (mode === 'updates') {
-      logDocumentPlanToolEvents(data, seenToolEvents, 'updates')
-      const assistantTexts = extractAssistantTextsFromState(data)
-      const longestText = assistantTexts.sort((a, b) => b.length - a.length)[0] || ''
-      if (longestText.length >= latestAssistantStateText.length) {
-        latestAssistantStateText = longestText
-      }
-      continue
-    }
-    if (mode !== 'messages' || !Array.isArray(data)) continue
-    logDocumentPlanToolEvents(data, seenToolEvents, 'messages')
-    for (const message of data as Array<Record<string, unknown>>) {
-      const content = extractModelText(message).trim()
-      if (content) {
-        messageBuffer += content
-      }
-    }
-  }
-  if (latestAssistantStateText.length > messageBuffer.length) {
-    log.info('[documents:parsePlan] use assistant state response fallback', {
-      streamLength: messageBuffer.length,
-      stateLength: latestAssistantStateText.length
-    })
-    return latestAssistantStateText
-  }
-  return messageBuffer
+  return extractModelText(result)
 }
 
 const buildImageDocumentPlanPrompt = (args: {
@@ -638,7 +571,9 @@ const buildImageDocumentPlanPrompt = (args: {
     args.retryHint
       ? `\nRetry requirement: the previous output failed validation because: ${args.retryHint}. Fix this issue. Ensure briefText is non-empty and pageCount matches the page-level outline.`
       : '',
-    args.topic ? `\nUser-provided topic: ${args.topic}` : '\nThe user did not provide a topic; infer it from the image.',
+    args.topic
+      ? `\nUser-provided topic: ${args.topic}`
+      : '\nThe user did not provide a topic; infer it from the image.',
     args.existingBrief ? `\nExisting user brief:\n${args.existingBrief}` : '',
     `\nImage file name: ${args.fileName}`,
     '',
@@ -647,6 +582,8 @@ const buildImageDocumentPlanPrompt = (args: {
     '{"topic":"Product Launch Readiness Review","pageCount":8,"briefText":"Presentation goal: ...\\nAudience/context: ...\\nCore argument: ...\\nRecommended outline:\\n1. ...\\nPer-page points:\\nPage 1: ...\\nFacts/metrics/terms to preserve: ...\\nStyle or expression notes: ..."}'
   ].join('\n')
 
+// Image plan parsing is for creation-form suggestions and writes a structured
+// reference file from the accepted plan.
 const writeImagePlanReferenceFile = async (args: {
   file: PreparedSourceFile
   plan: Pick<ParsedDocumentPlanResult, 'topic' | 'pageCount' | 'briefText'>
@@ -687,6 +624,8 @@ const writeImagePlanReferenceFile = async (args: {
   }
 }
 
+// Image plan parsing is for creation-form suggestions: topic/pageCount/briefText.
+// This separate image-reference path only converts an image into readable source notes.
 const buildImageReferenceMarkdownPrompt = (fileName: string): string =>
   [
     'Analyze the attached image or screenshot and convert it into a readable Markdown reference document.',
@@ -719,7 +658,7 @@ const convertImageReferenceToMarkdown = async (args: {
   apiKey: string
   model: string
   baseUrl: string
-  maxTokens?: number
+  maxTokens: number | undefined
   modelTimeoutMs: number
 }): Promise<PreparedSourceFile> => {
   const ext = path.extname(args.file.workspacePath).toLowerCase()
@@ -782,7 +721,7 @@ const runImageDocumentPlanModel = async (args: {
   apiKey: string
   model: string
   baseUrl: string
-  maxTokens?: number
+  maxTokens: number | undefined
   modelTimeoutMs: number
   file: PreparedSourceFile
   topic: string
@@ -886,134 +825,244 @@ export function registerDocumentParseHandlers(ctx: IpcContext): void {
   )
 
   ipcMain.handle('documents:parsePlan', async (_event, payload: ParseDocumentPlanPayload) => {
-    const input = payload && typeof payload === 'object' ? payload : { files: [] }
-    const files = Array.isArray(input.files) ? input.files.slice(0, MAX_DOCUMENT_FILES) : []
-    if (files.length === 0) throw new Error('请先选择要解析的文档')
-    log.info('[documents:parsePlan] invoke', {
-      files: files.map((file) => ({
-        name: typeof file.name === 'string' ? file.name : path.basename(String(file.path || '')),
-        pathProvided: typeof file.path === 'string' && file.path.trim().length > 0
-      }))
-    })
-
-    const docsDir = path.join(await resolveStoragePath(), 'docs')
-    await fs.promises.mkdir(docsDir, { recursive: true })
-    const preparedFiles = await Promise.all(files.map((file) => prepareSourceFile(file, docsDir)))
-    const [sourceFile] = preparedFiles
-    if (!sourceFile) throw new Error('请先选择要解析的文档')
-
-    const activeModel = await resolveActiveModelConfig(ctx)
-    const modelTimeouts = await resolveGlobalModelTimeouts(ctx)
-    const { provider, model, apiKey } = activeModel
-    const baseUrl = activeModel.baseUrl
-    const maxTokens = activeModel.maxTokens
-    const modelTimeoutMs = modelTimeouts.document
-
-    const topic = typeof input.topic === 'string' ? input.topic.trim() : ''
-    const existingBrief = typeof input.existingBrief === 'string' ? input.existingBrief.trim() : ''
-    const pageCount =
-      typeof input.pageCount === 'number' && Number.isFinite(input.pageCount)
-        ? Math.min(MAX_PAGE_COUNT, Math.max(1, Math.floor(input.pageCount)))
-        : null
-
-    const fallbackPlan = {
-      topic: topic || path.basename(sourceFile.name, path.extname(sourceFile.name)),
-      pageCount,
-      briefText: existingBrief
-    }
-    const MAX_ATTEMPTS = 2
-    let plan: Pick<ParsedDocumentPlanResult, 'topic' | 'pageCount' | 'briefText'> | null = null
-    let lastError: unknown = null
-
-    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
-      const retryHint = attempt > 1 && lastError instanceof Error ? lastError.message : undefined
-      const responseText = (
-        sourceFile.type === 'image'
-          ? await runImageDocumentPlanModel({
-              provider,
-              apiKey,
-              model,
-              baseUrl,
-              maxTokens,
-              modelTimeoutMs,
-              file: sourceFile,
-              topic,
-              pageCount,
-              existingBrief,
-              retryHint
-            })
-          : await runDocumentPlanAgent({
-              provider,
-              apiKey,
-              model,
-              baseUrl,
-              maxTokens,
-              modelTimeoutMs,
-              workspaceDir: docsDir,
-              file: sourceFile,
-              topic,
-              pageCount,
-              existingBrief,
-              retryHint
-            })
-      ).trim()
-      if (!responseText) {
-        lastError = new Error('文档解析完成，但模型未返回可用内容')
-        log.warn('[documents:parsePlan] empty response', { attempt })
-        continue
-      }
-      log.info('[documents:parsePlan] agent response received', {
-        attempt,
-        responseLength: responseText.length,
-        sourceVirtualPath: sourceFile.virtualPath
+    const parseStartedAt = Date.now()
+    const parseStartedAtIso = new Date(parseStartedAt).toISOString()
+    let parseEndStatus: 'success' | 'error' = 'error'
+    let parseEndSourceVirtualPath: string | null = null
+    let parseEndPageCount: number | null = null
+    let parseEndError: string | null = null
+    try {
+      const input = payload && typeof payload === 'object' ? payload : { files: [] }
+      const files = Array.isArray(input.files) ? input.files.slice(0, MAX_DOCUMENT_FILES) : []
+      if (files.length === 0) throw new Error('请先选择要解析的文档')
+      const rawPageCountInput =
+        typeof input.pageCount === 'number' && Number.isFinite(input.pageCount)
+          ? input.pageCount
+          : null
+      log.info('[documents:parsePlan] invoke', {
+        files: files.map((file) => ({
+          name: typeof file.name === 'string' ? file.name : path.basename(String(file.path || '')),
+          pathProvided: typeof file.path === 'string' && file.path.trim().length > 0
+        })),
+        hasPageCountInput: rawPageCountInput !== null,
+        rawPageCountInput,
+        startedAt: parseStartedAtIso
       })
-      try {
-        const candidatePlan = normalizeDocumentPlan(responseText, fallbackPlan)
-        if (sourceFile.type === 'image') {
-          assertImageWasRead(`${candidatePlan.topic}\n${candidatePlan.briefText}`)
-        }
-        await assertPlanLanguageMatchesSource({
-          file: sourceFile,
-          plan: candidatePlan,
-          userText: `${topic}\n${existingBrief}`
+
+      const docsDir = path.join(await resolveStoragePath(), 'docs')
+      await fs.promises.mkdir(docsDir, { recursive: true })
+      const preparedFiles = await Promise.all(files.map((file) => prepareSourceFile(file, docsDir)))
+      const [sourceFile] = preparedFiles
+      if (!sourceFile) throw new Error('请先选择要解析的文档')
+      parseEndSourceVirtualPath = sourceFile.virtualPath
+      const outlineResult = await scanPreparedSourceOutline(sourceFile)
+      const outlineScan = outlineResult?.scan ?? null
+      const pageCandidates = outlineResult?.pageCandidates ?? []
+      const pageCountEstimate = estimateOutlinePageCount(outlineScan, pageCandidates)
+      if (pageCountEstimate) {
+        log.info('[documents:parsePlan] document outline page-count estimate', {
+          preferredPageCount: pageCountEstimate.preferredPageCount,
+          minPageCount: pageCountEstimate.minPageCount,
+          maxPageCount: pageCountEstimate.maxPageCount,
+          basis: pageCountEstimate.basis,
+          sourceVirtualPath: sourceFile.virtualPath
         })
-        plan = candidatePlan
-        break
-      } catch (error) {
-        lastError = error
-        if (error instanceof RetryableDocumentPlanQualityError && attempt >= MAX_ATTEMPTS) {
-          plan = normalizeDocumentPlan(responseText, fallbackPlan)
+      }
+
+      const activeModel = await resolveActiveModelConfig(ctx)
+      const modelTimeouts = await resolveGlobalModelTimeouts(ctx)
+      const { provider, model, apiKey } = activeModel
+      const baseUrl = activeModel.baseUrl
+      const maxTokens = activeModel.maxTokens
+      const modelTimeoutMs = modelTimeouts.document
+
+      const topic = typeof input.topic === 'string' ? input.topic.trim() : ''
+      const existingBrief =
+        typeof input.existingBrief === 'string' ? input.existingBrief.trim() : ''
+      const requestedPageCount =
+        rawPageCountInput !== null
+          ? Math.min(MAX_PAGE_COUNT, Math.max(1, Math.floor(rawPageCountInput)))
+          : null
+      const ignoreSinglePageCountForStructuredSource =
+        requestedPageCount === 1 && scanHasMultipleSlideCandidates(outlineScan)
+      const pageCount = ignoreSinglePageCountForStructuredSource ? null : requestedPageCount
+      if (ignoreSinglePageCountForStructuredSource) {
+        log.info('[documents:parsePlan] ignored single-page count for structured source', {
+          rawPageCountInput,
+          requestedPageCount,
+          outlineScanHeadingCount: outlineScan?.headingCount ?? 0,
+          sourceVirtualPath: sourceFile.virtualPath
+        })
+      }
+
+      const fallbackPlan = {
+        topic: topic || path.basename(sourceFile.name, path.extname(sourceFile.name)),
+        pageCount,
+        briefText: existingBrief
+      }
+      const MAX_ATTEMPTS = 2
+      let plan: Pick<ParsedDocumentPlanResult, 'topic' | 'pageCount' | 'briefText'> | null = null
+      let lastError: unknown = null
+
+      for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+        const retryHint = attempt > 1 && lastError instanceof Error ? lastError.message : undefined
+        const responseText = (
+          sourceFile.type === 'image'
+            ? await runImageDocumentPlanModel({
+                provider,
+                apiKey,
+                model,
+                baseUrl,
+                maxTokens,
+                modelTimeoutMs,
+                file: sourceFile,
+                topic,
+                pageCount,
+                existingBrief,
+                retryHint
+              })
+            : await runSingleShotDocumentPlanModel({
+                provider,
+                apiKey,
+                model,
+                baseUrl,
+                maxTokens,
+                modelTimeoutMs,
+                file: sourceFile,
+                outlineScan,
+                pageCandidates,
+                topic,
+                pageCount,
+                existingBrief,
+                retryHint
+              })
+        ).trim()
+        if (!responseText) {
+          lastError = new Error('文档解析完成，但模型未返回可用内容')
+          log.warn('[documents:parsePlan] empty response', { attempt })
+          continue
+        }
+        log.info('[documents:parsePlan] agent response received', {
+          attempt,
+          responseLength: responseText.length,
+          sourceVirtualPath: sourceFile.virtualPath
+        })
+        try {
+          const candidatePlan = normalizeDocumentPlan(responseText, fallbackPlan)
+          log.info('[documents:parsePlan] normalized candidate plan', {
+            attempt,
+            pageCount: candidatePlan.pageCount,
+            userPageCount: pageCount,
+            briefLength: candidatePlan.briefText.length,
+            outlineScanHeadingCount: outlineScan?.headingCount ?? 0,
+            scanHasMultipleSlideCandidates: scanHasMultipleSlideCandidates(outlineScan)
+          })
+          if (sourceFile.type === 'image') {
+            assertImageWasRead(`${candidatePlan.topic}\n${candidatePlan.briefText}`)
+          }
+          await assertPlanLanguageMatchesSource({
+            file: sourceFile,
+            plan: candidatePlan,
+            userText: `${topic}\n${existingBrief}`
+          })
+          assertPlanMatchesDocumentOutline({
+            scan: outlineScan,
+            pageCandidates,
+            plan: candidatePlan,
+            userPageCount: pageCount
+          })
+          plan = candidatePlan
+          break
+        } catch (error) {
+          lastError = error
+          if (
+            error instanceof RetryableDocumentPlanQualityError &&
+            attempt >= MAX_ATTEMPTS &&
+            !isDocumentOutlineQualityError(error)
+          ) {
+            plan = normalizeDocumentPlan(responseText, fallbackPlan)
+            log.warn(
+              '[documents:parsePlan] quality check failed after retry, returning editable plan',
+              {
+                attempt,
+                message: error.message,
+                responsePreview: responseText.slice(0, 400)
+              }
+            )
+            break
+          }
+          if (isDocumentOutlineQualityError(error) && attempt >= MAX_ATTEMPTS) {
+            log.warn(
+              '[documents:parsePlan] outline quality check failed after retry, rejecting plan',
+              {
+                attempt,
+                message: error instanceof Error ? error.message : String(error),
+                responsePreview: responseText.slice(0, 400)
+              }
+            )
+          }
           log.warn(
-            '[documents:parsePlan] quality check failed after retry, returning editable plan',
+            attempt < MAX_ATTEMPTS
+              ? '[documents:parsePlan] normalize failed, will retry'
+              : '[documents:parsePlan] normalize failed, no attempts left',
             {
               attempt,
-              message: error.message,
+              message: error instanceof Error ? error.message : String(error),
               responsePreview: responseText.slice(0, 400)
             }
           )
-          break
         }
-        log.warn('[documents:parsePlan] normalize failed, will retry', {
-          attempt,
-          message: error instanceof Error ? error.message : String(error),
-          responsePreview: responseText.slice(0, 400)
-        })
       }
-    }
-    if (!plan) throw lastError || new Error('文档解析完成，但模型未返回 briefText')
-    const resultFiles =
-      sourceFile.type === 'image'
-        ? [await writeImagePlanReferenceFile({ file: sourceFile, plan })]
-        : preparedFiles
+      if (!plan) throw lastError || new Error('文档解析完成，但模型未返回 briefText')
+      const resultFiles =
+        sourceFile.type === 'image'
+          ? [await writeImagePlanReferenceFile({ file: sourceFile, plan })]
+          : preparedFiles
 
-    return {
-      ...plan,
-      files: resultFiles.map(({ name, type, characterCount, workspacePath }) => ({
-        name,
-        type,
-        characterCount,
-        path: workspacePath
-      }))
-    } satisfies ParsedDocumentPlanResult
+      const pageSkeleton = buildDocumentPlanPageSkeleton({
+        scan: outlineScan,
+        pageCandidates,
+        pageCount: plan.pageCount,
+        userPageCount: pageCount
+      })
+      const sourcePlan =
+        pageSkeleton.length > 0
+          ? {
+              version: 1 as const,
+              confidence: 'high' as const,
+              sourceDocumentPath: resultFiles[0]?.virtualPath,
+              sourceDocumentName: resultFiles[0]?.name,
+              pageSkeleton
+            }
+          : undefined
+      const result = {
+        ...plan,
+        ...(pageSkeleton.length > 0 ? { pageSkeleton } : {}),
+        ...(sourcePlan ? { sourcePlan } : {}),
+        files: resultFiles.map(({ name, type, characterCount, workspacePath }) => ({
+          name,
+          type,
+          characterCount,
+          path: workspacePath
+        }))
+      } satisfies ParsedDocumentPlanResult
+      parseEndStatus = 'success'
+      parseEndPageCount = plan.pageCount
+      return result
+    } catch (error) {
+      parseEndError = error instanceof Error ? error.message : String(error)
+      throw error
+    } finally {
+      const parseEndedAt = Date.now()
+      log.info('[documents:parsePlan] end', {
+        status: parseEndStatus,
+        startedAt: parseStartedAtIso,
+        endedAt: new Date(parseEndedAt).toISOString(),
+        durationMs: parseEndedAt - parseStartedAt,
+        sourceVirtualPath: parseEndSourceVirtualPath,
+        pageCount: parseEndPageCount,
+        error: parseEndError
+      })
+    }
   })
 }

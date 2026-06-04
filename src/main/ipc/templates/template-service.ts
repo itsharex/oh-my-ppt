@@ -8,6 +8,7 @@ import { resolveActiveModelConfig, resolveGlobalModelTimeouts } from '../config/
 import { buildProjectIndexHtml, type DeckPageFile } from '../engine/template'
 import { buildDesignContractWithLLM } from '../engine/generate'
 import { parseJsonObject } from '../utils'
+import { normalizeSourcePlan } from '../generation/source-plan'
 import { importPptxToEditableHtml, type PptxImportProgressPayload } from '../../utils/pptx-importer'
 import { extractStyleFromExistingHtml } from '../../utils/style-pptx-import'
 import { createStyleSkill } from '../../utils/style-skills'
@@ -560,6 +561,7 @@ export async function createSessionFromTemplate(
     : undefined
   const referenceDocumentPath =
     typeof record.referenceDocumentPath === 'string' ? record.referenceDocumentPath.trim() : ''
+  const sourcePlan = normalizeSourcePlan(record.sourcePlan)
 
   const templatesRoot = await ensureTemplatesRoot()
   const { manifest, templateDir } = await readManifest(templatesRoot, templateId)
@@ -607,6 +609,15 @@ export async function createSessionFromTemplate(
     pageCount: resolvedPageCount,
     referenceDocumentPath: userReferenceDocumentPath
   })
+  if (sourcePlan && userReferenceDocumentPath) {
+    await ctx.db.replaceSourcePageSkeletons({
+      sessionId,
+      sourceDocumentPath: userReferenceDocumentPath,
+      sourceDocumentName: sourcePlan.sourceDocumentName || path.basename(userReferenceDocumentPath),
+      confidence: sourcePlan.confidence,
+      items: sourcePlan.pageSkeleton
+    })
+  }
   const designContract = resolveTemplateDesignContract(manifest.designContract)
   await ctx.db.updateSessionDesignContract(sessionId, designContract)
   const projectId = await ctx.db.createProject({

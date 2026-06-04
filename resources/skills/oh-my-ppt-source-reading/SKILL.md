@@ -28,8 +28,8 @@ Do not discover, infer, or guess source document paths. Use only the `sourceDocu
 
 1. Treat retrieved snippets as an index into the source, not as final evidence.
 2. Extract search terms from the current slide title, content points, user instruction, snippets, and any known entities/metrics.
-3. Use `grep` inside the provided `sourceDocumentPaths` to locate relevant headings, paragraphs, tables, dates, metrics, entities, and terminology.
-4. Use `glob` only if the provided path points to a directory or the host prompt explicitly says multiple matching source files may exist.
+3. Use the DeepAgents filesystem tool `grep(pattern, path, glob)` inside the provided `sourceDocumentPaths` to locate relevant headings, paragraphs, tables, dates, metrics, entities, and terminology. `pattern` is a literal string, not a shell regex; call `grep` multiple times for multiple search terms.
+4. Use the DeepAgents filesystem tool `glob(pattern, path)` only if the provided path points to a directory or the host prompt explicitly says multiple matching source files may exist.
 5. Use `read_file` only on targeted sections or line ranges found by snippets/grep. Do not read an entire long document into context at once.
 6. If the initial grep/read did not yield enough source-grounded evidence, refine search terms and repeat grep -> targeted read. Try synonyms, broader or narrower scope, adjacent section headings, and known entities/metrics.
 7. Build slide content only from inspected snippets and targeted source passages.
@@ -41,8 +41,8 @@ Slide title: "Q3 Revenue Highlights"
 Content points: "YoY growth rate", "top product contribution", "regional breakdown"
 
 1. Snippet mentions "revenue grew 15% YoY" -> search terms: `revenue`, `15%`, `YoY`, `Q3`.
-2. `grep` those terms in the provided source path -> matches near the Q3 finance section and regional table.
-3. `read_file` only around those matches -> confirms the exact growth and regional values.
+2. Call `grep(pattern="revenue", path="/source.md")`, then `grep(pattern="15%", path="/source.md")`, then `grep(pattern="Q3", path="/source.md")` -> matches near the Q3 finance section and regional table.
+3. Call `read_file(path="/source.md", offset=118, limit=60)` only around those matches -> confirms the exact growth and regional values.
 4. Build the slide with confirmed facts; omit "top product contribution" if no inspected source passage supports it.
 
 ## Evidence rules

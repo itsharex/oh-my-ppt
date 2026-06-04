@@ -6,15 +6,108 @@ const readSource = (relativePath: string): string =>
   fs.readFileSync(path.join(process.cwd(), relativePath), 'utf-8')
 
 describe('source-grounded prompt rules', () => {
-  it('keeps reference-document parsing as extraction instead of creative planning', () => {
+  it('parse plan uses single-shot model and outline scan', () => {
     const source = readSource('src/main/ipc/io/document-parse-handlers.ts')
+    const outlineScan = readSource('src/main/ipc/io/document-outline-scan.ts')
 
-    expect(source).toContain('source-grounded extraction task')
-    expect(source).toContain('not a creative planning task')
-    expect(source).toContain('Do not rewrite the source into a new storyline')
-    expect(source).toContain('Read the document carefully enough to cover all major sections')
-    expect(source).toContain('first use grep to map headings')
-    expect(source).toContain('Do not read the whole file into context at once')
+    expect(source).toContain('single-shot document parsing task')
+    expect(source).toContain('You have no filesystem tools in this call')
+    expect(source).toContain('bounded source preview')
+    expect(source).toContain('MAX_PARSE_SOURCE_PREVIEW_CHARS')
+    expect(source).not.toContain('attachProductSkillsBackend')
+    expect(source).not.toContain('createDeepAgent')
+    expect(source).not.toContain('product_skill_read_file')
+    expect(source).toContain('Do not ask to read the file')
+    expect(source).toContain('Do not write detailed facts')
+    expect(source).toContain('hasOutlinePageCandidateSkeleton')
+    expect(source).toContain('runSingleShotDocumentPlanModel')
+    expect(source).toContain('single-shot model invoke')
+    expect(source).toContain('sourcePreviewLength')
+    expect(source).toContain("[documents:parsePlan] end")
+    expect(source).toContain('durationMs')
+    expect(source).toContain('csv converted for reading')
+    expect(source).toContain('rawPageCountInput')
+    expect(source).toContain('normalized candidate plan')
+    expect(source).toContain('ignored single-page count for structured source')
+    expect(source).toContain('args.plan.pageCount !== args.userPageCount')
+    expect(source).toContain('user-provided page count')
+    expect(source).toContain('document outline page-count estimate')
+    expect(source).toContain('deterministic source-structure page-count estimate')
+    expect(source).toContain('outline quality check failed after retry, rejecting plan')
+    expect(source).toContain('isDocumentOutlineQualityError')
+    expect(source).toContain('Source document path for later generation only')
+    expect(outlineScan).toContain('Document structure scan')
+    expect(outlineScan).toContain('Heading map truncated')
+    expect(outlineScan).toContain('Deterministic slide-count estimate')
+    expect(outlineScan).toContain('deriveOutlinePageCandidates')
+    expect(outlineScan).toContain('Page candidate skeleton')
+    expect(source).toContain('page candidate skeleton')
+    expect(source).toContain('skeleton count')
+    expect(source).toContain('compact page skeleton')
+    expect(source).toContain('source line range')
+    expect(source).toContain('chapter divider slides')
+    expect(source).toContain('页面角色：章节页')
+    expect(source).toContain('assertPlanMatchesDocumentOutline')
+  })
+
+  it('frontend lets document parse infer pageCount from source structure', () => {
+    const sessionCreate = readSource('src/renderer/src/pages/session-create.tsx')
+    const templateUseDialog = readSource('src/renderer/src/components/templates/TemplateUseDialog.tsx')
+    const sessionParseCall = sessionCreate.slice(
+      sessionCreate.indexOf('const result = await ipc.parseDocumentPlan({'),
+      sessionCreate.indexOf('const nextSuggestion = {')
+    )
+    const templateParseCall = templateUseDialog.slice(
+      templateUseDialog.indexOf('const result = await ipc.parseDocumentPlan({'),
+      templateUseDialog.indexOf('const referenceFile = result.files[0] || attachedReferenceFile')
+    )
+
+    expect(sessionParseCall).toContain('ipc.parseDocumentPlan')
+    expect(templateParseCall).toContain('ipc.parseDocumentPlan')
+    expect(sessionParseCall).not.toContain('pageCount:')
+    expect(sessionParseCall).not.toContain('resolvePageCount')
+    expect(templateParseCall).not.toContain('pageCount:')
+    expect(templateParseCall).not.toContain('resolvePageCount')
+  })
+
+  it('edit, add-page, and retry-single-page flows resolve source documents', () => {
+    const generationContext = readSource('src/main/ipc/generation/context.ts')
+    const sourceDocuments = readSource('src/main/ipc/generation/source-documents.ts')
+    const editFlow = readSource('src/main/ipc/generation/edit-flow.ts')
+    const deckAllPageEditFlow = readSource('src/main/ipc/generation/edit-deck-allpage-flow.ts')
+    const addPageFlow = readSource('src/main/ipc/generation/add-page-flow.ts')
+    const retrySinglePageFlow = readSource('src/main/ipc/generation/retry-single-page-flow.ts')
+
+    expect(generationContext).toContain("export { resolveSourceDocuments } from './source-documents'")
+    expect(sourceDocuments).toContain('appendSourceDocumentPath(resolveExistingSessionDoc')
+    expect(sourceDocuments).toContain('appendSourceDocumentPath(`/docs/${safeName}`)')
+    expect(generationContext).not.toContain("mode === 'edit') return []")
+    expect(generationContext).not.toContain('isFirstDeckGeneration')
+    expect(editFlow).toContain('resolveSourceDocuments')
+    expect(editFlow).toContain('sourceDocumentPaths: context.sourceDocumentPaths')
+    expect(deckAllPageEditFlow).toContain('sourceDocumentPaths: context.sourceDocumentPaths')
+    expect(addPageFlow).toContain('resolveSourceDocuments')
+    expect(addPageFlow).toContain('sourceDocumentPaths: context.sourceDocumentPaths')
+    expect(addPageFlow).not.toContain('sourceDocumentPaths: []')
+    expect(retrySinglePageFlow).toContain('resolveSourceDocuments')
+    expect(retrySinglePageFlow).toContain('sourceDocumentPaths: context.sourceDocumentPaths')
+    expect(retrySinglePageFlow).not.toContain('sourceDocumentPaths: []')
+  })
+
+  it('edit prompt injects source document rules', () => {
+    const editSystem = readSource('src/main/prompt/edit-system.ts')
+
+    expect(editSystem).toContain('Source documents (content evidence)')
+    expect(editSystem).toContain('SOURCE_DOCUMENT_READ_STRATEGY')
+    expect(editSystem).toContain('sourceDocumentPaths:')
+    expect(editSystem).toContain('For pure visual/style-only edits')
+  })
+
+  it('planNewPage includes source document context', () => {
+    const engineGenerate = readSource('src/main/ipc/engine/generate.ts')
+
+    expect(engineGenerate).toContain('sourceDocumentPaths?: string[]')
+    expect(engineGenerate).toContain('Source document context:')
   })
 
   it('blocks generic filler slides during planning', () => {
@@ -46,8 +139,9 @@ describe('source-grounded prompt rules', () => {
     expect(sharedSource).toContain('not as final evidence or permission to freestyle')
     expect(sharedSource).not.toContain('Before writing source-backed content')
     expect(sharedSource).not.toContain('Do not read entire long documents into context at once')
-    expect(sourceReadingSkill).toContain('Use `grep` inside the provided `sourceDocumentPaths`')
-    expect(sourceReadingSkill).toContain('Use `glob` only if the provided path points to a directory')
+    expect(sourceReadingSkill).toContain('Use the DeepAgents filesystem tool `grep(pattern, path, glob)`')
+    expect(sourceReadingSkill).toContain('Use the DeepAgents filesystem tool `glob(pattern, path)`')
+    expect(sourceReadingSkill).toContain('`pattern` is a literal string')
     expect(sourceReadingSkill).toContain('Use `read_file` only on targeted sections')
     expect(sourceReadingSkill).toContain('repeat grep -> targeted read')
     expect(sourceReadingSkill).toContain('retrieved snippet conflicts with the source passage')

@@ -2,6 +2,7 @@ import type { PPTDatabase } from '../../db/database'
 import type { AgentManager } from '../../agent'
 import type { ModelTimeoutProfile } from '@shared/model-timeout'
 import type { FontSelection } from '@shared/generation'
+import type { SourceDocumentPlan } from '@shared/generation'
 import type { DesignContract } from '../../tools/types'
 import { loadStyleSkill } from '../../utils/style-skills'
 
@@ -52,6 +53,7 @@ export type GenerationContext = {
   imagePaths: string[]
   videoPaths: string[]
   sourceDocumentPaths: string[]
+  sourcePlan: SourceDocumentPlan | null
   topic: string
   deckTitle: string
   appLocale: 'zh' | 'en'

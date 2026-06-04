@@ -1,14 +1,17 @@
 import crypto from 'crypto'
 import fs from 'fs'
 import path from 'path'
-import type { FontSelection, GenerateStartPayload } from '@shared/generation'
+import type { FontSelection, GenerateStartPayload, SourceDocumentPlan } from '@shared/generation'
 import { normalizeFontSelection } from '@shared/generation'
 import type { ModelTimeoutProfile } from '@shared/model-timeout'
 import type { IpcContext } from '../context'
-import type { GenerateChatType, GenerateMode } from './types'
+import type { GenerateChatType } from './types'
+
+export { resolveSourceDocuments } from './source-documents'
 import { resolveActiveModelConfig, resolveGlobalModelTimeouts } from '../config/model-config-utils'
 import { hasStyleSkill, listStyleCatalog, loadStyleSkill } from '../../utils/style-skills'
 import { extractOutlineTitles, parseJsonObject } from '../utils'
+import { sourcePlanFromSkeletonRows } from './source-plan'
 
 export type CommonGenerationContext = {
   session: Awaited<ReturnType<IpcContext['db']['getSession']>>
@@ -30,6 +33,7 @@ export type CommonGenerationContext = {
   deckTitle: string
   appLocale: 'zh' | 'en'
   fontSelection: FontSelection
+  sourcePlan: SourceDocumentPlan | null
   projectId: string
   entry: NonNullable<ReturnType<IpcContext['agentManager']['beginRun']>>
 }
@@ -114,69 +118,6 @@ export function normalizeGeneratePayload(payload: unknown): NormalizedGenerateIn
   }
 }
 
-export async function resolveSourceDocuments(
-  ctx: IpcContext,
-  args: {
-    sessionId: string
-    projectDir: string
-    rawDocPaths: string[]
-    mode: GenerateMode
-    sessionRecord: Record<string, unknown>
-  }
-): Promise<string[]> {
-  const { sessionId, projectDir, rawDocPaths, mode, sessionRecord } = args
-  const { db, assertPathInAllowedRoots } = ctx
-  const latestGenerationRun = await db.getLatestGenerationRun(sessionId)
-  const isFirstDeckGeneration = mode === 'generate' && !latestGenerationRun
-  const rawReferenceDocumentPath =
-    sessionRecord.referenceDocumentPath ?? sessionRecord.reference_document_path
-  const referenceDocumentPath =
-    typeof rawReferenceDocumentPath === 'string' ? rawReferenceDocumentPath.trim() : ''
-
-  const sessionDocsDir = path.join(projectDir, 'docs')
-  const resolveExistingSessionDoc = (docPath: string): string | null => {
-    if (!docPath.trim()) return null
-    const normalizedDocPath = docPath.startsWith('/') ? docPath : `/docs/${docPath}`
-    if (!normalizedDocPath.startsWith('/docs/')) return null
-    const filePath = path.resolve(projectDir, normalizedDocPath.replace(/^\/+/, ''))
-    const relativeToProject = path.relative(projectDir, filePath)
-    if (relativeToProject.startsWith('..') || path.isAbsolute(relativeToProject)) return null
-    try {
-      return fs.statSync(filePath).isFile() ? normalizedDocPath : null
-    } catch {
-      return null
-    }
-  }
-
-  if (rawDocPaths.length > 0) {
-    await fs.promises.mkdir(sessionDocsDir, { recursive: true })
-    const copiedPaths: string[] = []
-    for (const candidate of rawDocPaths) {
-      const sourcePath = await assertPathInAllowedRoots({
-        filePath: candidate,
-        mode: 'read',
-        sessionId
-      })
-      const safeName = path.basename(sourcePath).replace(/[\\/:"*?<>|]+/g, '-')
-      const targetPath = path.join(sessionDocsDir, safeName)
-      if (path.resolve(sourcePath) !== path.resolve(targetPath)) {
-        await fs.promises.copyFile(sourcePath, targetPath)
-      }
-      copiedPaths.push(`/docs/${safeName}`)
-    }
-    return copiedPaths
-  }
-
-  if (mode === 'edit') return []
-  const shouldUseReferenceDocument =
-    (mode === 'generate' && isFirstDeckGeneration) || mode === 'retry'
-  if (!shouldUseReferenceDocument || !referenceDocumentPath) return []
-
-  await fs.promises.mkdir(sessionDocsDir, { recursive: true })
-  const resolved = resolveExistingSessionDoc(referenceDocumentPath)
-  return resolved ? [resolved] : []
-}
-
 export function buildRetryUserMessage(retrySupplementRaw: string): string {
   const retrySupplement = retrySupplementRaw.trim()
   return retrySupplement
@@ -212,6 +153,7 @@ export async function resolveCommonContext(
   if (!session) throw new Error('Session not found')
   const sessionRecord = session as unknown as Record<string, unknown>
   const sessionMetadata = parseJsonObject(sessionRecord.metadata ?? sessionRecord.metadata_json)
+  const sourcePlan = sourcePlanFromSkeletonRows(await db.listSourcePageSkeletons(sessionId))
   const previousSessionStatus = String(sessionRecord.status || 'active')
 
   const activeModel = await resolveActiveModelConfig(ctx)
@@ -285,6 +227,7 @@ export async function resolveCommonContext(
     deckTitle: String(sessionRecord.title || 'OhMyPPT Preview'),
     appLocale,
     fontSelection: normalizeFontSelection(sessionMetadata.fontSelection),
+    sourcePlan,
     projectId
   }
 }

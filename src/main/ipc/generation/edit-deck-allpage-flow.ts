@@ -182,6 +182,7 @@ export async function executeDeckAllPageEditGeneration(
     userMessage: context.userMessage,
     outlineTitles,
     outlineItems,
+    sourceDocumentPaths: context.sourceDocumentPaths,
     projectDir,
     indexPath,
     pageFileMap,

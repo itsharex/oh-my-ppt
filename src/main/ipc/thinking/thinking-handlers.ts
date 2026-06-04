@@ -13,9 +13,12 @@ import {
   resolveThinkingDir,
   writeMessagesList
 } from '../../thinking/workspace'
-import { extractPendingImageTextSources, prepareMultipleSources } from '../../thinking/source-prepare'
+import {
+  extractPendingImageTextSources,
+  prepareMultipleSources
+} from '../../thinking/source-prepare'
 import { invalidateRuntime, runThinkingChat } from '../../thinking/thinking-agent'
-import { normalizeFontSelection } from '@shared/generation'
+import { normalizeFontSelection, type SourceDocumentPlan } from '@shared/generation'
 import type { ThinkingChatMessage, ThinkingPrepareGenerationResult } from '@shared/thinking'
 
 async function updateSourcesManifest(
@@ -45,7 +48,10 @@ async function updateSourcesManifest(
   )
 }
 
-async function removeSourceFromManifest(thinkingDir: string, sourceId: string): Promise<{
+async function removeSourceFromManifest(
+  thinkingDir: string,
+  sourceId: string
+): Promise<{
   removed: boolean
   fileName?: string
 }> {
@@ -65,7 +71,11 @@ async function removeSourceFromManifest(thinkingDir: string, sourceId: string): 
   if (!target) return { removed: false }
   await fs.promises.writeFile(
     manifestPath,
-    JSON.stringify(existing.filter((item) => item.id !== sourceId), null, 2),
+    JSON.stringify(
+      existing.filter((item) => item.id !== sourceId),
+      null,
+      2
+    ),
     'utf-8'
   )
   return { removed: true, fileName: target.fileName }
@@ -110,11 +120,72 @@ function parsePageCountFromThinkingMd(thinkingMd: string): number {
   return matches ? matches.length : 0
 }
 
+function buildThinkingSourcePlan(
+  thinkingMd: string,
+  thinkingDocumentPath: string
+): SourceDocumentPlan | null {
+  const lines = thinkingMd.split(/\r?\n/)
+  const headings: Array<{ pageNumber: number; title: string; lineNumber: number }> = []
+
+  lines.forEach((line, index) => {
+    const match = line.match(/^##\s*Page\s+(\d+)\s*:\s*(.+)$/)
+    if (!match) return
+    const pageNumber = Number.parseInt(match[1], 10)
+    const title = match[2].trim()
+    if (!Number.isFinite(pageNumber) || !title) return
+    headings.push({ pageNumber, title, lineNumber: index + 1 })
+  })
+
+  if (headings.length === 0) return null
+
+  return {
+    version: 1,
+    confidence: 'high',
+    sourceDocumentPath: thinkingDocumentPath,
+    sourceDocumentName: path.basename(thinkingDocumentPath),
+    pageSkeleton: headings.map((heading, index) => {
+      const next = headings[index + 1]
+      const lineStart = heading.lineNumber
+      const lineEnd = Math.max(lineStart, next ? next.lineNumber - 1 : lines.length)
+      const blockLines = lines.slice(heading.lineNumber, lineEnd)
+      const roleText =
+        blockLines
+          .find((line) => /^-\s*Role\s*:/i.test(line.trim()))
+          ?.replace(/^-\s*Role\s*:\s*/i, '')
+          .trim() || ''
+      const objective =
+        blockLines
+          .find((line) => /^-\s*Objective\s*:/i.test(line.trim()))
+          ?.replace(/^-\s*Objective\s*:\s*/i, '')
+          .trim() || ''
+      const roleBasis = `${heading.title}\n${roleText}`
+      const role = /chapter|section|divider|cover|title|agenda|章节|过渡|封面|目录|标题/i.test(
+        roleBasis
+      )
+        ? 'chapter-divider'
+        : 'content'
+
+      return {
+        pageNumber: heading.pageNumber,
+        title: heading.title,
+        role,
+        sourceHeading: `Page ${heading.pageNumber}: ${heading.title}`,
+        headingLevel: 2,
+        lineStart,
+        lineEnd,
+        reason: objective || roleText || 'Thinking page section'
+      }
+    })
+  }
+}
+
 function readMarkdownSectionBlock(markdown: string, heading: string): string {
   const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   const inline = markdown.match(new RegExp(`^##\\s*${escaped}\\s*:\\s*(.+)`, 'm'))
   if (inline) return inline[1].trim()
-  const block = markdown.match(new RegExp(`^##\\s*${escaped}\\s*\\n([\\s\\S]*?)(?=^##\\s+|(?![\\s\\S]))`, 'm'))
+  const block = markdown.match(
+    new RegExp(`^##\\s*${escaped}\\s*\\n([\\s\\S]*?)(?=^##\\s+|(?![\\s\\S]))`, 'm')
+  )
   return block?.[1]?.trim() || ''
 }
 
@@ -274,13 +345,19 @@ export function registerThinkingHandlers(ctx: IpcContext): void {
         modelTimeoutMs: modelTimeouts.document
       })
 
-      const emitThinkingEvent = (event: { type: string; toolName: string; summary: string }): void => {
+      const emitThinkingEvent = (event: {
+        type: string
+        toolName: string
+        summary: string
+      }): void => {
         const windows = BrowserWindow.getAllWindows()
         for (const win of windows) {
           if (win.isDestroyed() || win.webContents.isDestroyed()) continue
           try {
             win.webContents.send('thinking:stream:thinking', { thinkingId, ...event })
-          } catch { /* window may have closed */ }
+          } catch {
+            /* window may have closed */
+          }
         }
       }
 
@@ -332,7 +409,9 @@ export function registerThinkingHandlers(ctx: IpcContext): void {
             contextMd: result.contextMd,
             stage: result.stage
           })
-        } catch { /* window may have closed */ }
+        } catch {
+          /* window may have closed */
+        }
       }
 
       log.info('[thinking] chat result', {
@@ -345,50 +424,52 @@ export function registerThinkingHandlers(ctx: IpcContext): void {
     }
   )
 
-  ipcMain.handle(
-    'thinking:prepareGeneration',
-    async (_event, payload: { thinkingId: string }) => {
-      const { thinkingId } = payload
-      const storagePath = await resolveStoragePath()
-      const dir = resolveThinkingDir(storagePath, thinkingId)
+  ipcMain.handle('thinking:prepareGeneration', async (_event, payload: { thinkingId: string }) => {
+    const { thinkingId } = payload
+    const storagePath = await resolveStoragePath()
+    const dir = resolveThinkingDir(storagePath, thinkingId)
 
-      const workspace = await readWorkspace(storagePath, thinkingId)
+    const workspace = await readWorkspace(storagePath, thinkingId)
 
-      const topic = parseTopicFromThinkingMd(workspace.thinkingMd)
-      const pageCount = parsePageCountFromThinkingMd(workspace.thinkingMd)
-      const styleText = readMarkdownSectionBlock(workspace.thinkingMd, 'Style')
-      const rawFont = parseFontFromThinkingMd(workspace.thinkingMd)
-      const fontSelection = normalizeFontSelection(rawFont)
+    const topic = parseTopicFromThinkingMd(workspace.thinkingMd)
+    const pageCount = parsePageCountFromThinkingMd(workspace.thinkingMd)
+    const styleText = readMarkdownSectionBlock(workspace.thinkingMd, 'Style')
+    const rawFont = parseFontFromThinkingMd(workspace.thinkingMd)
+    const fontSelection = normalizeFontSelection(rawFont)
 
-      if (!topic) {
-        throw new Error('thinking.md is missing ## Topic. Please complete the thinking brief first.')
-      }
-      if (pageCount < 1) {
-        throw new Error('thinking.md has no pages. Please create a page-by-page thinking brief first.')
-      }
-
-      const thinkingDocumentPath = path.join(dir, 'thinking.md')
-
-      const result: ThinkingPrepareGenerationResult = {
-        thinkingDocumentPath,
-        topic,
-        pageCount: Math.max(1, Math.min(500, pageCount)),
-        styleId: '',
-        styleText,
-        fontSelection
-      }
-
-      log.info('[thinking] prepareGeneration', {
-        thinkingId,
-        topic: result.topic,
-        pageCount: result.pageCount,
-        styleId: result.styleId,
-        fontMode: result.fontSelection.mode
-      })
-
-      return result
+    if (!topic) {
+      throw new Error('thinking.md is missing ## Topic. Please complete the thinking brief first.')
     }
-  )
+    if (pageCount < 1) {
+      throw new Error(
+        'thinking.md has no pages. Please create a page-by-page thinking brief first.'
+      )
+    }
+
+    const thinkingDocumentPath = path.join(dir, 'thinking.md')
+    const sourcePlan = buildThinkingSourcePlan(workspace.thinkingMd, thinkingDocumentPath)
+
+    const result: ThinkingPrepareGenerationResult = {
+      thinkingDocumentPath,
+      topic,
+      pageCount: Math.max(1, Math.min(500, pageCount)),
+      styleId: '',
+      styleText,
+      fontSelection,
+      ...(sourcePlan ? { sourcePlan } : {})
+    }
+
+    log.info('[thinking] prepareGeneration', {
+      thinkingId,
+      topic: result.topic,
+      pageCount: result.pageCount,
+      styleId: result.styleId,
+      fontMode: result.fontSelection.mode,
+      sourcePlanPages: result.sourcePlan?.pageSkeleton.length ?? 0
+    })
+
+    return result
+  })
 
   log.info('[thinking] handlers registered')
 }

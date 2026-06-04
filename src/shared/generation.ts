@@ -19,6 +19,14 @@ export interface ParseDocumentPlanPayload {
   existingBrief?: string
 }
 
+export interface SourceDocumentPlan {
+  version: 1
+  confidence: 'high' | 'medium' | 'low'
+  sourceDocumentPath?: string
+  sourceDocumentName?: string
+  pageSkeleton: DocumentPlanPageSkeletonItem[]
+}
+
 export interface PrepareReferenceDocumentPayload {
   files: Array<{
     path: string
@@ -37,12 +45,25 @@ export interface ParsedDocumentPlanResult {
   topic: string
   pageCount: number
   briefText: string
+  pageSkeleton?: DocumentPlanPageSkeletonItem[]
+  sourcePlan?: SourceDocumentPlan
   files: Array<{
     name: string
     type: 'markdown' | 'text' | 'csv' | 'docx' | 'image'
     characterCount: number
     path: string
   }>
+}
+
+export interface DocumentPlanPageSkeletonItem {
+  pageNumber: number
+  title: string
+  role: 'chapter-divider' | 'content'
+  sourceHeading: string
+  headingLevel: number
+  lineStart: number
+  lineEnd: number
+  reason: string
 }
 
 export interface PreparedReferenceDocumentResult {

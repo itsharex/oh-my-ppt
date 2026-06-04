@@ -18,6 +18,8 @@ type GenerationRunMode = 'generate' | 'retry' | 'edit' | 'import' | 'addPage' | 
 type GenerationRunStatus = 'running' | 'completed' | 'failed' | 'partial'
 type GenerationPageStatus = 'pending' | 'running' | 'completed' | 'failed'
 type SessionPageStatus = schema.SessionPageStatus
+type SourcePageSkeletonRole = 'chapter-divider' | 'content'
+type SourcePageSkeletonConfidence = 'high' | 'medium' | 'low'
 type SessionOperationType =
   | 'generate'
   | 'edit'
@@ -141,6 +143,24 @@ export interface SessionPageRecord {
   created_at: number
   updated_at: number
   deleted_at: number | null
+}
+
+export interface SourcePageSkeletonRecord {
+  id: string
+  session_id: string
+  page_number: number
+  title: string
+  role: SourcePageSkeletonRole
+  source_document_path: string
+  source_document_name: string | null
+  source_heading: string
+  heading_level: number
+  line_start: number
+  line_end: number
+  reason: string | null
+  confidence: SourcePageSkeletonConfidence
+  created_at: number
+  updated_at: number
 }
 
 export interface SessionPageInput {
@@ -513,6 +533,36 @@ export class PPTDatabase {
     }
   }
 
+  private normalizeSourcePageSkeletonRow(row: Record<string, unknown>): SourcePageSkeletonRecord {
+    return {
+      id: String(row.id || ''),
+      session_id: String(row.sessionId ?? row.session_id ?? ''),
+      page_number: Number(row.pageNumber ?? row.page_number ?? 0) || 0,
+      title: String(row.title || ''),
+      role:
+        String(row.role || 'content') === 'chapter-divider'
+          ? 'chapter-divider'
+          : 'content',
+      source_document_path: String(row.sourceDocumentPath ?? row.source_document_path ?? ''),
+      source_document_name:
+        typeof (row.sourceDocumentName ?? row.source_document_name) === 'string'
+          ? String(row.sourceDocumentName ?? row.source_document_name)
+          : null,
+      source_heading: String(row.sourceHeading ?? row.source_heading ?? ''),
+      heading_level: Number(row.headingLevel ?? row.heading_level ?? 0) || 1,
+      line_start: Number(row.lineStart ?? row.line_start ?? 0) || 1,
+      line_end: Number(row.lineEnd ?? row.line_end ?? 0) || 1,
+      reason:
+        typeof row.reason === 'string' && row.reason.trim().length > 0
+          ? String(row.reason)
+          : null,
+      confidence:
+        row.confidence === 'medium' || row.confidence === 'low' ? row.confidence : 'high',
+      created_at: Number(row.createdAt ?? row.created_at ?? 0) || 0,
+      updated_at: Number(row.updatedAt ?? row.updated_at ?? 0) || 0
+    }
+  }
+
   async createGenerationRun(data: {
     id?: string
     sessionId: string
@@ -673,6 +723,65 @@ export class PPTDatabase {
       .orderBy(asc(schema.sessionPages.pageNumber))
       .all()
     return rows.map((row) => this.normalizeSessionPageRow(row as Record<string, unknown>))
+  }
+
+  async replaceSourcePageSkeletons(args: {
+    sessionId: string
+    sourceDocumentPath: string
+    sourceDocumentName?: string | null
+    confidence?: SourcePageSkeletonConfidence
+    items: Array<{
+      pageNumber: number
+      title: string
+      role: SourcePageSkeletonRole
+      sourceHeading: string
+      headingLevel: number
+      lineStart: number
+      lineEnd: number
+      reason?: string | null
+    }>
+  }): Promise<void> {
+    const now = Math.floor(Date.now() / 1000)
+    await this.db
+      .delete(schema.sourcePageSkeletons)
+      .where(eq(schema.sourcePageSkeletons.sessionId, args.sessionId))
+      .run()
+    const values = args.items
+      .filter((item) => item.sourceHeading.trim().length > 0)
+      .map((item) => {
+        const pageNumber = Math.max(1, Math.floor(item.pageNumber))
+        const lineStart = Math.max(1, Math.floor(item.lineStart || 1))
+        const lineEnd = Math.max(lineStart, Math.floor(item.lineEnd || lineStart))
+        return {
+          id: `${args.sessionId}:${pageNumber}`,
+          sessionId: args.sessionId,
+          pageNumber,
+          title: item.title.trim() || `Slide ${pageNumber}`,
+          role: item.role === 'chapter-divider' ? 'chapter-divider' : 'content',
+          sourceDocumentPath: args.sourceDocumentPath,
+          sourceDocumentName: args.sourceDocumentName || null,
+          sourceHeading: item.sourceHeading,
+          headingLevel: Math.max(1, Math.floor(item.headingLevel || 1)),
+          lineStart,
+          lineEnd,
+          reason: item.reason || null,
+          confidence: args.confidence || 'high',
+          createdAt: now,
+          updatedAt: now
+        }
+      })
+    if (values.length === 0) return
+    await this.db.insert(schema.sourcePageSkeletons).values(values).run()
+  }
+
+  async listSourcePageSkeletons(sessionId: string): Promise<SourcePageSkeletonRecord[]> {
+    const rows = await this.db
+      .select()
+      .from(schema.sourcePageSkeletons)
+      .where(eq(schema.sourcePageSkeletons.sessionId, sessionId))
+      .orderBy(asc(schema.sourcePageSkeletons.pageNumber))
+      .all()
+    return rows.map((row) => this.normalizeSourcePageSkeletonRow(row as Record<string, unknown>))
   }
 
   async upsertSessionPage(page: SessionPageInput): Promise<void> {

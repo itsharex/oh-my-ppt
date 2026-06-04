@@ -107,6 +107,35 @@ export const sessionPages = sqliteTable(
   })
 )
 
+export const sourcePageSkeletons = sqliteTable(
+  'source_page_skeletons',
+  {
+    id: text('id').primaryKey(),
+    sessionId: text('session_id')
+      .notNull()
+      .references(() => sessions.id, { onDelete: 'cascade' }),
+    pageNumber: integer('page_number').notNull(),
+    title: text('title').notNull(),
+    role: text('role').notNull().default('content'),
+    sourceDocumentPath: text('source_document_path').notNull(),
+    sourceDocumentName: text('source_document_name'),
+    sourceHeading: text('source_heading').notNull(),
+    headingLevel: integer('heading_level').notNull(),
+    lineStart: integer('line_start').notNull(),
+    lineEnd: integer('line_end').notNull(),
+    reason: text('reason'),
+    confidence: text('confidence').notNull().default('high'),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull()
+  },
+  (table) => ({
+    sourcePageSkeletonSessionIdx: index('idx_source_page_skeletons_session').on(
+      table.sessionId,
+      table.pageNumber
+    )
+  })
+)
+
 export const settings = sqliteTable('settings', {
   key: text('key').primaryKey(),
   value: text('value').notNull(),
@@ -259,6 +288,7 @@ export type Project = typeof projects.$inferSelect
 export type GenerationRun = typeof generationRuns.$inferSelect
 export type GenerationPage = typeof generationPages.$inferSelect
 export type SessionPage = typeof sessionPages.$inferSelect
+export type SourcePageSkeleton = typeof sourcePageSkeletons.$inferSelect
 export type ModelConfig = typeof modelConfigs.$inferSelect
 export type ImageGenerationHistory = typeof imageGenerationHistories.$inferSelect
 export type MemorySummary = typeof memorySummaries.$inferSelect

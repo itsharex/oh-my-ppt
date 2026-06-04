@@ -69,6 +69,7 @@ export async function resolveRetryContext(
     imagePaths: [],
     videoPaths: [],
     sourceDocumentPaths,
+    sourcePlan: common.sourcePlan,
     topic: common.topic,
     deckTitle: common.deckTitle,
     appLocale: common.appLocale,

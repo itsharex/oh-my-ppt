@@ -184,6 +184,25 @@ CREATE TABLE IF NOT EXISTS session_pages (
 );
 CREATE INDEX IF NOT EXISTS idx_session_pages_session_number ON session_pages(session_id, page_number);
 
+CREATE TABLE IF NOT EXISTS source_page_skeletons (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  page_number INTEGER NOT NULL,
+  title TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'content',
+  source_document_path TEXT NOT NULL,
+  source_document_name TEXT,
+  source_heading TEXT NOT NULL,
+  heading_level INTEGER NOT NULL,
+  line_start INTEGER NOT NULL,
+  line_end INTEGER NOT NULL,
+  reason TEXT,
+  confidence TEXT NOT NULL DEFAULT 'high',
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_source_page_skeletons_session ON source_page_skeletons(session_id, page_number);
+
 CREATE TABLE IF NOT EXISTS user_preferences (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL,

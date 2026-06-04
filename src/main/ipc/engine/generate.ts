@@ -546,6 +546,7 @@ export const planNewPage = async (args: {
   userDescription: string
   topic?: string
   existingTitles?: string[]
+  sourceDocumentPaths?: string[]
   signal?: AbortSignal
 }): Promise<{ title: string; contentOutline: string; layoutIntent: LayoutIntent }> => {
   const client = resolveModel(
@@ -566,6 +567,15 @@ export const planNewPage = async (args: {
     '- The title language and style must match existing slide titles.',
     '- Do NOT duplicate or closely paraphrase any existing slide title.',
     args.topic ? `- Deck topic: ${args.topic}` : '',
+    args.sourceDocumentPaths?.length
+      ? [
+          '',
+          'Source document context:',
+          '- This deck has user-imported reference documents. Plan a slide title and key points that can be verified against the source during generation.',
+          `- sourceDocumentPaths: ${args.sourceDocumentPaths.join(', ')}`,
+          '- Do not invent unsupported exact facts, metrics, examples, risks, decisions, or conclusions in this planning step.'
+        ].join('\n')
+      : '',
     '',
     'Assign layoutIntent based on the slide content type:',
     '  - data-focus: metrics, KPIs, trends, or quantitative results',
@@ -1515,6 +1525,7 @@ type RunDeepAgentEditBaseArgs = {
   userMessage: string
   outlineTitles: string[]
   outlineItems: OutlineItem[]
+  sourceDocumentPaths?: string[]
   projectDir: string
   indexPath: string
   pageFileMap: Record<string, string>
@@ -1570,6 +1581,7 @@ const runDeepAgentScopedEdit = async (args: RunDeepAgentScopedEditArgs): Promise
       userMessage: args.userMessage,
       outlineTitles: args.outlineTitles,
       outlineItems: args.outlineItems,
+      sourceDocumentPaths: args.sourceDocumentPaths,
       pageFileMap: args.pageFileMap,
       selectedPageId: args.selectedPageId,
       selectedPageNumber: args.selectedPageNumber,
