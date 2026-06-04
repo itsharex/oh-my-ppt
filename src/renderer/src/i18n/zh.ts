@@ -88,8 +88,8 @@ export const zh = {
     processingDocument: '处理中...',
     uploadDocument: '上传参考文档',
     uploadDocumentTooltip:
-      '支持 txt、md、csv、docx（≤{maxSize}MB）。上传只会附加参考文档，不会自动改表单；点击“解析大纲”后才会调用所选模型生成标题、页数和大纲建议。',
-    analyzeDocument: '解析大纲',
+      '支持 txt、md、csv、docx（≤{maxSize}MB）。上传只会附加参考文档，不会自动改表单；点击“AI 解析并补全”后才会调用所选模型生成标题、页数和大纲建议。',
+    analyzeDocument: 'AI 解析并补全',
     analyzeDocumentTooltip:
       '调用所选模型分析已上传的参考文档，并生成标题、页数和大纲建议；确认建议后才会写入当前表单。',
     analyzingDocument: '解析中...',

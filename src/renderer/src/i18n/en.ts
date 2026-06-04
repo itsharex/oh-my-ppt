@@ -92,8 +92,8 @@ export const en = {
     processingDocument: 'Processing...',
     uploadDocument: 'Upload reference document',
     uploadDocumentTooltip:
-      'Supports txt, md, csv, and docx (≤{maxSize}MB). Uploading only attaches a reference document and does not change the form. Use "Parse outline" to analyze it with the selected model and suggest the title, page count, and outline.',
-    analyzeDocument: 'Parse outline',
+      'Supports txt, md, csv, and docx (≤{maxSize}MB). Uploading only attaches a reference document and does not change the form. Use "AI analyze and fill" to analyze it with the selected model and suggest the title, page count, and outline.',
+    analyzeDocument: 'AI analyze and fill',
     analyzeDocumentTooltip:
       'Analyze the uploaded reference document with the selected model and suggest a title, page count, and outline. Nothing is written to the form until you confirm.',
     analyzingDocument: 'Parsing...',
