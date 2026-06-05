@@ -9,6 +9,7 @@ import { nanoid } from 'nanoid'
 import { zipSync } from 'fflate'
 import { PDFDocument } from 'pdf-lib'
 import type { IpcContext } from '../context'
+import { resolveOutlinesForPages } from '../session/page-outline-utils'
 import {
   writeHtmlToPptx,
   collectEmbeddedFonts,
@@ -24,6 +25,7 @@ type PptxExportPayload = {
   sessionId?: unknown
   imageOnly?: unknown
   embedFonts?: unknown
+  pageId?: unknown
 }
 
 const parseSessionId = (payload: unknown): string => {
@@ -51,8 +53,27 @@ const parseFontEmbedMode = (payload: unknown): 'auto' | 'always' | 'never' => {
   return 'always'
 }
 
+const parseExportPageId = (payload: unknown): string => {
+  if (!payload || typeof payload !== 'object') return ''
+  const value = (payload as PptxExportPayload).pageId
+  return typeof value === 'string' ? value.trim() : ''
+}
+
 const sanitizeExportBaseName = (value: string, fallback: string): string =>
   value.replace(/[\\/:*?"<>|]/g, '_').slice(0, 120) || fallback
+
+const buildOutlinesMarkdown = (args: {
+  title: string
+  pages: Array<{ id: string; page_number: number; title: string }>
+  outlines: Map<string, string | null>
+}): string => {
+  const sections = args.pages.map((page) => {
+    const pageTitle = String(page.title || `P${page.page_number}`).trim()
+    const outline = String(args.outlines.get(page.id) || '').trim()
+    return [`## P${page.page_number}. ${pageTitle}`, outline].filter(Boolean).join('\n\n')
+  })
+  return [`# ${args.title}`, ...sections].filter(Boolean).join('\n\n').trim() + '\n'
+}
 
 const isSameOrChildPath = async (candidatePath: string, parentPath: string): Promise<boolean> => {
   const resolveRealPath = async (value: string): Promise<string> =>
@@ -381,15 +402,26 @@ export function registerExportHandlers(ctx: IpcContext): void {
     }
     const imageOnly = parseImageOnly(payload)
     const fontEmbedMode = imageOnly ? 'never' : parseFontEmbedMode(payload)
+    const requestedPageId = parseExportPageId(payload)
 
-    const { session, pages, projectDir } = await resolveSessionPageFiles(sessionId)
+    const { session, pages: allPages, projectDir } = await resolveSessionPageFiles(sessionId)
+    const pages = requestedPageId
+      ? allPages.filter((page) => page.id === requestedPageId)
+      : allPages
+    if (requestedPageId && pages.length === 0) {
+      throw new Error(`页面不存在：${requestedPageId}`)
+    }
     const sessionTitle =
       typeof session.title === 'string' && session.title.trim().length > 0
         ? session.title.trim()
         : `ohmyppt-${sessionId}`
     const prefix = imageOnly ? '【Image】' : '【Edit】'
+    const singlePage = requestedPageId && pages.length === 1 ? pages[0] : null
+    const singlePageTitle = singlePage
+      ? singlePage.title.trim() || `P${String(singlePage.pageNumber).padStart(2, '0')}`
+      : ''
     const sanitizedBaseName = sanitizeExportBaseName(
-      `${prefix}${sessionTitle}`,
+      singlePage ? `${prefix}${singlePageTitle}` : `${prefix}${sessionTitle}`,
       `ohmyppt-${sessionId}`
     )
 
@@ -414,9 +446,11 @@ export function registerExportHandlers(ctx: IpcContext): void {
         const mode = imageOnly ? 'image' : 'editable'
         log.info('[export:pptx] extract page', {
           sessionId,
+          sessionPageId: page.id,
           pageId: page.pageId,
           htmlPath: page.htmlPath,
-          mode
+          mode,
+          singlePage: Boolean(requestedPageId)
         })
         const extracted = imageOnly
           ? await captureHtmlPageToPptxImageSlide({
@@ -492,6 +526,7 @@ export function registerExportHandlers(ctx: IpcContext): void {
         filePath: saveResult.filePath,
         warningCount: warnings.length,
         imageOnly,
+        sessionPageId: requestedPageId || undefined,
         fontEmbedMode,
         embeddedFontCount: embeddedFonts.length
       })
@@ -506,6 +541,69 @@ export function registerExportHandlers(ctx: IpcContext): void {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       log.error('[export:pptx] failed', {
+        sessionId,
+        message
+      })
+      throw error
+    }
+  })
+
+  ipcMain.handle('export:outlinesMarkdown', async (event, payload: unknown) => {
+    const sessionId = parseSessionId(payload)
+    if (!sessionId) {
+      throw new Error('sessionId 不能为空')
+    }
+
+    const { session, projectDir } = await resolveSessionPageFiles(sessionId)
+    const pages = await db.listSessionPages(sessionId)
+    if (pages.length === 0) {
+      throw new Error('没有可导出的大纲页面')
+    }
+    const outlines = await resolveOutlinesForPages(db, sessionId, pages)
+    const rawTitle =
+      typeof session.title === 'string' && session.title.trim().length > 0
+        ? session.title.trim()
+        : `ohmyppt-${sessionId}`
+    const baseName = sanitizeExportBaseName(`${rawTitle}-大纲`, `ohmyppt-${sessionId}-outline`)
+    const content = buildOutlinesMarkdown({
+      title: rawTitle,
+      pages,
+      outlines
+    })
+
+    const ownerWindow =
+      BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getFocusedWindow() ?? mainWindow
+    const saveResult = await dialog.showSaveDialog(ownerWindow, {
+      title: '导出大纲',
+      defaultPath: path.join(path.dirname(projectDir), `${baseName}.md`),
+      filters: [
+        { name: 'Markdown', extensions: ['md'] },
+        { name: 'Text', extensions: ['txt'] }
+      ],
+      properties: ['createDirectory', 'showOverwriteConfirmation']
+    })
+
+    if (saveResult.canceled || !saveResult.filePath) {
+      return { success: false, cancelled: true }
+    }
+
+    try {
+      await fs.promises.writeFile(saveResult.filePath, content, 'utf-8')
+      log.info('[export:outlinesMarkdown] completed', {
+        sessionId,
+        filePath: saveResult.filePath,
+        byteLength: Buffer.byteLength(content, 'utf-8')
+      })
+      shell.showItemInFolder(saveResult.filePath)
+      return {
+        success: true,
+        cancelled: false,
+        path: saveResult.filePath,
+        warnings: []
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      log.error('[export:outlinesMarkdown] failed', {
         sessionId,
         message
       })

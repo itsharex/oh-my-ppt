@@ -35,6 +35,7 @@ export type SessionRunState = {
 }
 
 export type SessionPageFile = {
+  id: string
   pageNumber: number
   pageId: string
   title: string
@@ -1019,6 +1020,7 @@ export function createIpcContext(
       )
     }
     const dedupedPages: SessionPageFile[] = sessionPages.map((sp) => ({
+      id: sp.id,
       pageNumber: sp.page_number,
       pageId: sp.file_slug,
       title: sp.title,

@@ -1,12 +1,15 @@
-import { memo, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Check,
   Copy,
+  Download,
   FilePlus2,
+  Image as ImageIcon,
   Move,
   PanelLeft,
   PanelRight,
   PencilLine,
+  Presentation,
   Plus,
   Sparkles,
   Trash2,
@@ -39,6 +42,9 @@ import {
 import { PageThumbnail } from './PageThumbnail'
 import type { SessionPreviewPage } from './types'
 import { useT } from '@renderer/i18n'
+
+const THUMBNAIL_PREVIEW_TARGET_SIZE = 14
+const THUMBNAIL_PREVIEW_CACHE_SIZE = 24
 
 function SortablePageItem({
   id,
@@ -82,6 +88,30 @@ const getPageOutlineText = (page: SessionPreviewPage): string => {
   return page.contentOutline?.trim() || ''
 }
 
+const stripOutlineHeadingPrefix = (value: string): string => {
+  return value
+    .trim()
+    .replace(/^#{1,6}\s*/, '')
+    .replace(/^(?:第?\d+|[一二三四五六七八九十]+)[\s.、：:-]*/, '')
+    .trim()
+}
+
+const getPageOutlineDisplayText = (page: SessionPreviewPage): string => {
+  const outlineText = getPageOutlineText(page)
+  if (!outlineText) return ''
+
+  const lines = outlineText.replace(/\r\n/g, '\n').split('\n')
+  const title = stripOutlineHeadingPrefix(page.title || '')
+  const normalizedFirstLine = stripOutlineHeadingPrefix(lines[0] || '')
+
+  let firstLine = normalizedFirstLine
+  if (title && firstLine.startsWith(title)) {
+    firstLine = firstLine.slice(title.length).replace(/^[\s:：,，.。-]+/, '').trim()
+  }
+
+  return [firstLine, ...lines.slice(1).map((line) => line.trim())].filter(Boolean).join('\n').trim()
+}
+
 const copyTextToClipboard = async (text: string): Promise<void> => {
   try {
     await navigator.clipboard.writeText(text)
@@ -111,6 +141,8 @@ export const PageSidebar = memo(function PageSidebar({
   onDeletePage,
   onRenamePage,
   onUpdatePageOutline,
+  onExportPagePptx,
+  onDownloadAllOutlines,
   pageManagementDisabled = false,
   collapsed = false,
   onToggleCollapsed
@@ -124,6 +156,8 @@ export const PageSidebar = memo(function PageSidebar({
   onDeletePage?: (page: SessionPreviewPage) => void
   onRenamePage?: (page: SessionPreviewPage) => void
   onUpdatePageOutline?: (page: SessionPreviewPage, contentOutline: string) => Promise<void> | void
+  onExportPagePptx?: (page: SessionPreviewPage, options?: { imageOnly?: boolean }) => void
+  onDownloadAllOutlines?: () => void
   pageManagementDisabled?: boolean
   collapsed?: boolean
   onToggleCollapsed?: () => void
@@ -134,16 +168,103 @@ export const PageSidebar = memo(function PageSidebar({
   const thumbnailVersions = useSessionDetailUiStore((state) => state.thumbnailVersions)
   const setSelectedPageId = useSessionDetailUiStore((state) => state.setSelectedPageId)
   const isAddingPage = useSessionDetailUiStore((state) => state.isAddingPage)
+  const isExportingPptx = useSessionDetailUiStore((state) => state.isExportingPptx)
   const [activeView, setActiveView] = useState<'pages' | 'outline'>('pages')
   const [copiedOutlinePageId, setCopiedOutlinePageId] = useState<string | null>(null)
   const [editingOutlinePageId, setEditingOutlinePageId] = useState<string | null>(null)
   const [outlineDraft, setOutlineDraft] = useState('')
   const [savingOutlinePageId, setSavingOutlinePageId] = useState<string | null>(null)
+  const [thumbnailPreviewIds, setThumbnailPreviewIds] = useState<Set<string>>(() => new Set())
   const wasAddingRef = useRef(false)
   const viewportRef = useRef<HTMLDivElement>(null)
   const copyResetTimerRef = useRef<number | null>(null)
+  const thumbnailWindowRafRef = useRef<number | null>(null)
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
   const sortableIds = useMemo(() => pages.map((p) => p.id), [pages])
+
+  const updateThumbnailPreviewWindow = useCallback((): void => {
+    if (collapsed || activeView !== 'pages' || pages.length === 0) {
+      setThumbnailPreviewIds((current) => (current.size === 0 ? current : new Set()))
+      return
+    }
+
+    const viewport = viewportRef.current
+    const pageIdSet = new Set(pages.map((page) => page.id))
+    if (!viewport) {
+      const selectedIndex = pages.findIndex((page) => page.id === selectedPageId)
+      const startIndex =
+        selectedIndex >= 0
+          ? Math.max(0, selectedIndex - Math.floor(THUMBNAIL_PREVIEW_TARGET_SIZE / 2))
+          : 0
+      const next = new Set(
+        pages.slice(startIndex, startIndex + THUMBNAIL_PREVIEW_TARGET_SIZE).map((page) => page.id)
+      )
+      setThumbnailPreviewIds(next)
+      return
+    }
+
+    const viewportRect = viewport.getBoundingClientRect()
+    const viewportCenter = viewportRect.top + viewportRect.height / 2
+    const distanceByPageId = new Map<string, number>()
+    const candidates = Array.from(
+      viewport.querySelectorAll<HTMLElement>('[data-thumbnail-index]')
+    )
+      .map((node) => {
+        const index = Number(node.dataset.thumbnailIndex)
+        const page = Number.isFinite(index) ? pages[index] : undefined
+        if (!page) return null
+        const rect = node.getBoundingClientRect()
+        const centerDistance =
+          page.id === selectedPageId
+            ? -1
+            : Math.abs(rect.top + rect.height / 2 - viewportCenter)
+        distanceByPageId.set(page.id, centerDistance)
+        return { pageId: page.id, distance: centerDistance }
+      })
+      .filter((item): item is { pageId: string; distance: number } => Boolean(item))
+      .sort((a, b) => a.distance - b.distance)
+
+    const targetIds = new Set(
+      candidates.slice(0, THUMBNAIL_PREVIEW_TARGET_SIZE).map((item) => item.pageId)
+    )
+    if (selectedPageId && pageIdSet.has(selectedPageId)) targetIds.add(selectedPageId)
+
+    if (targetIds.size === 0) {
+      pages.slice(0, THUMBNAIL_PREVIEW_TARGET_SIZE).forEach((page) => targetIds.add(page.id))
+    }
+
+    setThumbnailPreviewIds((current) => {
+      const next = new Set(Array.from(current).filter((id) => pageIdSet.has(id)))
+      targetIds.forEach((id) => next.add(id))
+
+      if (next.size > THUMBNAIL_PREVIEW_CACHE_SIZE) {
+        const removable = Array.from(next)
+          .filter((id) => !targetIds.has(id))
+          .sort(
+            (a, b) =>
+              (distanceByPageId.get(b) ?? Infinity) - (distanceByPageId.get(a) ?? Infinity)
+          )
+
+        for (const id of removable) {
+          if (next.size <= THUMBNAIL_PREVIEW_CACHE_SIZE) break
+          next.delete(id)
+        }
+      }
+
+      if (current.size === next.size && Array.from(next).every((id) => current.has(id))) {
+        return current
+      }
+      return next
+    })
+  }, [activeView, collapsed, pages, selectedPageId])
+
+  const scheduleThumbnailPreviewWindowUpdate = useCallback((): void => {
+    if (thumbnailWindowRafRef.current !== null) return
+    thumbnailWindowRafRef.current = window.requestAnimationFrame(() => {
+      thumbnailWindowRafRef.current = null
+      updateThumbnailPreviewWindow()
+    })
+  }, [updateThumbnailPreviewWindow])
 
   // Keep selected thumbnail in view when add-page completes (isAddingPage: true -> false).
   // Fallback to bottom if selected thumbnail is not found yet.
@@ -169,6 +290,16 @@ export const PageSidebar = memo(function PageSidebar({
       if (copyResetTimerRef.current !== null) window.clearTimeout(copyResetTimerRef.current)
     }
   }, [])
+
+  useEffect(() => {
+    scheduleThumbnailPreviewWindowUpdate()
+    return () => {
+      if (thumbnailWindowRafRef.current !== null) {
+        window.cancelAnimationFrame(thumbnailWindowRafRef.current)
+        thumbnailWindowRafRef.current = null
+      }
+    }
+  }, [scheduleThumbnailPreviewWindowUpdate])
 
   const handleDragEnd = (event: DragEndEvent): void => {
     const { active, over } = event
@@ -225,6 +356,11 @@ export const PageSidebar = memo(function PageSidebar({
     }
   }
 
+  const handleDownloadAllOutlines = (): void => {
+    if (pages.length === 0) return
+    onDownloadAllOutlines?.()
+  }
+
   return (
     <aside
       className={`relative flex min-h-0 shrink-0 flex-col overflow-hidden bg-[#f5f1e8] pb-3 pt-3 shadow-[inset_-16px_0_30px_rgba(93,107,77,0.045)] transition-[width] duration-300 ${
@@ -236,7 +372,11 @@ export const PageSidebar = memo(function PageSidebar({
         // Collapsed: compact icons
         <>
           {/* Middle: page list */}
-          <ScrollArea className="min-h-0 min-w-0 flex-1" viewportClassName="overflow-x-hidden pb-2" viewportRef={viewportRef}>
+          <ScrollArea
+            className="min-h-0 min-w-0 flex-1"
+            viewportClassName="overflow-x-hidden pb-2"
+            viewportRef={viewportRef}
+          >
             <div className="space-y-1.5">
               {pages.map((page) => (
                 <button
@@ -327,9 +467,27 @@ export const PageSidebar = memo(function PageSidebar({
               {t('sessionDetail.outlineTab')}
             </button>
           </div>
+          {activeView === 'outline' ? (
+            <button
+              type="button"
+              disabled={pages.length === 0 || !onDownloadAllOutlines}
+              onClick={handleDownloadAllOutlines}
+              className="mx-1 mb-2 flex h-7 items-center justify-center gap-1.5 rounded-lg border border-[#b5c4a1]/50 bg-[#fffaf1]/72 px-2 text-[11px] font-medium text-[#5d6b4d] shadow-[0_3px_8px_rgba(86,72,53,0.05)] transition-colors hover:bg-[#d4e4c1]/45 hover:text-[#3e4a32] disabled:cursor-not-allowed disabled:opacity-45"
+            >
+              <Download className="h-3.5 w-3.5" />
+              {t('sessionDetail.downloadAllOutlines')}
+            </button>
+          ) : null}
 
           {/* Middle: page list */}
-          <ScrollArea className="min-h-0 min-w-0 flex-1" viewportClassName="overflow-x-hidden px-0.5 pb-2" viewportRef={viewportRef}>
+          <ScrollArea
+            className="min-h-0 min-w-0 flex-1"
+            viewportClassName="overflow-x-hidden px-0.5 pb-2"
+            viewportRef={viewportRef}
+            onViewportScroll={
+              activeView === 'pages' ? scheduleThumbnailPreviewWindowUpdate : undefined
+            }
+          >
             {pages.length === 0 ? (
               <div className="flex min-h-[96px] items-center justify-center rounded-[1.25rem] bg-[#e8e0d0]/54 text-xs text-[#8a9a7b]">
                 {t('sessionDetail.pagesEmpty')}
@@ -338,6 +496,7 @@ export const PageSidebar = memo(function PageSidebar({
               <div className="min-w-0 space-y-1.5 overflow-x-hidden">
                 {pages.map((page) => {
                   const outlineText = getPageOutlineText(page)
+                  const outlineDisplayText = getPageOutlineDisplayText(page)
                   const selected = selectedPageId === page.id
                   const copied = copiedOutlinePageId === page.id
                   const editing = editingOutlinePageId === page.id
@@ -412,11 +571,11 @@ export const PageSidebar = memo(function PageSidebar({
                           }`}
                         >
                           <span className="relative block min-w-0 max-w-full overflow-hidden rounded-[1rem] bg-[#fffaf1]/72 px-2.5 py-2 shadow-[0_5px_14px_rgba(93,107,77,0.08)]">
-                            <span className="block whitespace-normal break-words text-[12px] font-semibold leading-5 text-[#33402a] [overflow-wrap:anywhere]">
+                            <span className="block whitespace-normal break-words pr-14 text-[12px] font-semibold leading-5 text-[#33402a] [overflow-wrap:anywhere]">
                               {page.title || t('sessionDetail.untitledPage')}
                             </span>
                             <span className="mt-1 block whitespace-normal break-words text-[11px] leading-4 text-[#716654] [overflow-wrap:anywhere]">
-                              {outlineText || t('sessionDetail.outlineEmpty')}
+                              {outlineDisplayText || t('sessionDetail.outlineEmpty')}
                             </span>
                             {!editing && onUpdatePageOutline ? (
                               <Tooltip>
@@ -443,10 +602,10 @@ export const PageSidebar = memo(function PageSidebar({
                               <TooltipTrigger asChild>
                                 <button
                                   type="button"
-                                  disabled={!outlineText || editing}
+                                  disabled={!outlineDisplayText || editing}
                                   onClick={(event) => {
                                     event.stopPropagation()
-                                    void handleCopyOutline(page, outlineText)
+                                    void handleCopyOutline(page, outlineDisplayText)
                                   }}
                                   className={`absolute right-2 top-2 inline-flex h-6 w-6 items-center justify-center rounded-full transition-all ${
                                     copied
@@ -493,14 +652,15 @@ export const PageSidebar = memo(function PageSidebar({
               <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
                 <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>
                   <div className="space-y-2.5">
-                    {pages.map((page) => (
-                      <div key={page.id} data-page-id={page.id}>
+                    {pages.map((page, pageIndex) => (
+                      <div key={page.id} data-page-id={page.id} data-thumbnail-index={pageIndex}>
                         <SortablePageItem id={page.id} disabled={pageManagementDisabled || disabled}>
                           {({ attributes, listeners, setActivatorNodeRef, isDragging }) => (
                             <PageThumbnail
                               page={page}
                               isSelected={selectedPageId === page.id}
                               previewVersion={previewKey + (thumbnailVersions[page.pageId] || 0)}
+                              renderPreview={thumbnailPreviewIds.has(page.id)}
                               onSelect={disabled ? undefined : setSelectedPageId}
                               actions={
                                 <div className="absolute inset-x-1 top-1 z-10 flex items-start justify-between opacity-0 transition-opacity group-hover:opacity-100">
@@ -520,6 +680,53 @@ export const PageSidebar = memo(function PageSidebar({
                                     <Move className={`h-4 w-4 ${isDragging ? 'opacity-60' : ''}`} />
                                   </button>
                                   <div className="flex items-center gap-1">
+                                    {onExportPagePptx ? (
+                                      <DropdownMenu>
+                                        <Tooltip>
+                                          <TooltipTrigger asChild>
+                                            <DropdownMenuTrigger asChild>
+                                              <button
+                                                type="button"
+                                                disabled={
+                                                  pageManagementDisabled || disabled || isExportingPptx
+                                                }
+                                                onClick={(e) => e.stopPropagation()}
+                                                className="rounded bg-white/90 p-1 text-[#5d6b4d] shadow-sm transition-colors hover:bg-[#f5f1e8] hover:text-[#3e4a32] disabled:cursor-not-allowed disabled:opacity-50"
+                                                aria-label={t('sessionDetail.exportSinglePagePptx')}
+                                              >
+                                                <Presentation className="h-3.5 w-3.5" />
+                                              </button>
+                                            </DropdownMenuTrigger>
+                                          </TooltipTrigger>
+                                          <TooltipContent side="right">
+                                            {t('sessionDetail.exportSinglePagePptx')}
+                                          </TooltipContent>
+                                        </Tooltip>
+                                        <DropdownMenuContent
+                                          side="right"
+                                          align="start"
+                                          className="min-w-[9rem]"
+                                          onClick={(e) => e.stopPropagation()}
+                                        >
+                                          <DropdownMenuItem onSelect={() => onExportPagePptx(page)}>
+                                            <Presentation className="h-3.5 w-3.5 shrink-0 text-[#5f6b50]" />
+                                            <span className="whitespace-nowrap">
+                                              {t('sessionDetail.exportPptxEditable')}
+                                            </span>
+                                          </DropdownMenuItem>
+                                          <DropdownMenuItem
+                                            onSelect={() =>
+                                              onExportPagePptx(page, { imageOnly: true })
+                                            }
+                                          >
+                                            <ImageIcon className="h-3.5 w-3.5 shrink-0 text-[#7c6a4c]" />
+                                            <span className="whitespace-nowrap">
+                                              {t('sessionDetail.exportPptxImageOnly')}
+                                            </span>
+                                          </DropdownMenuItem>
+                                        </DropdownMenuContent>
+                                      </DropdownMenu>
+                                    ) : null}
                                     {onRenamePage ? (
                                       <button
                                         type="button"

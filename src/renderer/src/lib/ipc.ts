@@ -543,13 +543,19 @@ export const ipc = {
     getIpc().invoke('export:png', { sessionId }) as Promise<ExportDeckResult>,
   exportPptx: (
     sessionId: string,
-    options?: { imageOnly?: boolean; embedFonts?: boolean | 'auto' | 'always' | 'never' }
+    options?: {
+      imageOnly?: boolean
+      embedFonts?: boolean | 'auto' | 'always' | 'never'
+      pageId?: string
+    }
   ) =>
     getIpc().invoke('export:pptx', { sessionId, ...options }) as Promise<ExportDeckResult>,
   exportSlidePack: (sessionId: string) =>
     getIpc().invoke('export:slidePack', { sessionId }) as Promise<ExportDeckResult>,
   exportSessionZip: (sessionId: string) =>
     getIpc().invoke('export:sessionZip', { sessionId }) as Promise<ExportDeckResult>,
+  exportOutlinesMarkdown: (sessionId: string) =>
+    getIpc().invoke('export:outlinesMarkdown', { sessionId }) as Promise<ExportDeckResult>,
   getSettings: () => getIpc().invoke('settings:get') as Promise<Record<string, unknown>>,
   listModelConfigs: () => getIpc().invoke('settings:listModelConfigs') as Promise<ModelConfig[]>,
   listImageModelConfigs: () =>

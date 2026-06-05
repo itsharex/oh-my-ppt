@@ -1295,7 +1295,11 @@ export function SessionDetailPage(): React.JSX.Element {
   }
 
   const handleExportPptx = async (
-    options?: { imageOnly?: boolean; embedFonts?: boolean | 'auto' | 'always' | 'never' }
+    options?: {
+      imageOnly?: boolean
+      embedFonts?: boolean | 'auto' | 'always' | 'never'
+      pageId?: string
+    }
   ): Promise<void> => {
     const detailState = useSessionDetailUiStore.getState()
     if (!id || detailState.isExportingPptx) return
@@ -1394,6 +1398,24 @@ export function SessionDetailPage(): React.JSX.Element {
       toastError(error instanceof Error ? error.message : t('sessionDetail.exportFailed'))
     } finally {
       useSessionDetailUiStore.getState().setIsExportingSessionZip(false)
+    }
+  }
+
+  const handleExportOutlinesMarkdown = async (): Promise<void> => {
+    if (!id) return
+    try {
+      const result = await ipc.exportOutlinesMarkdown(id)
+      if (result.cancelled) {
+        toastInfo(t('sessionDetail.exportCancelled'))
+        return
+      }
+      if (!result.success || !result.path) {
+        toastError(t('sessionDetail.exportFailed'))
+        return
+      }
+      toastSuccess(t('sessionDetail.outlinesExported'))
+    } catch (error) {
+      toastError(error instanceof Error ? error.message : t('sessionDetail.exportFailed'))
     }
   }
 
@@ -2426,6 +2448,10 @@ export function SessionDetailPage(): React.JSX.Element {
               onDeletePage={handleDeletePage}
               onRenamePage={handleOpenTitleEditDialog}
               onUpdatePageOutline={handleUpdatePageOutline}
+              onExportPagePptx={(page, options) =>
+                void handleExportPptx({ pageId: page.id, ...options })
+              }
+              onDownloadAllOutlines={() => void handleExportOutlinesMarkdown()}
               pageManagementDisabled={
                 isGenerating || isAddingPage || isRetryingSinglePage || isManagingPages
               }
