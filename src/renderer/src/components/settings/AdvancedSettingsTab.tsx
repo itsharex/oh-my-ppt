@@ -8,7 +8,7 @@ interface AdvancedSettingsTabProps {
   proxyUrl: string
   savingTimeouts: boolean
   timeoutFields: TimeoutField[]
-  timeoutSeconds: Record<ConfigurableModelTimeoutProfile, number>
+  timeoutSeconds: Record<ConfigurableModelTimeoutProfile, string>
   t: SettingsTranslate
   onProxyUrlChange: (value: string) => void
   onSaveAdvanced: () => void
@@ -40,10 +40,8 @@ export function AdvancedSettingsTab({
                   {field.label}
                 </label>
                 <Input
-                  type="number"
-                  min={field.min}
-                  max={3600}
-                  step={30}
+                  inputMode="numeric"
+                  pattern="[0-9]*"
                   placeholder={t('settings.timeoutPlaceholder')}
                   value={timeoutSeconds[field.profile]}
                   onChange={(e) => onTimeoutChange(field.profile, e.target.value)}

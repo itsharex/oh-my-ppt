@@ -164,20 +164,14 @@ export function TemplatesPage(): React.JSX.Element {
     }
   }
 
-  const handleCreateEditable = async (
-    template: TemplateListItem,
-    modelConfigId?: string
-  ): Promise<void> => {
+  const handleCreateEditable = async (template: TemplateListItem): Promise<void> => {
     if (directCreatingTemplate) return
     const deckTitle = template.name
     setDirectCreatingTemplate(template)
     try {
-      const resolvedModelConfigId = await ensureModelActive(modelConfigId)
-      if (!resolvedModelConfigId) return
       const sessionId = await createEditableSessionFromTemplate({
         templateId: template.id,
-        title: deckTitle,
-        modelConfigId: resolvedModelConfigId
+        title: deckTitle
       })
       await wait(DIRECT_CREATE_DONE_DELAY_MS)
       success(t('templates.sessionCreated'), { description: t('templates.directEditCreatedDescription') })
@@ -280,9 +274,8 @@ export function TemplatesPage(): React.JSX.Element {
             <TemplateCard
               key={template.id}
               template={template}
-              modelAction={modelAction}
               directCreating={directCreatingTemplate?.id === template.id}
-              onUseDirect={(item, modelConfigId) => void handleCreateEditable(item, modelConfigId)}
+              onUseDirect={(item) => void handleCreateEditable(item)}
               onUseGenerate={(item) => void openUseDialog(item)}
               onPreview={setPreviewTarget}
               onEdit={setEditTarget}

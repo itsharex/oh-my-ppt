@@ -11,10 +11,11 @@ import {
 } from '../ui/Dialog'
 import { Input, Textarea } from '../ui/Input'
 import { useT } from '@renderer/i18n'
-import type {
-  DocumentPlanPageSkeletonItem,
-  ParsedDocumentPlanResult,
-  SourceDocumentPlan
+import {
+  isInternalDocumentPlanPageReason,
+  type DocumentPlanPageSkeletonItem,
+  type ParsedDocumentPlanResult,
+  type SourceDocumentPlan
 } from '@shared/generation'
 
 type AttachedReferenceFile = ParsedDocumentPlanResult['files'][number]
@@ -39,54 +40,10 @@ const renumberPageSkeleton = (
     pageNumber: index + 1
   }))
 
-const INTERNAL_OUTLINE_REASON_PATTERN =
-  /(?:major # heading|leaf ## section|standalone level-|section has substantial own body)/i
-
-const PAGE_BLOCK_PATTERN =
-  /(?:^|\n)\s*(?:第\s*(\d+)\s*页|Page\s+(\d+))\s*[：:][^\n]*(?:\n([\s\S]*?))?(?=\n\s*(?:第\s*\d+\s*页|Page\s+\d+)\s*[：:]|$)/gi
-
-const PAGE_CONTENT_LINE_PATTERN =
-  /^(?:页面目的|页面内容|本页内容|内容|简要总结|Page purpose|Page content|Purpose|Content|Brief summary)\s*[：:]\s*(.+)$/i
-
-const SOURCE_METADATA_LINE_PATTERN =
-  /^(?:页面角色|来源标题|来源范围|源文档|Page role|Source heading|Source range|Source document)\s*[：:]/i
-
-const parseOutlineContentFromBriefText = (briefText: string): Map<number, string> => {
-  const result = new Map<number, string>()
-  for (const match of briefText.matchAll(PAGE_BLOCK_PATTERN)) {
-    const pageNumber = Number.parseInt(match[1] || match[2] || '', 10)
-    if (!Number.isFinite(pageNumber)) continue
-    const lines = (match[3] || '')
-      .split('\n')
-      .map((line) => line.trim())
-      .filter(Boolean)
-    const contentLine = lines.find((line) => PAGE_CONTENT_LINE_PATTERN.test(line))
-    if (contentLine) {
-      const content = contentLine.replace(PAGE_CONTENT_LINE_PATTERN, '$1').trim()
-      if (content) result.set(pageNumber, content)
-      continue
-    }
-    const fallbackLine = lines.find((line) => !SOURCE_METADATA_LINE_PATTERN.test(line))
-    if (fallbackLine) result.set(pageNumber, fallbackLine)
-  }
-  return result
-}
-
 const inferOutlineLanguageIsChinese = (text: string): boolean => /[\u3400-\u9fff]/.test(text)
 
-const buildFallbackOutlineContent = (
-  item: DocumentPlanPageSkeletonItem,
-  useChineseLabels: boolean
-): string => {
-  if (item.reason && !INTERNAL_OUTLINE_REASON_PATTERN.test(item.reason)) return item.reason
-  if (item.role === 'chapter-divider') {
-    return useChineseLabels
-      ? `作为「${item.title}」章节分隔页。`
-      : `Introduce the "${item.title}" section.`
-  }
-  return useChineseLabels
-    ? `围绕「${item.title}」展开本页内容，并保留源文档相关事实。`
-    : `Cover "${item.title}" using the relevant source details.`
+const normalizeOutlineItemContent = (item: DocumentPlanPageSkeletonItem): string => {
+  return item.reason && !isInternalDocumentPlanPageReason(item.reason) ? item.reason : item.title
 }
 
 export const formatSourceOutlineBriefText = (items: DocumentPlanPageSkeletonItem[]): string => {
@@ -98,22 +55,20 @@ export const formatSourceOutlineBriefText = (items: DocumentPlanPageSkeletonItem
   const pageSuffix = useChineseLabels ? ' 页' : ''
 
   return [
-    `${outlineLabel}:`,
+    `## ${outlineLabel}`,
     ...items.map(
       (item) =>
-        `${pageLabel} ${item.pageNumber}${pageSuffix}: ${item.title}\n${contentLabel}: ${item.reason}`
+        `### ${pageLabel} ${item.pageNumber}${pageSuffix}: ${item.title}\n\n- **${contentLabel}:** ${normalizeOutlineItemContent(
+          item
+        )}`
     )
-  ].join('\n')
+  ].join('\n\n')
 }
 
 export const buildSuggestionDraft = (
   suggestion: DocumentPlanSuggestion
 ): DocumentPlanSuggestionDraft => {
   const pageSkeleton = suggestion.sourcePlan?.pageSkeleton
-  const contentByPage = parseOutlineContentFromBriefText(suggestion.briefText)
-  const useChineseLabels = inferOutlineLanguageIsChinese(
-    `${suggestion.topic}\n${suggestion.briefText}\n${pageSkeleton?.map((item) => item.title).join('\n') || ''}`
-  )
   return {
     topic: suggestion.topic,
     pageCount: String(pageSkeleton?.length || suggestion.pageCount),
@@ -123,9 +78,7 @@ export const buildSuggestionDraft = (
           ...suggestion.sourcePlan,
           pageSkeleton: renumberPageSkeleton(suggestion.sourcePlan.pageSkeleton).map((item) => ({
             ...item,
-            reason:
-              contentByPage.get(item.pageNumber) ||
-              buildFallbackOutlineContent(item, useChineseLabels)
+            reason: normalizeOutlineItemContent(item)
           }))
         }
       : undefined

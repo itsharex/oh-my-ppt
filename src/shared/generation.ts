@@ -16,7 +16,6 @@ export interface ParseDocumentPlanPayload {
   }>
   modelConfigId?: string
   topic?: string
-  pageCount?: number
   existingBrief?: string
 }
 
@@ -58,6 +57,7 @@ export interface ParsedDocumentPlanResult {
 }
 
 export interface DocumentPlanPageSkeletonItem {
+  id?: string
   pageNumber: number
   title: string
   role: 'chapter-divider' | 'content'
@@ -66,6 +66,16 @@ export interface DocumentPlanPageSkeletonItem {
   lineStart: number
   lineEnd: number
   reason: string
+}
+
+export const isInternalDocumentPlanPageReason = (reason: string): boolean => {
+  const normalized = reason.toLowerCase()
+  return (
+    normalized.includes('major # heading') ||
+    normalized.includes('leaf ## section') ||
+    normalized.includes('standalone level-') ||
+    normalized.includes('section has substantial own body')
+  )
 }
 
 export interface PreparedReferenceDocumentResult {
@@ -112,7 +122,9 @@ export const normalizeFontSelection = (value: unknown): FontSelection => {
   const record = value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
   if (record.mode !== 'pair') return { mode: 'auto' }
   const title =
-    record.title && typeof record.title === 'object' ? (record.title as Record<string, unknown>) : {}
+    record.title && typeof record.title === 'object'
+      ? (record.title as Record<string, unknown>)
+      : {}
   const body =
     record.body && typeof record.body === 'object' ? (record.body as Record<string, unknown>) : {}
   const titleFamily = typeof title.family === 'string' ? title.family.trim() : ''

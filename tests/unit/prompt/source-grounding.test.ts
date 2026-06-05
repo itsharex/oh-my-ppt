@@ -20,17 +20,17 @@ describe('source-grounded prompt rules', () => {
     expect(source).toContain('Do not ask to read the file')
     expect(source).toContain('Do not write detailed facts')
     expect(source).toContain('hasOutlinePageCandidateSkeleton')
+    expect(source).not.toContain('rawPageCountInput')
+    expect(source).not.toContain('requestedPageCount')
+    expect(source).not.toContain('userPageCount')
+    expect(source).not.toContain('User-provided page count')
     expect(source).toContain('runSingleShotDocumentPlanModel')
     expect(source).toContain('single-shot model invoke')
     expect(source).toContain('sourcePreviewLength')
-    expect(source).toContain("[documents:parsePlan] end")
+    expect(source).toContain('[documents:parsePlan] end')
     expect(source).toContain('durationMs')
     expect(source).toContain('csv converted for reading')
-    expect(source).toContain('rawPageCountInput')
     expect(source).toContain('normalized candidate plan')
-    expect(source).toContain('ignored single-page count for structured source')
-    expect(source).toContain('args.plan.pageCount !== args.userPageCount')
-    expect(source).toContain('user-provided page count')
     expect(source).toContain('document outline page-count estimate')
     expect(source).toContain('deterministic source-structure page-count estimate')
     expect(source).toContain('outline quality check failed after retry, rejecting plan')
@@ -52,7 +52,9 @@ describe('source-grounded prompt rules', () => {
 
   it('frontend lets document parse infer pageCount from source structure', () => {
     const sessionCreate = readSource('src/renderer/src/pages/session-create.tsx')
-    const templateUseDialog = readSource('src/renderer/src/components/templates/TemplateUseDialog.tsx')
+    const templateUseDialog = readSource(
+      'src/renderer/src/components/templates/TemplateUseDialog.tsx'
+    )
     const sessionParseCall = sessionCreate.slice(
       sessionCreate.indexOf('const result = await ipc.parseDocumentPlan({'),
       sessionCreate.indexOf('const nextSuggestion = {')
@@ -70,6 +72,17 @@ describe('source-grounded prompt rules', () => {
     expect(templateParseCall).not.toContain('resolvePageCount')
   })
 
+  it('template document analysis reuses the shared suggestion dialog', () => {
+    const templateUseDialog = readSource(
+      'src/renderer/src/components/templates/TemplateUseDialog.tsx'
+    )
+
+    expect(templateUseDialog).toContain('SessionCreateSuggestionDialog')
+    expect(templateUseDialog).not.toContain('updateDraftSourcePlanItems')
+    expect(templateUseDialog).not.toContain('editingOutlineIndex')
+    expect(templateUseDialog).not.toContain('suggestionCardClass')
+  })
+
   it('edit, add-page, and retry-single-page flows resolve source documents', () => {
     const generationContext = readSource('src/main/ipc/generation/context.ts')
     const sourceDocuments = readSource('src/main/ipc/generation/source-documents.ts')
@@ -78,7 +91,9 @@ describe('source-grounded prompt rules', () => {
     const addPageFlow = readSource('src/main/ipc/generation/add-page-flow.ts')
     const retrySinglePageFlow = readSource('src/main/ipc/generation/retry-single-page-flow.ts')
 
-    expect(generationContext).toContain("export { resolveSourceDocuments } from './source-documents'")
+    expect(generationContext).toContain(
+      "export { resolveSourceDocuments } from './source-documents'"
+    )
     expect(sourceDocuments).toContain('appendSourceDocumentPath(resolveExistingSessionDoc')
     expect(sourceDocuments).toContain('appendSourceDocumentPath(`/docs/${safeName}`)')
     expect(generationContext).not.toContain("mode === 'edit') return []")
@@ -126,7 +141,9 @@ describe('source-grounded prompt rules', () => {
     expect(runtimeUserSource).toContain('hasSourceMaterials?: boolean')
     expect(runtimeUserSource).toContain('args.hasSourceMaterials || hasSourceMaterialCue')
     expect(runtimeUserSource).toContain('SOURCE_MATERIAL_PLANNING_RULES')
-    expect(runtimeUserSource).not.toContain('Do not reinterpret the reference document into a new creative storyline')
+    expect(runtimeUserSource).not.toContain(
+      'Do not reinterpret the reference document into a new creative storyline'
+    )
   })
 
   it('requires source inspection before source-backed slide generation', () => {
@@ -139,7 +156,9 @@ describe('source-grounded prompt rules', () => {
     expect(sharedSource).toContain('not as final evidence or permission to freestyle')
     expect(sharedSource).not.toContain('Before writing source-backed content')
     expect(sharedSource).not.toContain('Do not read entire long documents into context at once')
-    expect(sourceReadingSkill).toContain('Use the DeepAgents filesystem tool `grep(pattern, path, glob)`')
+    expect(sourceReadingSkill).toContain(
+      'Use the DeepAgents filesystem tool `grep(pattern, path, glob)`'
+    )
     expect(sourceReadingSkill).toContain('Use the DeepAgents filesystem tool `glob(pattern, path)`')
     expect(sourceReadingSkill).toContain('`pattern` is a literal string')
     expect(sourceReadingSkill).toContain('Use `read_file` only on targeted sections')

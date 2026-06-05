@@ -33,7 +33,8 @@ describe('source page skeleton planning', () => {
           role: 'chapter-divider',
           sourceHeading: '# 第一篇：认知篇',
           lineStart: 10,
-          lineEnd: 28
+          lineEnd: 28,
+          reason: ''
         }
       ]
     })
@@ -84,5 +85,7 @@ describe('source page skeleton planning', () => {
     })
     expect(item.contentOutline).toContain('Source heading: ## 收入增长')
     expect(item.contentOutline).toContain('Source range: lines 30-48')
+    expect(item.contentOutline).not.toContain('Page purpose:')
+    expect(item.contentOutline).not.toContain('leaf ## section')
   })
 })

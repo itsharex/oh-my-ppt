@@ -24,6 +24,10 @@ const VALID_PROVIDERS = ['anthropic', 'openai', 'google'] as const
 type Provider = (typeof VALID_PROVIDERS)[number]
 const normalizeProvider = (provider: unknown): Provider =>
   VALID_PROVIDERS.includes(provider as Provider) ? (provider as Provider) : 'openai'
+const normalizeMaxTokens = (value: unknown): number => {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return 4096
+  return Math.max(256, Math.min(16384, Math.floor(value)))
+}
 
 export function registerSettingsHandlers(ctx: IpcContext): void {
   const { mainWindow, db, encryptApiKey, decryptApiKey } = ctx
@@ -158,10 +162,7 @@ export function registerSettingsHandlers(ctx: IpcContext): void {
     if (!name) throw new Error(uiText(locale, '请填写模型名称。', 'Enter model name.'))
     if (!model) throw new Error(uiText(locale, '请填写 model。', 'Enter model.'))
     if (!apiKey) throw new Error(uiText(locale, '请填写 api_key。', 'Enter api_key.'))
-    const maxTokens =
-      typeof record.maxTokens === 'number' && record.maxTokens > 0
-        ? Math.min(record.maxTokens, 16384)
-        : 4096
+    const maxTokens = normalizeMaxTokens(record.maxTokens)
     const savedId = await db.upsertModelConfig({
       id,
       name,
@@ -213,8 +214,7 @@ export function registerSettingsHandlers(ctx: IpcContext): void {
     async (_event, { provider, apiKey, model, baseUrl, maxTokens, timeoutMs }) => {
       const locale = await readAppLocale(ctx)
       const resolvedTimeoutMs = resolveModelTimeoutMs(timeoutMs, 'verify')
-      const resolvedMaxTokens =
-        typeof maxTokens === 'number' && maxTokens > 0 ? Math.min(maxTokens, 16384) : 4096
+      const resolvedMaxTokens = normalizeMaxTokens(maxTokens)
       log.info('[settings:verifyApiKey] received', {
         provider,
         model,

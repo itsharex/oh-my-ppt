@@ -92,7 +92,7 @@ export const createEmptyModelForm = (active = false): ModelForm => ({
   model: '',
   apiKey: '',
   baseUrl: '',
-  maxTokens: 4096,
+  maxTokens: '4096',
   active
 })
 
@@ -103,7 +103,7 @@ export const createModelForm = (config: ModelConfig): ModelForm => ({
   model: config.model,
   apiKey: config.apiKey,
   baseUrl: config.baseUrl,
-  maxTokens: config.maxTokens || 4096,
+  maxTokens: String(config.maxTokens || 4096),
   active: config.active
 })
 

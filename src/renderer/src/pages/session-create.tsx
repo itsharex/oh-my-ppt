@@ -4,6 +4,7 @@ import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
 import { Textarea } from '../components/ui/Input'
 import { Card, CardContent } from '../components/ui/Card'
+import { ScrollArea } from '../components/ui/ScrollArea'
 import {
   Select,
   SelectContent,
@@ -12,7 +13,7 @@ import {
   SelectValue
 } from '../components/ui/Select'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../components/ui/Tooltip'
-import { CircleAlert, FileText, Loader2, Sparkles, X } from 'lucide-react'
+import { CircleAlert, Eye, FileText, Loader2, Pencil, Sparkles, X } from 'lucide-react'
 import { useSessionStore } from '../store'
 import { useSettingsStore } from '../store'
 import { useToastStore } from '../store'
@@ -21,6 +22,7 @@ import { useModelAction } from '../hooks/useModelAction'
 import { ipc, type FontListItem } from '@renderer/lib/ipc'
 import type { FontSelection, ParsedDocumentPlanResult } from '@shared/generation'
 import { useT } from '../i18n'
+import ReactMarkdown from 'react-markdown'
 import { isSupportedImageMimeType } from '@shared/image-mime'
 import {
   buildSuggestionDraft,
@@ -79,6 +81,7 @@ export function SessionCreatePage(): ReactElement {
   const [submitting, setSubmitting] = useState(false)
   const [topic, setTopic] = useState('')
   const [brief, setBrief] = useState('')
+  const [briefMode, setBriefMode] = useState<'edit' | 'preview'>('edit')
   const [pageCount, setPageCount] = useState(String(DEFAULT_PAGE_COUNT))
   const [selectedStyleId, setSelectedStyleId] = useState('')
   const [selectedTitleFontId, setSelectedTitleFontId] = useState('auto')
@@ -93,8 +96,6 @@ export function SessionCreatePage(): ReactElement {
   const [parsingDocument, setParsingDocument] = useState(false)
   const [documentParseError, setDocumentParseError] = useState<string | null>(null)
   const [referenceDocumentPath, setReferenceDocumentPath] = useState<string | null>(null)
-  const [documentPlanSuggestion, setDocumentPlanSuggestion] =
-    useState<DocumentPlanSuggestion | null>(null)
   const [suggestionDraft, setSuggestionDraft] = useState<DocumentPlanSuggestionDraft | null>(null)
   const [acceptedSourcePlan, setAcceptedSourcePlan] =
     useState<DocumentPlanSuggestion['sourcePlan']>(undefined)
@@ -349,7 +350,6 @@ export function SessionCreatePage(): ReactElement {
       setReferenceDocumentPath(
         referenceFile && referenceFile.type !== 'image' ? referenceFile.path : null
       )
-      setDocumentPlanSuggestion(null)
       setSuggestionDraft(null)
       setAcceptedSourcePlan(undefined)
       success(isImage ? t('home.imageReferenceAttachedNeedsParse') : t('home.referenceAttached'), {
@@ -369,7 +369,6 @@ export function SessionCreatePage(): ReactElement {
   const handleRemoveReferenceFile = (): void => {
     setAttachedReferenceFile(null)
     setReferenceDocumentPath(null)
-    setDocumentPlanSuggestion(null)
     setSuggestionDraft(null)
     setAcceptedSourcePlan(undefined)
     setDocumentParseError(null)
@@ -404,7 +403,6 @@ export function SessionCreatePage(): ReactElement {
       if (!referenceFile) throw new Error(t('common.retryLater'))
       setAttachedReferenceFile(referenceFile)
       setReferenceDocumentPath(referenceFile.path)
-      setDocumentPlanSuggestion(null)
       setSuggestionDraft(null)
       setAcceptedSourcePlan(undefined)
       setSuggestionDialogOpen(false)
@@ -441,7 +439,6 @@ export function SessionCreatePage(): ReactElement {
       const referenceFile = result.files[0] || attachedReferenceFile
       setAttachedReferenceFile(referenceFile)
       setReferenceDocumentPath(referenceFile.type !== 'image' ? referenceFile.path : null)
-      setDocumentPlanSuggestion(nextSuggestion)
       setSuggestionDraft(buildSuggestionDraft(nextSuggestion))
       setAcceptedSourcePlan(undefined)
       setApplyTopicSuggestion(!topic.trim())
@@ -461,9 +458,7 @@ export function SessionCreatePage(): ReactElement {
   }
 
   const applyDocumentSuggestion = (): void => {
-    const draft =
-      suggestionDraft ||
-      (documentPlanSuggestion ? buildSuggestionDraft(documentPlanSuggestion) : null)
+    const draft = suggestionDraft
     if (!draft) return
     const sourceOutlinePageCount = draft.sourcePlan?.pageSkeleton.length || 0
     const hasSourceOutline = sourceOutlinePageCount > 0
@@ -677,19 +672,98 @@ export function SessionCreatePage(): ReactElement {
             </div>
 
             <div>
-              <label className="block font-medium">{t('home.brief')}</label>
+              <div className="mb-2 flex items-center justify-between">
+                <label className="block font-medium">{t('home.brief')}</label>
+                <div className="flex items-center gap-1 rounded-lg border border-border p-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setBriefMode('edit')}
+                    className={`flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-medium transition-colors ${
+                      briefMode === 'edit'
+                        ? 'bg-foreground text-background'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                    {t('common.edit')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setBriefMode('preview')}
+                    className={`flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-medium transition-colors ${
+                      briefMode === 'preview'
+                        ? 'bg-foreground text-background'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    <Eye className="h-3.5 w-3.5" />
+                    {t('common.preview')}
+                  </button>
+                </div>
+              </div>
               <div className="rounded-lg border border-[#d8ccb5]/80 bg-[#fff9ef]/40 p-2">
-                <Textarea
-                  placeholder={t('home.briefPlaceholder')}
-                  rows={7}
-                  value={brief}
-                  required
-                  onChange={(e) => {
-                    setAcceptedSourcePlan(undefined)
-                    setBrief(e.target.value)
-                  }}
-                  className="min-h-[150px] resize-y border-0 bg-transparent shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
-                />
+                {briefMode === 'edit' ? (
+                  <Textarea
+                    placeholder={t('home.briefPlaceholder')}
+                    rows={6}
+                    value={brief}
+                    required
+                    onChange={(e) => {
+                      setAcceptedSourcePlan(undefined)
+                      setBrief(e.target.value)
+                    }}
+                    className="min-h-[150px] resize-y border-0 bg-transparent px-3 py-2 text-xs leading-5 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+                  />
+                ) : (
+                  <ScrollArea
+                    className="h-[180px] rounded-lg border border-border/70 bg-background/70"
+                    viewportClassName="p-4"
+                  >
+                    <ReactMarkdown
+                      components={{
+                        h1: ({ children }) => (
+                          <h1 className="mb-2 text-lg font-semibold text-foreground">{children}</h1>
+                        ),
+                        h2: ({ children }) => (
+                          <h2 className="mb-2 mt-3 text-base font-semibold text-foreground">
+                            {children}
+                          </h2>
+                        ),
+                        h3: ({ children }) => (
+                          <h3 className="mb-1.5 mt-2.5 text-sm font-semibold text-foreground">
+                            {children}
+                          </h3>
+                        ),
+                        p: ({ children }) => (
+                          <p className="mb-2 text-xs leading-5 text-muted-foreground">{children}</p>
+                        ),
+                        ul: ({ children }) => (
+                          <ul className="mb-2 list-disc space-y-0.5 pl-5 text-xs text-muted-foreground">
+                            {children}
+                          </ul>
+                        ),
+                        ol: ({ children }) => (
+                          <ol className="mb-2 list-decimal space-y-0.5 pl-5 text-xs text-muted-foreground">
+                            {children}
+                          </ol>
+                        ),
+                        li: ({ children }) => <li>{children}</li>,
+                        code: ({ children }) => (
+                          <code className="rounded bg-muted px-1.5 py-0.5 text-xs text-foreground">
+                            {children}
+                          </code>
+                        ),
+                        blockquote: ({ children }) => (
+                          <blockquote className="mb-2 border-l-2 border-border pl-3 text-xs text-muted-foreground">
+                            {children}
+                          </blockquote>
+                        )
+                      }}
+                    >
+                      {brief || t('home.briefPlaceholder')}
+                    </ReactMarkdown>
+                  </ScrollArea>
+                )}
                 <div className="mt-2 flex flex-col gap-2 border-t border-[#e5dccb] pt-2">
                   {attachedReferenceFile && (
                     <div className="flex min-w-0">
@@ -802,7 +876,7 @@ export function SessionCreatePage(): ReactElement {
                               />
                             </span>
                           </TooltipTrigger>
-                          <TooltipContent side="bottom" align="start" className="max-w-xs">
+                          <TooltipContent side="top" align="start" className="max-w-xs">
                             {t('home.analyzeReferenceTooltip')}
                           </TooltipContent>
                         </Tooltip>

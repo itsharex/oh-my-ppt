@@ -81,41 +81,6 @@ function ModelMenuItems({ modelAction }: { modelAction: ModelActionState }): Rea
   )
 }
 
-function ModelRunMenuItems({
-  modelAction,
-  onRun
-}: {
-  modelAction: ModelActionState
-  onRun: (modelConfigId: string) => void | Promise<void>
-}): ReactElement {
-  return (
-    <>
-      {modelAction.modelConfigs.map((config) => (
-        <DropdownMenuItem
-          key={config.id}
-          className="py-1.5 text-xs"
-          onSelect={() => {
-            runModelAction(config.id, onRun)
-          }}
-        >
-          <Check
-            className={cn(
-              'h-4 w-4 shrink-0',
-              config.id === modelAction.selectedModelConfigId ? 'opacity-100' : 'opacity-0'
-            )}
-          />
-          <span className="min-w-0 flex-1">
-            <span className="block truncate text-xs text-[#33402a]">{config.name}</span>
-            <span className="mt-0.5 block truncate text-[10px] text-muted-foreground">
-              {config.provider} · {config.model}
-            </span>
-          </span>
-        </DropdownMenuItem>
-      ))}
-    </>
-  )
-}
-
 export function ModelSplitButton({
   modelAction,
   label,
@@ -219,7 +184,7 @@ export function ModelSplitButton({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align={dropdownAlign} className="w-64">
-              <ModelRunMenuItems modelAction={modelAction} onRun={onRun} />
+              <ModelMenuItems modelAction={modelAction} />
             </DropdownMenuContent>
           </DropdownMenu>
         </>

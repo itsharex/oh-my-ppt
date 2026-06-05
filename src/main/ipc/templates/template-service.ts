@@ -674,17 +674,11 @@ export async function createEditableSessionFromTemplate(
   const record = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {}
   const templateId = typeof record.templateId === 'string' ? record.templateId.trim() : ''
   const title = typeof record.title === 'string' && record.title.trim() ? record.title.trim() : ''
-  const modelConfigId =
-    typeof record.modelConfigId === 'string' ? record.modelConfigId.trim() : undefined
 
   const templatesRoot = await ensureTemplatesRoot()
   const { manifest, templateDir } = await readManifest(templatesRoot, templateId)
   if (manifest.pages.length === 0) throw new Error('模板没有可创建的页面')
 
-  const activeModel = await resolveModelConfigForTask(ctx, {
-    modelConfigId,
-    purpose: 'templates:createEditableSession'
-  })
   const storagePath = await ctx.resolveStoragePath()
   const sessionId = createTemplateSessionId()
   const styleId = resolveUsableStyleId(manifest.styleId)
@@ -709,15 +703,14 @@ export async function createEditableSessionFromTemplate(
   const indexPath = path.join(projectDir, 'index.html')
   await fs.promises.writeFile(indexPath, buildProjectIndexHtml(deckTitle, indexPages), 'utf-8')
 
-  await ctx.agentManager.createSession({
-    sessionId,
-    provider: activeModel.provider,
-    model: activeModel.model,
-    baseUrl: activeModel.baseUrl,
-    projectDir,
+  await ctx.db.createSession({
+    id: sessionId,
+    title: deckTitle,
     topic: deckTitle,
     styleId,
-    pageCount: preparedPages.length
+    pageCount: preparedPages.length,
+    provider: 'import',
+    model: 'template-direct-edit'
   })
   const designContract = resolveTemplateDesignContract(manifest.designContract)
   await ctx.db.updateSessionDesignContract(sessionId, designContract)
@@ -731,14 +724,9 @@ export async function createEditableSessionFromTemplate(
     sessionId,
     mode: 'import',
     totalPages: preparedPages.length,
-    modelConfigId: activeModel.id,
     metadata: {
       source: 'template-direct-edit',
-      templateId,
-      modelConfigId: activeModel.id,
-      modelConfigName: activeModel.name,
-      provider: activeModel.provider,
-      model: activeModel.model
+      templateId
     }
   })
   for (const page of preparedPages) {

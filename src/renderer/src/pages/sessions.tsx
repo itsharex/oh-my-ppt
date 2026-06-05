@@ -22,7 +22,7 @@ const getSourceTag = (
 ): { label: string; Icon: LucideIcon; className: string } => {
   const metadata = parseSessionMetadata(session.metadata)
   const source = typeof metadata.source === 'string' ? metadata.source : ''
-  if (source === 'template') {
+  if (source === 'template' || source === 'template-direct-edit' || session.model === 'template-direct-edit') {
     return {
       label: labels.template,
       Icon: LayoutTemplate,

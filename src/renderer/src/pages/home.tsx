@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom'
 import { useToastStore } from '../store'
 import { useT } from '../i18n'
 import { useModelAction } from '../hooks/useModelAction'
-import { ModelSelectButton } from '../components/model/ModelActionButton'
 import { ipc } from '@renderer/lib/ipc'
 import {
   ArrowRight,
@@ -150,9 +149,6 @@ export function HomePage(): ReactElement {
             <p className="mt-4 max-w-2xl text-[15px] leading-relaxed text-[#5d6b4d]">
               {t('thinking.homeDescription')}
             </p>
-          </div>
-          <div className="relative flex shrink-0 justify-start lg:justify-end">
-            <ModelSelectButton modelAction={modelAction} disabled={importingPptx} />
           </div>
         </div>
       </section>

@@ -1,5 +1,8 @@
-import type { SourceDocumentPlan } from '@shared/generation'
 import type { OutlineItem } from '../../tools/types'
+import {
+  isInternalDocumentPlanPageReason,
+  type SourceDocumentPlan
+} from '../../../shared/generation'
 
 const MAX_SOURCE_PLAN_PAGES = 500
 const LAYOUT_INTENTS = new Set([
@@ -26,6 +29,9 @@ const readPositiveInt = (value: unknown): number | null => {
 
 const readString = (value: unknown): string => (typeof value === 'string' ? value.trim() : '')
 
+const normalizeSourcePlanReason = (reason: string): string =>
+  reason && !isInternalDocumentPlanPageReason(reason) ? reason : ''
+
 const normalizeSourcePlanItem = (value: unknown, fallbackPageNumber: number) => {
   const record = getObject(value)
   if (!record) return null
@@ -46,7 +52,7 @@ const normalizeSourcePlanItem = (value: unknown, fallbackPageNumber: number) => 
     headingLevel,
     lineStart,
     lineEnd,
-    reason
+    reason: normalizeSourcePlanReason(reason)
   }
 }
 
@@ -152,7 +158,7 @@ export const mapSourcePlanToOutlineItems = (sourcePlan: SourceDocumentPlan): Out
         `Source heading: ${item.sourceHeading}`,
         `Source range: lines ${item.lineStart}-${item.lineEnd}`,
         `Page role: ${item.role}`,
-        item.reason ? `Structure basis: ${item.reason}` : ''
+        item.reason ? `Page purpose: ${item.reason}` : ''
       ]
         .filter(Boolean)
         .join('\n'),

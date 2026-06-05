@@ -150,16 +150,10 @@ export function ModelConfigDialog({
           <div>
             <label className="mb-1 block text-sm font-medium">max_tokens</label>
             <Input
-              type="number"
-              min={256}
-              max={16384}
-              step={256}
+              inputMode="numeric"
+              pattern="[0-9]*"
               value={form.maxTokens}
-              onChange={(e) =>
-                onFormChange({
-                  maxTokens: Math.max(256, Math.min(16384, Number(e.target.value) || 4096))
-                })
-              }
+              onChange={(e) => onFormChange({ maxTokens: e.target.value })}
               className="h-8"
             />
             <p className="mt-1 text-xs text-muted-foreground">{t('settings.maxTokensHint')}</p>

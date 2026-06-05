@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  Check,
   CircleAlert,
+  Eye,
   FileText,
   LayoutTemplate,
   Loader2,
@@ -20,17 +20,19 @@ import {
   DialogTitle
 } from '../ui/Dialog'
 import { Input, Textarea } from '../ui/Input'
+import { ScrollArea } from '../ui/ScrollArea'
 import { ModelSplitButton } from '../model/ModelActionButton'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/Tooltip'
 import { useModelAction } from '@renderer/hooks/useModelAction'
 import { useT } from '@renderer/i18n'
 import { ipc, type TemplateListItem } from '@renderer/lib/ipc'
 import { useTemplateStore, useToastStore } from '@renderer/store'
-import type { DocumentPlanPageSkeletonItem, ParsedDocumentPlanResult } from '@shared/generation'
+import type { ParsedDocumentPlanResult } from '@shared/generation'
+import ReactMarkdown from 'react-markdown'
 import {
   buildSuggestionDraft,
   formatSourceOutlineBriefText,
-  updateDraftSourcePlanItems,
+  SessionCreateSuggestionDialog,
   type DocumentPlanSuggestion,
   type DocumentPlanSuggestionDraft
 } from '../session-create/SessionCreateSuggestionDialog'
@@ -80,6 +82,7 @@ export function TemplateUseDialog({
   const { selectedModelConfigId, ensureModelActive } = modelAction
   const [title, setTitle] = useState('')
   const [brief, setBrief] = useState('')
+  const [briefMode, setBriefMode] = useState<'edit' | 'preview'>('edit')
   const [pageCount, setPageCount] = useState('5')
   const [attachedReferenceFile, setAttachedReferenceFile] = useState<AttachedReferenceFile | null>(
     null
@@ -88,16 +91,10 @@ export function TemplateUseDialog({
   const [parsingDocument, setParsingDocument] = useState(false)
   const [documentParseError, setDocumentParseError] = useState<string | null>(null)
   const [hasParsedSource, setHasParsedSource] = useState(false)
-  const [documentPlanSuggestion, setDocumentPlanSuggestion] =
-    useState<DocumentPlanSuggestion | null>(null)
   const [suggestionDraft, setSuggestionDraft] = useState<DocumentPlanSuggestionDraft | null>(null)
   const [acceptedSourcePlan, setAcceptedSourcePlan] =
     useState<DocumentPlanSuggestion['sourcePlan']>(undefined)
   const [suggestionDialogOpen, setSuggestionDialogOpen] = useState(false)
-  const [editingSuggestionField, setEditingSuggestionField] = useState<
-    'topic' | 'pageCount' | 'brief' | null
-  >(null)
-  const [editingOutlineIndex, setEditingOutlineIndex] = useState<number | null>(null)
   const [applyTitleSuggestion, setApplyTitleSuggestion] = useState(false)
   const [applyPageCountSuggestion, setApplyPageCountSuggestion] = useState(false)
   const [applyBriefSuggestion, setApplyBriefSuggestion] = useState(false)
@@ -109,16 +106,14 @@ export function TemplateUseDialog({
     if (!template) return
     setTitle(template.name)
     setBrief('')
+    setBriefMode('edit')
     setPageCount(String(resolvePageCount(String(template.pageCount || 5), 5)))
     setAttachedReferenceFile(null)
     setReferenceDocumentPath(null)
     setDocumentParseError(null)
     setHasParsedSource(false)
-    setDocumentPlanSuggestion(null)
     setSuggestionDraft(null)
     setAcceptedSourcePlan(undefined)
-    setEditingSuggestionField(null)
-    setEditingOutlineIndex(null)
     setSuggestionDialogOpen(false)
   }, [template])
 
@@ -189,11 +184,8 @@ export function TemplateUseDialog({
       setReferenceDocumentPath(
         referenceFile && referenceFile.type !== 'image' ? referenceFile.path : null
       )
-      setDocumentPlanSuggestion(null)
       setSuggestionDraft(null)
       setAcceptedSourcePlan(undefined)
-      setEditingSuggestionField(null)
-      setEditingOutlineIndex(null)
       setSuggestionDialogOpen(false)
       success(t('templates.referenceAttached'), {
         description: referenceFile?.name || selectedFile.name
@@ -212,11 +204,8 @@ export function TemplateUseDialog({
     setReferenceDocumentPath(null)
     setDocumentParseError(null)
     setHasParsedSource(false)
-    setDocumentPlanSuggestion(null)
     setSuggestionDraft(null)
     setAcceptedSourcePlan(undefined)
-    setEditingSuggestionField(null)
-    setEditingOutlineIndex(null)
     setSuggestionDialogOpen(false)
   }
 
@@ -243,11 +232,8 @@ export function TemplateUseDialog({
         briefText: result.briefText,
         sourcePlan: result.sourcePlan
       }
-      setDocumentPlanSuggestion(nextSuggestion)
       setSuggestionDraft(buildSuggestionDraft(nextSuggestion))
       setAcceptedSourcePlan(undefined)
-      setEditingSuggestionField(null)
-      setEditingOutlineIndex(null)
       setApplyTitleSuggestion(!title.trim() || title.trim() === template.name)
       setApplyPageCountSuggestion(!result.sourcePlan?.pageSkeleton.length)
       setApplyBriefSuggestion(Boolean(result.sourcePlan?.pageSkeleton.length) || !brief.trim())
@@ -266,9 +252,7 @@ export function TemplateUseDialog({
   }
 
   const applyDocumentSuggestion = (): void => {
-    const draft =
-      suggestionDraft ||
-      (documentPlanSuggestion ? buildSuggestionDraft(documentPlanSuggestion) : null)
+    const draft = suggestionDraft
     if (!draft) return
     const sourceOutlinePageCount = draft.sourcePlan?.pageSkeleton.length || 0
     const hasSourceOutline = sourceOutlinePageCount > 0
@@ -334,36 +318,6 @@ export function TemplateUseDialog({
     }
   }
 
-  const sourceOutlineItems = suggestionDraft?.sourcePlan?.pageSkeleton ?? []
-  const hasSourceOutline = sourceOutlineItems.length > 0
-  const updateSuggestionOutlineItem = (
-    index: number,
-    patch: Partial<DocumentPlanPageSkeletonItem>
-  ): void => {
-    setSuggestionDraft((current) =>
-      current
-        ? updateDraftSourcePlanItems(current, (items) =>
-            items.map((item, itemIndex) => (itemIndex === index ? { ...item, ...patch } : item))
-          )
-        : current
-    )
-  }
-  const deleteSuggestionOutlineItem = (index: number): void => {
-    setSuggestionDraft((current) =>
-      current
-        ? updateDraftSourcePlanItems(current, (items) =>
-            items.filter((_, itemIndex) => itemIndex !== index)
-          )
-        : current
-    )
-  }
-  const suggestionCardClass =
-    'rounded-lg border border-[#d7e8cc] bg-[#fbfff7] px-3 py-2.5 shadow-[0_4px_10px_rgba(93,107,77,0.06)]'
-  const suggestionIconButtonClass =
-    'flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[#bfd9ae] bg-[#f8fff3] text-[#5f7448] transition-colors hover:bg-[#edf8e5]'
-  const deleteSuggestionIconButtonClass =
-    'flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[#e1c4b9] bg-[#fff8f5] text-[#9a5d4d] transition-colors hover:bg-[#f5ded6]'
-
   return (
     <>
       <Dialog open={open} onOpenChange={(next) => !next && close()}>
@@ -400,25 +354,104 @@ export function TemplateUseDialog({
               </div>
             </div>
             <div>
-              <div className="mb-1 flex items-center justify-between gap-2">
+              <div className="mb-2 flex items-center justify-between gap-2">
                 <label className="block text-xs font-medium text-[#5f6b50]">
                   {t('templates.briefLabel')}
                 </label>
-                {hasParsedSource && !parsingDocument ? (
-                  <span className="rounded-full bg-[#e8f0df] px-2 py-0.5 text-[11px] text-[#4f6340]">
-                    {t('templates.parsed')}
-                  </span>
-                ) : null}
+                <div className="flex items-center gap-2">
+                  {hasParsedSource && !parsingDocument ? (
+                    <span className="rounded-full bg-[#e8f0df] px-2 py-0.5 text-[11px] text-[#4f6340]">
+                      {t('templates.parsed')}
+                    </span>
+                  ) : null}
+                  <div className="flex items-center gap-1 rounded-lg border border-border p-0.5">
+                    <button
+                      type="button"
+                      onClick={() => setBriefMode('edit')}
+                      className={`flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-medium transition-colors ${
+                        briefMode === 'edit'
+                          ? 'bg-foreground text-background'
+                          : 'text-muted-foreground hover:text-foreground'
+                      }`}
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                      {t('common.edit')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setBriefMode('preview')}
+                      className={`flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-medium transition-colors ${
+                        briefMode === 'preview'
+                          ? 'bg-foreground text-background'
+                          : 'text-muted-foreground hover:text-foreground'
+                      }`}
+                    >
+                      <Eye className="h-3.5 w-3.5" />
+                      {t('common.preview')}
+                    </button>
+                  </div>
+                </div>
               </div>
-              <Textarea
-                value={brief}
-                onChange={(event) => {
-                  setAcceptedSourcePlan(undefined)
-                  setBrief(event.target.value)
-                }}
-                className="min-h-[160px]"
-                placeholder={t('templates.briefPlaceholder')}
-              />
+              {briefMode === 'edit' ? (
+                <Textarea
+                  value={brief}
+                  onChange={(event) => {
+                    setAcceptedSourcePlan(undefined)
+                    setBrief(event.target.value)
+                  }}
+                  className="min-h-[150px] resize-y px-3 py-2 text-xs leading-5"
+                  placeholder={t('templates.briefPlaceholder')}
+                />
+              ) : (
+                <ScrollArea
+                  className="h-[180px] rounded-lg border border-border/70 bg-background/70"
+                  viewportClassName="p-4"
+                >
+                  <ReactMarkdown
+                    components={{
+                      h1: ({ children }) => (
+                        <h1 className="mb-2 text-lg font-semibold text-foreground">{children}</h1>
+                      ),
+                      h2: ({ children }) => (
+                        <h2 className="mb-2 mt-3 text-base font-semibold text-foreground">
+                          {children}
+                        </h2>
+                      ),
+                      h3: ({ children }) => (
+                        <h3 className="mb-1.5 mt-2.5 text-sm font-semibold text-foreground">
+                          {children}
+                        </h3>
+                      ),
+                      p: ({ children }) => (
+                        <p className="mb-2 text-xs leading-5 text-muted-foreground">{children}</p>
+                      ),
+                      ul: ({ children }) => (
+                        <ul className="mb-2 list-disc space-y-0.5 pl-5 text-xs text-muted-foreground">
+                          {children}
+                        </ul>
+                      ),
+                      ol: ({ children }) => (
+                        <ol className="mb-2 list-decimal space-y-0.5 pl-5 text-xs text-muted-foreground">
+                          {children}
+                        </ol>
+                      ),
+                      li: ({ children }) => <li>{children}</li>,
+                      code: ({ children }) => (
+                        <code className="rounded bg-muted px-1.5 py-0.5 text-xs text-foreground">
+                          {children}
+                        </code>
+                      ),
+                      blockquote: ({ children }) => (
+                        <blockquote className="mb-2 border-l-2 border-border pl-3 text-xs text-muted-foreground">
+                          {children}
+                        </blockquote>
+                      )
+                    }}
+                  >
+                    {brief || t('templates.briefPlaceholder')}
+                  </ReactMarkdown>
+                </ScrollArea>
+              )}
             </div>
             {attachedReferenceFile ? (
               <div className="flex min-w-0">
@@ -536,389 +569,20 @@ export function TemplateUseDialog({
         </DialogContent>
       </Dialog>
 
-      <Dialog
+      <SessionCreateSuggestionDialog
         open={suggestionDialogOpen}
-        onOpenChange={(next) => {
-          setSuggestionDialogOpen(next)
-          if (!next) {
-            setEditingSuggestionField(null)
-            setEditingOutlineIndex(null)
-          }
-        }}
-      >
-        <DialogContent className="max-w-4xl gap-0 overflow-hidden border-[#d8ccb5]/85 bg-[#f7f1e8] p-0">
-          <DialogHeader className="border-b border-[#ded4c1] bg-[#fffaf1] px-5 py-4 pr-12">
-            <div className="flex items-start gap-3">
-              <span className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[#b9cda7]/75 bg-[#e6f1dc] text-[#405333] shadow-[0_4px_10px_rgba(93,107,77,0.08)]">
-                <Sparkles className="h-4 w-4" />
-              </span>
-              <div className="min-w-0">
-                <DialogTitle className="text-sm">{t('home.analysisSuggestionTitle')}</DialogTitle>
-                <DialogDescription className="mt-1 max-w-2xl text-xs leading-5">
-                  {t('home.analysisSuggestionDescription')}
-                </DialogDescription>
-                {attachedReferenceFile ? (
-                  <span
-                    className="mt-2 inline-flex max-w-full items-center gap-1.5 rounded-full border border-[#d8ccb5]/72 bg-[#fff9ef]/86 px-2 py-1 text-[11px] font-medium text-[#5d6b4d]"
-                    title={attachedReferenceFile.path}
-                  >
-                    <FileText className="h-3 w-3 shrink-0" />
-                    <span className="min-w-0 truncate">{attachedReferenceFile.name}</span>
-                  </span>
-                ) : null}
-              </div>
-            </div>
-          </DialogHeader>
-
-          {suggestionDraft ? (
-            <div className="max-h-[64vh] overflow-y-auto px-5 py-4">
-              <div className="space-y-2.5">
-                <section
-                  className={`overflow-hidden rounded-xl border bg-[#fffdf8] shadow-[0_8px_18px_rgba(74,59,42,0.06)] transition-colors ${
-                    applyTitleSuggestion
-                      ? 'border-[#a9c693] ring-1 ring-[#cfe2c1]'
-                      : 'border-[#e1d7c6]'
-                  }`}
-                >
-                  <div className="p-3">
-                    <div className={suggestionCardClass}>
-                      <div className="mb-1.5 flex items-center justify-between gap-2">
-                        <input
-                          type="checkbox"
-                          checked={applyTitleSuggestion}
-                          onChange={(event) => setApplyTitleSuggestion(event.target.checked)}
-                          className="h-4 w-4 accent-[#6f8f64]"
-                          aria-label={t('templates.sessionTitleLabel')}
-                        />
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setEditingSuggestionField(
-                              editingSuggestionField === 'topic' ? null : 'topic'
-                            )
-                          }
-                          className={suggestionIconButtonClass}
-                          aria-label={
-                            editingSuggestionField === 'topic' ? t('common.save') : t('common.edit')
-                          }
-                          title={
-                            editingSuggestionField === 'topic' ? t('common.save') : t('common.edit')
-                          }
-                        >
-                          {editingSuggestionField === 'topic' ? (
-                            <Check className="h-3.5 w-3.5" />
-                          ) : (
-                            <Pencil className="h-3.5 w-3.5" />
-                          )}
-                        </button>
-                      </div>
-                      {editingSuggestionField === 'topic' ? (
-                        <Input
-                          value={suggestionDraft.topic}
-                          onChange={(event) =>
-                            setSuggestionDraft((current) =>
-                              current ? { ...current, topic: event.target.value } : current
-                            )
-                          }
-                          className="h-8 border-[#cddfbe] bg-white text-xs text-[#405333]"
-                        />
-                      ) : (
-                        <p className="whitespace-pre-wrap text-sm font-medium leading-5 text-[#34402c]">
-                          {suggestionDraft.topic || t('home.emptyValue')}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                </section>
-
-                {hasSourceOutline && (
-                  <section
-                    className={`overflow-hidden rounded-xl border bg-[#fffdf8] shadow-[0_8px_18px_rgba(74,59,42,0.06)] transition-colors ${
-                      applyBriefSuggestion
-                        ? 'border-[#a9c693] ring-1 ring-[#cfe2c1]'
-                        : 'border-[#e1d7c6]'
-                    }`}
-                  >
-                    <div className="p-3">
-                      <div className="rounded-lg bg-[#eef6e8] px-3 py-2.5">
-                        <div className="mb-2 flex items-center justify-between gap-2">
-                          <input
-                            type="checkbox"
-                            checked={applyBriefSuggestion}
-                            onChange={(event) => setApplyBriefSuggestion(event.target.checked)}
-                            className="h-4 w-4 accent-[#6f8f64]"
-                            aria-label={t('home.documentOutline')}
-                          />
-                          <span className="rounded-full border border-[#bfd9ae] bg-[#f8fff3] px-2 py-0.5 text-[11px] font-medium text-[#405333]">
-                            {t('home.outlinePageCount', { count: sourceOutlineItems.length })}
-                          </span>
-                        </div>
-                        <ol className="grid max-h-80 gap-2 overflow-y-auto pr-1 md:grid-cols-2">
-                          {sourceOutlineItems.map((item, index) => (
-                            <li
-                              key={`${item.pageNumber}-${item.lineStart}-${item.sourceHeading}`}
-                              className="rounded-lg border border-[#d7e8cc] bg-[#fbfff7] px-3 py-2.5 shadow-[0_4px_10px_rgba(93,107,77,0.06)]"
-                            >
-                              <div className="flex min-w-0 items-start justify-between gap-2">
-                                <div className="flex min-w-0 items-start gap-2">
-                                  <span className="mt-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#dceccb] text-[10px] font-semibold text-[#405333]">
-                                    {item.pageNumber}
-                                  </span>
-                                  <div className="min-w-0">
-                                    {editingOutlineIndex === index ? (
-                                      <p className="text-[10px] font-medium text-[#6a8054]">
-                                        {t('home.outlineItemTitle')}
-                                      </p>
-                                    ) : (
-                                      <h4 className="min-w-0 break-words text-sm font-semibold leading-5 text-[#34402c]">
-                                        {item.title || t('home.emptyValue')}
-                                      </h4>
-                                    )}
-                                  </div>
-                                </div>
-                                <div className="flex shrink-0 items-center gap-1.5">
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      setEditingOutlineIndex(
-                                        editingOutlineIndex === index ? null : index
-                                      )
-                                    }
-                                    className={suggestionIconButtonClass}
-                                    aria-label={
-                                      editingOutlineIndex === index
-                                        ? t('common.save')
-                                        : t('common.edit')
-                                    }
-                                    title={
-                                      editingOutlineIndex === index
-                                        ? t('common.save')
-                                        : t('common.edit')
-                                    }
-                                  >
-                                    {editingOutlineIndex === index ? (
-                                      <Check className="h-3.5 w-3.5" />
-                                    ) : (
-                                      <Pencil className="h-3.5 w-3.5" />
-                                    )}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => deleteSuggestionOutlineItem(index)}
-                                    className={deleteSuggestionIconButtonClass}
-                                    aria-label={t('common.delete')}
-                                    title={t('common.delete')}
-                                  >
-                                    <X className="h-3.5 w-3.5" />
-                                  </button>
-                                </div>
-                              </div>
-                              {editingOutlineIndex === index ? (
-                                <div className="mt-2 grid min-w-0 gap-1.5">
-                                  <Input
-                                    value={item.title}
-                                    onChange={(event) =>
-                                      updateSuggestionOutlineItem(index, {
-                                        title: event.target.value
-                                      })
-                                    }
-                                    className="h-7 min-w-0 border-[#cddfbe] bg-white px-2 text-xs font-semibold text-[#34402c]"
-                                  />
-                                  <p className="text-[10px] font-medium text-[#6a8054]">
-                                    {t('home.outlineItemContent')}
-                                  </p>
-                                  <Textarea
-                                    value={item.reason}
-                                    onChange={(event) =>
-                                      updateSuggestionOutlineItem(index, {
-                                        reason: event.target.value
-                                      })
-                                    }
-                                    className="max-h-24 min-h-14 resize-y border-[#d7e8cc] bg-white px-2 py-1.5 text-[11px] leading-5 text-[#6d604d]"
-                                  />
-                                </div>
-                              ) : (
-                                <div className="mt-2">
-                                  <p className="text-[10px] font-medium text-[#6a8054]">
-                                    {t('home.outlineItemContent')}
-                                  </p>
-                                  <p className="mt-1 line-clamp-4 whitespace-pre-wrap break-words text-xs leading-5 text-[#6d604d]">
-                                    {item.reason || t('home.emptyValue')}
-                                  </p>
-                                </div>
-                              )}
-                            </li>
-                          ))}
-                        </ol>
-                      </div>
-                    </div>
-                  </section>
-                )}
-
-                {!hasSourceOutline && (
-                  <section
-                    className={`overflow-hidden rounded-xl border bg-[#fffdf8] shadow-[0_8px_18px_rgba(74,59,42,0.06)] transition-colors ${
-                      applyPageCountSuggestion
-                        ? 'border-[#a9c693] ring-1 ring-[#cfe2c1]'
-                        : 'border-[#e1d7c6]'
-                    }`}
-                  >
-                    <div className="grid gap-3 p-3 md:grid-cols-[120px_1fr] md:items-center">
-                      <label className="flex cursor-pointer items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={applyPageCountSuggestion}
-                          onChange={(event) => setApplyPageCountSuggestion(event.target.checked)}
-                          className="h-4 w-4 accent-[#6f8f64]"
-                        />
-                        <span className="text-sm font-semibold text-[#34402c]">
-                          {t('templates.pageCountLabel')}
-                        </span>
-                      </label>
-                      <div className={suggestionCardClass}>
-                        <div className="mb-1.5 flex items-center justify-between gap-2">
-                          <p className="text-[10px] font-medium uppercase text-[#6a8054]">
-                            {t('home.suggestedValue')}
-                          </p>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setEditingSuggestionField(
-                                editingSuggestionField === 'pageCount' ? null : 'pageCount'
-                              )
-                            }
-                            className={suggestionIconButtonClass}
-                            aria-label={
-                              editingSuggestionField === 'pageCount'
-                                ? t('common.save')
-                                : t('common.edit')
-                            }
-                            title={
-                              editingSuggestionField === 'pageCount'
-                                ? t('common.save')
-                                : t('common.edit')
-                            }
-                          >
-                            {editingSuggestionField === 'pageCount' ? (
-                              <Check className="h-3.5 w-3.5" />
-                            ) : (
-                              <Pencil className="h-3.5 w-3.5" />
-                            )}
-                          </button>
-                        </div>
-                        {editingSuggestionField === 'pageCount' ? (
-                          <Input
-                            value={suggestionDraft.pageCount}
-                            inputMode="numeric"
-                            onChange={(event) => {
-                              const next = event.target.value
-                              if (next === '' || /^\d+$/.test(next)) {
-                                setSuggestionDraft((current) =>
-                                  current ? { ...current, pageCount: next } : current
-                                )
-                              }
-                            }}
-                            className="h-8 border-[#cddfbe] bg-white text-xs text-[#405333]"
-                          />
-                        ) : (
-                          <p className="text-sm font-semibold leading-5 text-[#34402c]">
-                            {suggestionDraft.pageCount || t('home.emptyValue')}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  </section>
-                )}
-
-                {!hasSourceOutline && (
-                  <section
-                    className={`overflow-hidden rounded-xl border bg-[#fffdf8] shadow-[0_8px_18px_rgba(74,59,42,0.06)] transition-colors ${
-                      applyBriefSuggestion
-                        ? 'border-[#a9c693] ring-1 ring-[#cfe2c1]'
-                        : 'border-[#e1d7c6]'
-                    }`}
-                  >
-                    <div className="grid gap-3 p-3 md:grid-cols-[120px_1fr] md:items-start">
-                      <label className="flex cursor-pointer items-center gap-2 pt-1">
-                        <input
-                          type="checkbox"
-                          checked={applyBriefSuggestion}
-                          onChange={(event) => setApplyBriefSuggestion(event.target.checked)}
-                          className="h-4 w-4 accent-[#6f8f64]"
-                        />
-                        <span className="truncate text-sm font-semibold text-[#34402c]">
-                          {t('templates.briefLabel')}
-                        </span>
-                      </label>
-                      <div className={suggestionCardClass}>
-                        <div className="mb-1.5 flex items-center justify-between gap-2">
-                          <p className="text-[10px] font-medium uppercase text-[#6a8054]">
-                            {t('home.suggestedValue')}
-                          </p>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setEditingSuggestionField(
-                                editingSuggestionField === 'brief' ? null : 'brief'
-                              )
-                            }
-                            className={suggestionIconButtonClass}
-                            aria-label={
-                              editingSuggestionField === 'brief'
-                                ? t('common.save')
-                                : t('common.edit')
-                            }
-                            title={
-                              editingSuggestionField === 'brief'
-                                ? t('common.save')
-                                : t('common.edit')
-                            }
-                          >
-                            {editingSuggestionField === 'brief' ? (
-                              <Check className="h-3.5 w-3.5" />
-                            ) : (
-                              <Pencil className="h-3.5 w-3.5" />
-                            )}
-                          </button>
-                        </div>
-                        {editingSuggestionField === 'brief' ? (
-                          <Textarea
-                            value={suggestionDraft.briefText}
-                            onChange={(event) =>
-                              setSuggestionDraft((current) =>
-                                current ? { ...current, briefText: event.target.value } : current
-                              )
-                            }
-                            className="max-h-40 min-h-24 resize-y border-[#cddfbe] bg-white text-xs leading-5 text-[#405333]"
-                          />
-                        ) : (
-                          <p className="max-h-40 overflow-y-auto whitespace-pre-wrap break-words text-xs leading-5 text-[#405333]">
-                            {suggestionDraft.briefText || t('home.emptyValue')}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  </section>
-                )}
-              </div>
-            </div>
-          ) : null}
-
-          <DialogFooter className="flex-col-reverse gap-1.5 border-t border-[#ded4c1] bg-[#fffaf1] px-5 py-2.5 sm:flex-row">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-8 px-3 text-xs"
-              onClick={() => setSuggestionDialogOpen(false)}
-            >
-              {t('common.cancel')}
-            </Button>
-            <Button size="sm" className="h-8 px-3 text-xs" onClick={applyDocumentSuggestion}>
-              {t('home.applySelectedFields')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        onOpenChange={setSuggestionDialogOpen}
+        attachedReferenceFile={attachedReferenceFile}
+        suggestionDraft={suggestionDraft}
+        setSuggestionDraft={setSuggestionDraft}
+        applyTopicSuggestion={applyTitleSuggestion}
+        setApplyTopicSuggestion={setApplyTitleSuggestion}
+        applyPageCountSuggestion={applyPageCountSuggestion}
+        setApplyPageCountSuggestion={setApplyPageCountSuggestion}
+        applyBriefSuggestion={applyBriefSuggestion}
+        setApplyBriefSuggestion={setApplyBriefSuggestion}
+        onApplySelected={applyDocumentSuggestion}
+      />
     </>
   )
 }

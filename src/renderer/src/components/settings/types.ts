@@ -13,7 +13,7 @@ export interface ModelForm {
   model: string
   apiKey: string
   baseUrl: string
-  maxTokens: number
+  maxTokens: string
   active: boolean
 }
 
