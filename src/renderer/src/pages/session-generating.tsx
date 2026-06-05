@@ -12,7 +12,6 @@ import {
   type GenerationPreviewPage,
   type GenerationStageKey
 } from '../components/session-generating'
-import { ModelSelectButton } from '../components/model/ModelActionButton'
 import { useModelAction } from '../hooks/useModelAction'
 
 type LocationState = {
@@ -925,24 +924,24 @@ export function SessionGeneratingPage({
     rendering: t('generating.stages.rendering'),
     validation: t('generating.stages.validation')
   }
-  const handleContinueRemaining = (): void => {
+  const handleContinueRemaining = (modelConfigId: string): void => {
     if (!id) return
     navigate(generatingPath, {
       replace: true,
       state: {
-        modelConfigId: selectedModelConfigId || state?.modelConfigId,
+        modelConfigId,
         retry: true,
         rerunToken: Date.now()
       }
     })
   }
-  const handleRegenerate = (): void => {
+  const handleRegenerate = (modelConfigId: string): void => {
     if (!id) return
     navigate(generatingPath, {
       replace: true,
       state: {
         initialPrompt: state?.initialPrompt,
-        modelConfigId: selectedModelConfigId || state?.modelConfigId,
+        modelConfigId,
         retry: false,
         rerunToken: Date.now()
       }
@@ -993,13 +992,6 @@ export function SessionGeneratingPage({
         />
 
         <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
-          <div className="mb-2 flex justify-end">
-            <ModelSelectButton
-              modelAction={modelAction}
-              disabled={status === 'running'}
-              className="max-w-[14rem] bg-[#fff9ef]/90"
-            />
-          </div>
           <GenerationStatusPanel
             status={status}
             progress={displayProgress}
@@ -1017,6 +1009,7 @@ export function SessionGeneratingPage({
             hasGeneratedPages={canContinueRemaining}
             canEnterEditor={canEnterEditor}
             showEditorShortcut={showProgressEditorShortcut}
+            modelAction={modelAction}
             onEnterEditor={() => navigate(`/sessions/${id}`)}
             onContinueRemaining={handleContinueRemaining}
             onRegenerate={handleRegenerate}

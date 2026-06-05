@@ -1,7 +1,9 @@
 import type React from 'react'
 import { CheckCircle2, CircleAlert } from 'lucide-react'
 import { Button } from '@renderer/components/ui/Button'
+import { ModelSplitButton } from '@renderer/components/model/ModelActionButton'
 import { cn } from '@renderer/lib/utils'
+import type { ModelActionState } from '@renderer/hooks/useModelAction'
 import type { GenerationRunStatus, GenerationStageKey } from './types'
 
 export function GenerationStatusPanel({
@@ -21,6 +23,7 @@ export function GenerationStatusPanel({
   hasGeneratedPages,
   canEnterEditor,
   showEditorShortcut,
+  modelAction,
   onEnterEditor,
   onContinueRemaining,
   onRegenerate,
@@ -42,9 +45,10 @@ export function GenerationStatusPanel({
   hasGeneratedPages: boolean
   canEnterEditor: boolean
   showEditorShortcut: boolean
+  modelAction: ModelActionState
   onEnterEditor: () => void
-  onContinueRemaining: () => void
-  onRegenerate: () => void
+  onContinueRemaining: (modelConfigId: string) => void
+  onRegenerate: (modelConfigId: string) => void
   onCancel: () => void
 }): React.JSX.Element {
   if (status === 'failed') {
@@ -69,13 +73,19 @@ export function GenerationStatusPanel({
           </div>
 
           <div className="flex shrink-0 flex-wrap gap-1.5">
-            <Button
+            <ModelSplitButton
+              modelAction={modelAction}
+              label={hasGeneratedPages ? continueRemainingLabel : regenerateLabel}
+              tone="subtle"
               size="sm"
-              className="h-8 px-3 text-xs"
-              onClick={hasGeneratedPages ? onContinueRemaining : onRegenerate}
-            >
-              {hasGeneratedPages ? continueRemainingLabel : regenerateLabel}
-            </Button>
+              onRun={(modelConfigId) => {
+                if (hasGeneratedPages) {
+                  onContinueRemaining(modelConfigId)
+                } else {
+                  onRegenerate(modelConfigId)
+                }
+              }}
+            />
           </div>
         </div>
       </div>
