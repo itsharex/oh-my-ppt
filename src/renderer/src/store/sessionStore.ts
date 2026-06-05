@@ -35,6 +35,7 @@ export interface Message {
   tool_name: string | null
   tool_call_id: string | null
   token_count: number | null
+  run_model?: string | null
   created_at: number
 }
 
@@ -63,6 +64,7 @@ interface SessionStore {
   createSession: (payload: {
     topic: string
     styleId: string
+    modelConfigId?: string
     pageCount?: number
     referenceDocumentPath?: string
     fontSelection?: FontSelection

@@ -225,7 +225,8 @@ export function GenerationConfirmDialog({
 
   const handleConfirm = async (modelConfigId = selectedModelConfigId): Promise<void> => {
     if (!resolvedConfirmStyleId || confirming) return
-    if (!(await ensureModelActive(modelConfigId))) return
+    const resolvedModelConfigId = await ensureModelActive(modelConfigId)
+    if (!resolvedModelConfigId) return
     setConfirming(true)
     try {
       const resolvedPageCount = resolvePageCount(pageCount, prepared.pageCount)
@@ -239,7 +240,7 @@ export function GenerationConfirmDialog({
           prepared.sourcePlan?.pageSkeleton.length === resolvedPageCount
             ? prepared.sourcePlan
             : undefined,
-        modelConfigId
+        modelConfigId: resolvedModelConfigId
       })
       onOpenChange(false)
     } finally {

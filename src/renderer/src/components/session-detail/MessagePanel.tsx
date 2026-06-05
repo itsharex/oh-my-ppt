@@ -43,7 +43,7 @@ export function MessagePanel({
   error: string | null
   onDropFiles: (files: File[]) => void
   onChooseAssets: (assetType: 'image' | 'video') => void
-  onSend: () => void
+  onSend: (modelConfigId: string) => void
   onCancel: () => void
   onGenerateImage: () => void
   onCancelImageGeneration: () => void

@@ -331,7 +331,17 @@ export function registerGenerationHandlers(ctx: IpcContext): void {
       const insertAfter = Number(addPagePayload.insertAfterPageNumber) || 0
 
       // Resolve context independently — no shared resolveGenerationContext
-      addPageCtx = await resolveAddPageContext(ctx, requestedSessionId, userMsg, insertAfter)
+      const modelConfigId =
+        typeof addPagePayload.modelConfigId === 'string'
+          ? addPagePayload.modelConfigId.trim()
+          : undefined
+      addPageCtx = await resolveAddPageContext(
+        ctx,
+        requestedSessionId,
+        userMsg,
+        insertAfter,
+        modelConfigId
+      )
       assertStartingRunNotCanceled(startingRun)
 
       // Persist user message
@@ -339,7 +349,8 @@ export function registerGenerationHandlers(ctx: IpcContext): void {
         role: 'user',
         content: userMsg,
         type: 'text',
-        chat_scope: 'main' as const
+        chat_scope: 'main' as const,
+        run_model: addPageCtx.runModel
       })
       assertStartingRunNotCanceled(startingRun)
 
@@ -396,7 +407,16 @@ export function registerGenerationHandlers(ctx: IpcContext): void {
     const startingRun = startingReservation.startingRun
     let retryCtx: RetrySinglePageContext | null = null
     try {
-      retryCtx = await resolveRetrySinglePageContext(ctx, requestedSessionId, requestedPageId)
+      const modelConfigId =
+        typeof addPagePayload.modelConfigId === 'string'
+          ? addPagePayload.modelConfigId.trim()
+          : undefined
+      retryCtx = await resolveRetrySinglePageContext(
+        ctx,
+        requestedSessionId,
+        requestedPageId,
+        modelConfigId
+      )
       assertStartingRunNotCanceled(startingRun)
 
       beginSessionRunState({

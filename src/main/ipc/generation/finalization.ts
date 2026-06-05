@@ -141,7 +141,8 @@ export async function finalizeGenerationFailure(
     content: message,
     type: 'stream_chunk',
     chat_scope: context.messageScope,
-    page_id: context.messagePageId
+    page_id: context.messagePageId,
+    run_model: context.runModel
   })
   emitGenerateChunk(context.sessionId, {
     type: 'run_error',

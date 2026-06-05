@@ -174,7 +174,8 @@ export async function executeTemplateDeckGeneration(
     ),
     type: 'stream_chunk',
     chat_scope: context.messageScope,
-    page_id: context.messagePageId
+    page_id: context.messagePageId,
+    run_model: context.runModel
   })
 
   await db.createGenerationRun({
@@ -182,11 +183,16 @@ export async function executeTemplateDeckGeneration(
     sessionId: context.sessionId,
     mode: 'generate',
     totalPages: pageRefs.length,
+    modelConfigId: context.modelConfigId,
     metadata: {
       templateGeneration: true,
       templateRetry: context.templateRetry,
       topic: context.topic,
       styleId: context.styleId,
+      modelConfigId: context.modelConfigId,
+      modelConfigName: context.modelConfigName,
+      provider: context.provider,
+      model: context.model,
       projectDir: context.entry.projectDir,
       indexPath
     }

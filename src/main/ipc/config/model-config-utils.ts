@@ -16,6 +16,8 @@ export interface ActiveModelConfig {
   maxTokens: number
 }
 
+export type ResolvedModelConfig = ActiveModelConfig
+
 export async function resolveGlobalModelTimeouts(
   ctx: Pick<IpcContext, 'db'>
 ): Promise<Record<ModelTimeoutProfile, number>> {
@@ -42,33 +44,57 @@ export async function resolveActiveModelConfig(
       )
     )
   }
+  return resolveModelConfigRow(ctx, config, {
+    locale,
+    missingPrefixZh: '当前启用模型',
+    missingPrefixEn: 'The active model'
+  })
+}
+
+const resolveModelConfigRow = (
+  ctx: Pick<IpcContext, 'decryptApiKey'>,
+  config: {
+    id: string
+    name: string
+    provider: string
+    model: string
+    apiKey: string
+    baseUrl: string
+    maxTokens?: number | null
+  },
+  options: {
+    locale: 'zh' | 'en'
+    missingPrefixZh: string
+    missingPrefixEn: string
+  }
+): ActiveModelConfig => {
   const provider = String(config.provider || '').trim()
   const model = String(config.model || '').trim()
   const apiKey = ctx.decryptApiKey(config.apiKey).trim()
   if (!provider) {
     throw new Error(
       uiText(
-        locale,
-        '当前启用模型缺少 provider，请到设置页检查。',
-        'The active model is missing provider. Check Settings.'
+        options.locale,
+        `${options.missingPrefixZh}缺少 provider，请到设置页检查。`,
+        `${options.missingPrefixEn} is missing provider. Check Settings.`
       )
     )
   }
   if (!model) {
     throw new Error(
       uiText(
-        locale,
-        '当前启用模型缺少 model，请到设置页检查。',
-        'The active model is missing model. Check Settings.'
+        options.locale,
+        `${options.missingPrefixZh}缺少 model，请到设置页检查。`,
+        `${options.missingPrefixEn} is missing model. Check Settings.`
       )
     )
   }
   if (!apiKey) {
     throw new Error(
       uiText(
-        locale,
-        '当前启用模型缺少 api_key，请到设置页检查。',
-        'The active model is missing api_key. Check Settings.'
+        options.locale,
+        `${options.missingPrefixZh}缺少 api_key，请到设置页检查。`,
+        `${options.missingPrefixEn} is missing api_key. Check Settings.`
       )
     )
   }
@@ -82,4 +108,36 @@ export async function resolveActiveModelConfig(
     baseUrl: String(config.baseUrl || '').trim(),
     maxTokens: config.maxTokens || 4096
   }
+}
+
+export async function resolveModelConfigById(
+  ctx: Pick<IpcContext, 'db' | 'decryptApiKey'>,
+  modelConfigId: string
+): Promise<ResolvedModelConfig> {
+  const locale = await readAppLocale(ctx)
+  const id = modelConfigId.trim()
+  if (!id) {
+    throw new Error(uiText(locale, '请选择要使用的模型。', 'Choose a model to use.'))
+  }
+  const config = await ctx.db.getModelConfig(id)
+  if (!config) {
+    throw new Error(uiText(locale, '所选模型不存在，请重新选择。', 'The selected model no longer exists.'))
+  }
+  return resolveModelConfigRow(ctx, config, {
+    locale,
+    missingPrefixZh: '所选模型配置',
+    missingPrefixEn: 'The selected model'
+  })
+}
+
+export async function resolveModelConfigForTask(
+  ctx: Pick<IpcContext, 'db' | 'decryptApiKey'>,
+  args: {
+    modelConfigId?: string | null
+    purpose: string
+  }
+): Promise<ResolvedModelConfig> {
+  const id = typeof args.modelConfigId === 'string' ? args.modelConfigId.trim() : ''
+  if (id) return resolveModelConfigById(ctx, id)
+  return resolveActiveModelConfig(ctx)
 }

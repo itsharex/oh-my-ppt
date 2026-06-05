@@ -17,7 +17,7 @@ export function useModelAction(): ModelActionState {
   const t = useT()
   const navigate = useNavigate()
   const { error: toastError, warning: toastWarning } = useToastStore()
-  const { modelConfigs, fetchSettings, setActiveModelConfig } = useSettingsStore()
+  const { modelConfigs, fetchSettings } = useSettingsStore()
   const [selectedModelConfigId, setSelectedModelConfigId] = useState('')
   const [activatingModelConfigId, setActivatingModelConfigId] = useState<string | null>(null)
 
@@ -76,18 +76,15 @@ export function useModelAction(): ModelActionState {
 
       const previousModelConfigId = selectedModelConfigId
       setSelectedModelConfigId(nextModelConfigId)
-      if (selected.active) return nextModelConfigId
-
       setActivatingModelConfigId(nextModelConfigId)
       try {
-        await setActiveModelConfig(nextModelConfigId)
-        const activateError = useSettingsStore.getState().verificationMessage
-        if (activateError) {
-          setSelectedModelConfigId(previousModelConfigId)
-          toastError(t('settings.activateModelFailed'), { description: activateError })
-          return null
-        }
         return nextModelConfigId
+      } catch (error) {
+        setSelectedModelConfigId(previousModelConfigId)
+        toastError(t('settings.activateModelFailed'), {
+          description: error instanceof Error ? error.message : String(error)
+        })
+        return null
       } finally {
         setActivatingModelConfigId(null)
       }
@@ -98,7 +95,6 @@ export function useModelAction(): ModelActionState {
       modelConfigs,
       navigate,
       selectedModelConfigId,
-      setActiveModelConfig,
       t,
       toastError,
       toastWarning

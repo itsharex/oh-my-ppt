@@ -36,6 +36,7 @@ import { SessionToolbar } from '../components/session-detail/SessionToolbar'
 import { AssetPickerDialog } from '../components/session-detail/AssetPickerDialog'
 import { SpeechScriptDrawer } from '../components/session-detail/SpeechScriptDrawer'
 import { SaveTemplateDialog } from '../components/templates/SaveTemplateDialog'
+import { ModelSplitButton } from '../components/model/ModelActionButton'
 import type { ElementEditDraft } from '../components/session-detail/ElementInspectorPanel'
 import type { ChatType, SessionPreviewPage } from '../components/session-detail/types'
 import {
@@ -59,6 +60,7 @@ import {
 } from '../lib/artTextTemplates'
 import { escapeHtmlText } from '../lib/utils'
 import { useT } from '../i18n'
+import { useModelAction } from '../hooks/useModelAction'
 import dayjs from 'dayjs'
 import { nanoid } from 'nanoid'
 
@@ -287,6 +289,7 @@ export function SessionDetailPage(): React.JSX.Element {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const t = useT()
+  const modelAction = useModelAction()
   const isMac = window.electron?.process?.platform === 'darwin'
   const {
     currentSession,
@@ -790,7 +793,7 @@ export function SessionDetailPage(): React.JSX.Element {
     }
   }
 
-  const handleSend = async (): Promise<void> => {
+  const handleSend = async (modelConfigId?: string): Promise<void> => {
     if (!id) return
     if (sendingMessageRef.current || isGenerating) return
     const detailState = useSessionDetailUiStore.getState()
@@ -844,6 +847,7 @@ export function SessionDetailPage(): React.JSX.Element {
       const hasExistingPages = normalizedOrderedPages.length > 0
       await ipc.startGenerate({
         sessionId: id,
+        modelConfigId,
         userMessage: content,
         type: hasExistingPages ? 'page' : 'deck',
         chatType: effectiveChatType,
@@ -897,7 +901,7 @@ export function SessionDetailPage(): React.JSX.Element {
         sessionId: id,
         pageId,
         prompt,
-        modelConfigId: detailState.selectedImageModelConfigId || undefined,
+        imageModelConfigId: detailState.selectedImageModelConfigId || undefined,
         size: detailState.imageSize,
         count: 1
       })
@@ -966,7 +970,9 @@ export function SessionDetailPage(): React.JSX.Element {
     useSessionDetailUiStore.getState().setIsRetryingSinglePage(true)
     useGenerateStore.setState({ isGenerating: true, error: null, status: 'running' })
     try {
-      await ipc.retrySinglePage({ sessionId: id, pageId: page.id })
+      const modelConfigId = await modelAction.ensureModelActive()
+      if (!modelConfigId) return
+      await ipc.retrySinglePage({ sessionId: id, pageId: page.id, modelConfigId })
       await loadSession(id)
       useGenerateStore.getState().setPages(useSessionStore.getState().currentGeneratedPages)
     } catch (err) {
@@ -978,7 +984,7 @@ export function SessionDetailPage(): React.JSX.Element {
     }
   }
 
-  const handleAddPage = async (): Promise<void> => {
+  const handleAddPage = async (selectedModelConfigId?: string): Promise<void> => {
     if (!id || !addPageInput.trim()) return
     const description = addPageInput.trim()
     const beforePageIds = new Set(normalizedOrderedPages.map((page) => page.pageId))
@@ -991,8 +997,11 @@ export function SessionDetailPage(): React.JSX.Element {
     let targetSelection: string | null | undefined = undefined
 
     try {
+      const modelConfigId = await modelAction.ensureModelActive(selectedModelConfigId)
+      if (!modelConfigId) return
       await ipc.addPage({
         sessionId: id,
+        modelConfigId,
         userMessage: description,
         insertAfterPageNumber: insertAfter
       })
@@ -1214,8 +1223,11 @@ export function SessionDetailPage(): React.JSX.Element {
     detailState.setSpeechProgress(null)
     const currentPageId = selectedPage?.id
     try {
+      const modelConfigId = await modelAction.ensureModelActive(config.modelConfigId)
+      if (!modelConfigId) return
       const result = await ipc.generateSpeechScript(id, {
         ...config,
+        modelConfigId,
         currentPageId: config.scope === 'single' ? currentPageId : undefined
       })
       if (!result.success) {
@@ -2507,7 +2519,7 @@ export function SessionDetailPage(): React.JSX.Element {
                   error={error}
                   onDropFiles={(files) => void uploadFiles(files)}
                   onChooseAssets={(assetType) => void handleChooseAssets(assetType)}
-                  onSend={() => void handleSend()}
+                  onSend={(modelConfigId) => void handleSend(modelConfigId)}
                   onCancel={() => void handleCancel()}
                   onGenerateImage={() => void handleGenerateImage()}
                   onCancelImageGeneration={() => void handleCancelImageGeneration()}
@@ -2714,14 +2726,17 @@ export function SessionDetailPage(): React.JSX.Element {
                 >
                   {t('sessionDetail.addPageCancel')}
                 </button>
-                <button
-                  type="button"
+                <ModelSplitButton
+                  modelAction={modelAction}
+                  label={t('sessionDetail.addPageGenerate')}
                   disabled={!addPageInput.trim()}
-                  onClick={() => void handleAddPage()}
-                  className="rounded-xl bg-[#5d6b4d] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#3e4a32] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-                >
-                  {t('sessionDetail.addPageGenerate')}
-                </button>
+                  tone="primary"
+                  size="sm"
+                  className="rounded-xl"
+                  mainClassName="min-w-[104px] justify-center text-sm"
+                  triggerClassName="h-9"
+                  onRun={(modelConfigId) => void handleAddPage(modelConfigId)}
+                />
               </div>
             </div>
           </div>

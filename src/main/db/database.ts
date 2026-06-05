@@ -65,6 +65,7 @@ export interface Message {
   tool_name: string | null
   tool_call_id: string | null
   token_count: number | null
+  run_model: string | null
   created_at: number
 }
 
@@ -109,6 +110,7 @@ export interface GenerationRunRecord {
   total_pages: number
   error: string | null
   metadata: string | null
+  model_config_id: string | null
   created_at: number
   updated_at: number
 }
@@ -477,6 +479,10 @@ export class PPTDatabase {
       total_pages: Number(row.totalPages ?? row.total_pages ?? 0) || 0,
       error: typeof row.error === 'string' ? String(row.error) : null,
       metadata: typeof row.metadata === 'string' ? String(row.metadata) : null,
+      model_config_id:
+        typeof (row.modelConfigId ?? row.model_config_id) === 'string'
+          ? String(row.modelConfigId ?? row.model_config_id)
+          : null,
       created_at: Number(row.createdAt ?? row.created_at ?? 0) || 0,
       updated_at: Number(row.updatedAt ?? row.updated_at ?? 0) || 0
     }
@@ -563,6 +569,7 @@ export class PPTDatabase {
     mode: GenerationRunMode
     totalPages: number
     metadata?: unknown
+    modelConfigId?: string | null
   }): Promise<string> {
     const id = data.id || crypto.randomUUID()
     const now = Math.floor(Date.now() / 1000)
@@ -576,6 +583,10 @@ export class PPTDatabase {
         totalPages: Math.max(0, Math.floor(data.totalPages || 0)),
         error: null,
         metadata: data.metadata ? JSON.stringify(data.metadata) : null,
+        modelConfigId:
+          typeof data.modelConfigId === 'string' && data.modelConfigId.trim().length > 0
+            ? data.modelConfigId.trim()
+            : null,
         createdAt: now,
         updatedAt: now
       })
@@ -1311,6 +1322,10 @@ export class PPTDatabase {
         typeof (message.tokenCount ?? message.token_count) === 'number'
           ? Number(message.tokenCount ?? message.token_count)
           : null,
+      run_model:
+        typeof (message.runModel ?? message.run_model) === 'string'
+          ? String(message.runModel ?? message.run_model)
+          : null,
       created_at:
         typeof (message.createdAt ?? message.created_at) === 'number'
           ? Number(message.createdAt ?? message.created_at)
@@ -1332,6 +1347,7 @@ export class PPTDatabase {
       selector?: string | null
       image_paths?: string[] | null
       video_paths?: string[] | null
+      run_model?: string | null
     }
   ): Promise<string> {
     const id = crypto.randomUUID()
@@ -1387,6 +1403,10 @@ export class PPTDatabase {
         toolName: message.tool_name || null,
         toolCallId: message.tool_call_id || null,
         tokenCount: message.token_count || null,
+        runModel:
+          typeof message.run_model === 'string' && message.run_model.trim().length > 0
+            ? message.run_model
+            : null,
         createdAt: now
       })
       .run()
@@ -1490,6 +1510,7 @@ export class PPTDatabase {
         toolName: schema.messages.toolName,
         toolCallId: schema.messages.toolCallId,
         tokenCount: schema.messages.tokenCount,
+        runModel: schema.messages.runModel,
         createdAt: schema.messages.createdAt
       })
       .from(schema.messages)
@@ -1505,9 +1526,9 @@ export class PPTDatabase {
 
     let idx = lastCompressedIndex + 1
     return results.map((r) => ({
-      ...r,
+      ...this.normalizeMessageRow(r as Record<string, unknown>),
       idx: idx++
-    })) as unknown as (Message & { idx: number })[]
+    }))
   }
 
   // ========== Settings ==========
@@ -1567,6 +1588,16 @@ export class PPTDatabase {
       .select()
       .from(schema.modelConfigs)
       .where(eq(schema.modelConfigs.active, 1))
+      .limit(1)
+      .get()
+    return result as unknown as ModelConfigRow | undefined
+  }
+
+  async getModelConfig(id: string): Promise<ModelConfigRow | undefined> {
+    const result = await this.db
+      .select()
+      .from(schema.modelConfigs)
+      .where(eq(schema.modelConfigs.id, id))
       .limit(1)
       .get()
     return result as unknown as ModelConfigRow | undefined

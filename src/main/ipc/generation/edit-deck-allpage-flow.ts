@@ -133,10 +133,15 @@ export async function executeDeckAllPageEditGeneration(
     sessionId: context.sessionId,
     mode: 'edit',
     totalPages: pageRefs.length,
+    modelConfigId: context.modelConfigId,
     metadata: {
       editScope: 'deck',
       selectedPageId: null,
-      selector: null
+      selector: null,
+      modelConfigId: context.modelConfigId,
+      modelConfigName: context.modelConfigName,
+      provider: context.provider,
+      model: context.model
     }
   })
 

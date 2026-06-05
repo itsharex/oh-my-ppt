@@ -56,6 +56,7 @@ export function StyleEditorPage(): React.JSX.Element {
   const [importing, setImporting] = useState(false)
   const [mode, setMode] = useState<'edit' | 'preview'>('edit')
   const styleFileInputRef = useRef<HTMLInputElement | null>(null)
+  const pendingImportModelConfigIdRef = useRef<string | null>(null)
   const { success, error, warning, info } = useToastStore()
   const modelAction = useModelAction()
   const { selectedModelConfigId, ensureModelActive } = modelAction
@@ -185,8 +186,10 @@ export function StyleEditorPage(): React.JSX.Element {
 
   const handleImportStyleClick = async (modelConfigId = selectedModelConfigId): Promise<void> => {
     if (importing) return
-    if (!(await ensureModelActive(modelConfigId))) return
+    const resolvedModelConfigId = await ensureModelActive(modelConfigId)
+    if (!resolvedModelConfigId) return
     if (!(await ensureUploadPrerequisites())) return
+    pendingImportModelConfigIdRef.current = resolvedModelConfigId
     styleFileInputRef.current?.click()
   }
 
@@ -209,7 +212,10 @@ export function StyleEditorPage(): React.JSX.Element {
     )
   }
 
-  const parseSelectedStyleFile = async (file: File): Promise<StyleParseResult> => {
+  const parseSelectedStyleFile = async (
+    file: File,
+    modelConfigId: string
+  ): Promise<StyleParseResult> => {
     const isPptx = isPptxFileName(file.name || '')
     const maxSizeBytes = isPptx ? MAX_STYLE_PPTX_FILE_SIZE_BYTES : MAX_STYLE_TEXT_FILE_SIZE_BYTES
     const maxSizeMb = isPptx ? MAX_STYLE_PPTX_FILE_SIZE_MB : MAX_STYLE_TEXT_FILE_SIZE_MB
@@ -222,10 +228,15 @@ export function StyleEditorPage(): React.JSX.Element {
       throw new Error(t('styleEditor.filePathFailed'))
     }
 
-    return isPptx ? await ipc.parseStylePptx({ filePath }) : await ipc.parseStyleFile({ filePath })
+    return isPptx
+      ? await ipc.parseStylePptx({ filePath, modelConfigId })
+      : await ipc.parseStyleFile({ filePath, modelConfigId })
   }
 
-  const parseSelectedStyleImage = async (file: File): Promise<StyleParseResult> => {
+  const parseSelectedStyleImage = async (
+    file: File,
+    modelConfigId: string
+  ): Promise<StyleParseResult> => {
     const hintedMimeType = normalizeImageMimeType(file.type)
     const fallbackMimeType = getImageMimeTypeFromFileName(file.name || '')
     if (!isSupportedImageMimeType(file.type) && !fallbackMimeType) {
@@ -255,7 +266,7 @@ export function StyleEditorPage(): React.JSX.Element {
     if (!mimeType || !imageBase64) {
       throw new Error(t('styleEditor.imageReadFailed'))
     }
-    return await ipc.parseStyleImage({ imageBase64, mimeType })
+    return await ipc.parseStyleImage({ imageBase64, mimeType, modelConfigId })
   }
 
   const handleStyleFileSelected = async (files: FileList | null): Promise<void> => {
@@ -266,8 +277,14 @@ export function StyleEditorPage(): React.JSX.Element {
 
     setImporting(true)
     try {
+      const modelConfigId = await ensureModelActive(
+        pendingImportModelConfigIdRef.current || selectedModelConfigId
+      )
+      if (!modelConfigId) return
       const isImage = isSupportedImageMimeType(file.type) || isImageFileName(file.name || '')
-      const result = isImage ? await parseSelectedStyleImage(file) : await parseSelectedStyleFile(file)
+      const result = isImage
+        ? await parseSelectedStyleImage(file, modelConfigId)
+        : await parseSelectedStyleFile(file, modelConfigId)
       applyParsedStyle(result)
       success(t('styleEditor.importSuccess'))
     } catch (e) {
@@ -275,6 +292,7 @@ export function StyleEditorPage(): React.JSX.Element {
         description: e instanceof Error ? e.message : t('common.retryLater')
       })
     } finally {
+      pendingImportModelConfigIdRef.current = null
       setImporting(false)
     }
   }

@@ -15,7 +15,7 @@ import type {
   PreparedReferenceDocumentResult
 } from '@shared/generation'
 import { resolveModelTimeoutMs } from '@shared/model-timeout'
-import { resolveActiveModelConfig, resolveGlobalModelTimeouts } from '../config/model-config-utils'
+import { resolveGlobalModelTimeouts, resolveModelConfigForTask } from '../config/model-config-utils'
 import { assertImageWasRead, isImageUnsupportedError } from '../../utils/style-image-import'
 import { invokeVisionModelText } from '../../utils/vision-model'
 import { normalizeGeneratedPlan as normalizeDocumentPlan } from './document-plan-normalizer'
@@ -790,7 +790,8 @@ export function registerDocumentParseHandlers(ctx: IpcContext): void {
   ipcMain.handle(
     'documents:parseImageReference',
     async (_event, payload: ParseImageReferencePayload) => {
-      const input = payload && typeof payload === 'object' ? payload : { file: null }
+      const input: Partial<ParseImageReferencePayload> =
+        payload && typeof payload === 'object' ? payload : {}
       const rawFile = input.file && typeof input.file === 'object' ? input.file : null
       if (!rawFile) throw new Error('请先选择要解析的图片')
 
@@ -799,7 +800,10 @@ export function registerDocumentParseHandlers(ctx: IpcContext): void {
       const sourceFile = await prepareSourceFile(rawFile, docsDir)
       if (sourceFile.type !== 'image') throw new Error('请选择 png、jpg、jpeg、webp 图片')
 
-      const activeModel = await resolveActiveModelConfig(ctx)
+      const activeModel = await resolveModelConfigForTask(ctx, {
+        modelConfigId: input.modelConfigId,
+        purpose: 'documents:parseImageReference'
+      })
       const modelTimeouts = await resolveGlobalModelTimeouts(ctx)
       const referenceFile = await convertImageReferenceToMarkdown({
         file: sourceFile,
@@ -869,7 +873,10 @@ export function registerDocumentParseHandlers(ctx: IpcContext): void {
         })
       }
 
-      const activeModel = await resolveActiveModelConfig(ctx)
+      const activeModel = await resolveModelConfigForTask(ctx, {
+        modelConfigId: input.modelConfigId,
+        purpose: 'documents:parsePlan'
+      })
       const modelTimeouts = await resolveGlobalModelTimeouts(ctx)
       const { provider, model, apiKey } = activeModel
       const baseUrl = activeModel.baseUrl

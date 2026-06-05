@@ -8,8 +8,8 @@ import type { IpcContext } from '../context'
 import type { GenerateChatType } from './types'
 
 export { resolveSourceDocuments } from './source-documents'
-import { resolveActiveModelConfig, resolveGlobalModelTimeouts } from '../config/model-config-utils'
-import { hasStyleSkill, listStyleCatalog, loadStyleSkill } from '../../utils/style-skills'
+import { resolveGlobalModelTimeouts, resolveModelConfigForTask } from '../config/model-config-utils'
+import { loadStyleSkill, resolveUsableStyleId } from '../../utils/style-skills'
 import { extractOutlineTitles, parseJsonObject } from '../utils'
 import { sourcePlanFromSkeletonRows } from './source-plan'
 
@@ -21,6 +21,9 @@ export type CommonGenerationContext = {
   provider: string
   apiKey: string
   model: string
+  modelConfigId?: string
+  modelConfigName?: string
+  runModel?: string
   providerBaseUrl: string
   maxTokens: number
   modelTimeouts: Record<ModelTimeoutProfile, number>
@@ -40,6 +43,7 @@ export type CommonGenerationContext = {
 
 export type NormalizedGenerateInput = {
   sessionId: string
+  modelConfigId?: string
   rawUserMessage: string
   rawImagePaths: string[]
   rawVideoPaths: string[]
@@ -57,6 +61,10 @@ export type NormalizedGenerateInput = {
 export function normalizeGeneratePayload(payload: unknown): NormalizedGenerateInput {
   const input = payload as GenerateStartPayload
   const sessionId = String(input?.sessionId || '').trim()
+  const modelConfigId =
+    typeof input?.modelConfigId === 'string' && input.modelConfigId.trim().length > 0
+      ? input.modelConfigId.trim()
+      : undefined
   const rawUserMessage = typeof input?.userMessage === 'string' ? input.userMessage : ''
   const rawImagePaths = Array.isArray(input?.imagePaths)
     ? input.imagePaths
@@ -103,6 +111,7 @@ export function normalizeGeneratePayload(payload: unknown): NormalizedGenerateIn
 
   return {
     sessionId,
+    modelConfigId,
     rawUserMessage,
     rawImagePaths,
     rawVideoPaths,
@@ -145,7 +154,8 @@ export function buildOutlineTitles(rawUserMessage: string): string[] {
 
 export async function resolveCommonContext(
   ctx: IpcContext,
-  sessionId: string
+  sessionId: string,
+  modelConfigId?: string
 ): Promise<CommonGenerationContext> {
   const { db, agentManager, ensureSessionAssets } = ctx
 
@@ -156,18 +166,23 @@ export async function resolveCommonContext(
   const sourcePlan = sourcePlanFromSkeletonRows(await db.listSourcePageSkeletons(sessionId))
   const previousSessionStatus = String(sessionRecord.status || 'active')
 
-  const activeModel = await resolveActiveModelConfig(ctx)
+  const activeModel = await resolveModelConfigForTask(ctx, {
+    modelConfigId,
+    purpose: 'generation'
+  })
   const modelTimeouts = await resolveGlobalModelTimeouts(ctx)
+  const runModel = JSON.stringify({
+    modelConfigId: activeModel.id,
+    name: activeModel.name,
+    provider: activeModel.provider,
+    model: activeModel.model,
+    baseUrl: activeModel.baseUrl || undefined,
+    maxTokens: activeModel.maxTokens
+  })
 
-  const styleCatalog = listStyleCatalog()
-  const defaultStyleId =
-    styleCatalog.find((item) => item.styleKey === 'minimal-white')?.id ?? styleCatalog[0]?.id ?? ''
   const styleIdRaw =
     typeof sessionRecord.styleId === 'string' ? String(sessionRecord.styleId).trim() : ''
-  const styleId = styleIdRaw || defaultStyleId
-  if (!styleId || !hasStyleSkill(styleId)) {
-    throw new Error(`styleId 不存在或不可用：${styleId}`)
-  }
+  const styleId = resolveUsableStyleId(styleIdRaw)
   const styleSkill = loadStyleSkill(styleId)
 
   const existingProject = await db.getProject(sessionId)
@@ -214,6 +229,9 @@ export async function resolveCommonContext(
     provider: activeModel.provider,
     apiKey: activeModel.apiKey,
     model: activeModel.model,
+    modelConfigId: activeModel.id,
+    modelConfigName: activeModel.name,
+    runModel,
     providerBaseUrl: activeModel.baseUrl,
     maxTokens: activeModel.maxTokens,
     modelTimeouts,

@@ -214,6 +214,7 @@ export interface UpdateElementPropertiesPayload {
 export interface CreateSessionPayload {
   topic: string
   styleId: string
+  modelConfigId?: string
   pageCount?: number
   referenceDocumentPath?: string
   fontSelection?: FontSelection
@@ -433,6 +434,7 @@ export const ipc = {
   createSessionFromTemplate: (payload: {
     templateId: string
     title?: string
+    modelConfigId?: string
     pageCount?: number
     referenceDocumentPath?: string
     sourcePlan?: SourceDocumentPlan
@@ -444,6 +446,7 @@ export const ipc = {
   createEditableSessionFromTemplate: (payload: {
     templateId: string
     title?: string
+    modelConfigId?: string
   }) =>
     getIpc().invoke('templates:createEditableSession', payload) as Promise<{
       success: true
@@ -452,6 +455,7 @@ export const ipc = {
   importPptxAsTemplate: (payload: {
     filePath: string
     name?: string
+    modelConfigId?: string
   }) =>
     getIpc().invoke('templates:importPptx', payload) as Promise<{
       success: true
@@ -675,11 +679,11 @@ export const ipc = {
   getStyleDetail: (styleId: string) =>
     getIpc().invoke('styles:getDetail', styleId) as Promise<StyleDetail>,
   listStyles: () => getIpc().invoke('styles:list') as Promise<{ items: StyleListItem[] }>,
-  parseStyleFile: (payload: { filePath: string }) =>
+  parseStyleFile: (payload: { filePath: string; modelConfigId?: string }) =>
     getIpc().invoke('styles:parseFile', payload) as Promise<StyleParseResult>,
-  parseStylePptx: (payload: { filePath: string }) =>
+  parseStylePptx: (payload: { filePath: string; modelConfigId?: string }) =>
     getIpc().invoke('styles:parsePptx', payload) as Promise<StyleParseResult>,
-  parseStyleImage: (payload: { imageBase64: string; mimeType: string }) =>
+  parseStyleImage: (payload: { imageBase64: string; mimeType: string; modelConfigId?: string }) =>
     getIpc().invoke('styles:parseImage', payload) as Promise<StyleParseResult>,
   createStyle: (payload: {
     label: string
@@ -860,6 +864,7 @@ export const ipc = {
     }>,
   thinkingChat: (payload: {
     thinkingId: string
+    modelConfigId?: string
     userMessage: string
     recentMessages?: ThinkingChatMessage[]
     attachments?: ThinkingChatMessage['attachments']

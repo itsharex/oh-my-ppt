@@ -32,6 +32,9 @@ export type AddPageContext = {
   provider: string
   apiKey: string
   model: string
+  modelConfigId?: string
+  modelConfigName?: string
+  runModel?: string
   providerBaseUrl: string
   maxTokens: number
   modelTimeouts: Record<ModelTimeoutProfile, number>
@@ -55,10 +58,11 @@ export async function resolveAddPageContext(
   ctx: IpcContext,
   sessionId: string,
   userDescription: string,
-  insertAfterPageNumber: number
+  insertAfterPageNumber: number,
+  modelConfigId?: string
 ): Promise<AddPageContext> {
   log.info('[generate:addPage] resolving context', { sessionId, insertAfterPageNumber })
-  const common = await resolveCommonContext(ctx, sessionId)
+  const common = await resolveCommonContext(ctx, sessionId, modelConfigId)
   const { sessionRecord } = common
   const sourceDocumentPaths = await resolveSourceDocuments(ctx, {
     sessionId,
@@ -232,10 +236,15 @@ export async function executeAddPageGeneration(
     sessionId: context.sessionId,
     mode: 'addPage',
     totalPages: 1,
+    modelConfigId: context.modelConfigId,
     metadata: {
       addPage: true,
       pageId: newPageId,
-      insertAfterPageNumber
+      insertAfterPageNumber,
+      modelConfigId: context.modelConfigId,
+      modelConfigName: context.modelConfigName,
+      provider: context.provider,
+      model: context.model
     }
   })
   await db.upsertGenerationPage({
@@ -449,7 +458,8 @@ export async function executeAddPageGeneration(
     role: 'assistant',
     content: assistantContent,
     type: 'text',
-    chat_scope: 'main' as const
+    chat_scope: 'main' as const,
+    run_model: context.runModel
   })
   emitChunk({
     type: 'assistant_message',

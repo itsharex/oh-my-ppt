@@ -33,7 +33,7 @@ export async function resolveDeckContext(
   const { db, formatImagePathsForPrompt } = ctx
   if (!input.sessionId) throw new Error('sessionId 不能为空')
 
-  const common = await resolveCommonContext(ctx, input.sessionId)
+  const common = await resolveCommonContext(ctx, input.sessionId, input.modelConfigId)
   const userMessage = `${input.rawUserMessage}${formatImagePathsForPrompt([])}`
   const userProvidedOutlineTitles = buildOutlineTitles(input.rawUserMessage)
   const totalPages = buildTotalPages(common.sessionRecord)
@@ -50,7 +50,8 @@ export async function resolveDeckContext(
     content: input.rawUserMessage,
     type: 'text',
     chat_scope: 'main',
-    image_paths: []
+    image_paths: [],
+    run_model: common.runModel
   })
   await db.updateSessionStatus(input.sessionId, 'active')
 
@@ -76,6 +77,9 @@ export async function resolveDeckContext(
     provider: common.provider,
     apiKey: common.apiKey,
     model: common.model,
+    modelConfigId: common.modelConfigId,
+    modelConfigName: common.modelConfigName,
+    runModel: common.runModel,
     modelTimeouts: common.modelTimeouts,
     providerBaseUrl: common.providerBaseUrl,
     maxTokens: common.maxTokens,
@@ -135,7 +139,8 @@ export async function executeDeckGeneration(
     ),
     type: 'stream_chunk',
     chat_scope: context.messageScope,
-    page_id: context.messagePageId
+    page_id: context.messagePageId,
+    run_model: context.runModel
   })
   await sleep(120, context.entry.abortController.signal)
 
@@ -154,9 +159,14 @@ export async function executeDeckGeneration(
     sessionId: context.sessionId,
     mode: 'generate',
     totalPages: pageRefs.length,
+    modelConfigId: context.modelConfigId,
     metadata: {
       topic: context.topic,
       styleId: context.styleId,
+      modelConfigId: context.modelConfigId,
+      modelConfigName: context.modelConfigName,
+      provider: context.provider,
+      model: context.model,
       projectDir: context.entry.projectDir,
       indexPath
     }
@@ -647,7 +657,8 @@ export async function executeDeckGeneration(
       tool_name: 'update_page_file',
       tool_call_id: context.runId,
       chat_scope: context.messageScope,
-      page_id: context.messagePageId
+      page_id: context.messagePageId,
+      run_model: context.runModel
     })
   }
 

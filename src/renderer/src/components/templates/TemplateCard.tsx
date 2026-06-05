@@ -1,18 +1,16 @@
-import { ChevronDown, CopyPlus, Eye, LayoutTemplate, PencilLine, Plus, Sparkles, Trash2 } from 'lucide-react'
+import { Eye, LayoutTemplate, PencilLine, Plus, Sparkles, Trash2 } from 'lucide-react'
 import { Button } from '../ui/Button'
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/Card'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger
-} from '../ui/DropdownMenu'
+import { ModelSplitButton } from '../model/ModelActionButton'
 import type { TemplateListItem } from '@renderer/lib/ipc'
+import type { ModelActionState } from '@renderer/hooks/useModelAction'
 import { useT } from '@renderer/i18n'
 import dayjs from 'dayjs'
 
 export function TemplateCard({
   template,
+  modelAction,
+  directCreating,
   onUseDirect,
   onUseGenerate,
   onEdit,
@@ -20,7 +18,9 @@ export function TemplateCard({
   onPreview
 }: {
   template: TemplateListItem
-  onUseDirect: (template: TemplateListItem) => void
+  modelAction: ModelActionState
+  directCreating?: boolean
+  onUseDirect: (template: TemplateListItem, modelConfigId: string) => void
   onUseGenerate: (template: TemplateListItem) => void
   onEdit: (template: TemplateListItem) => void
   onDelete: (template: TemplateListItem) => void
@@ -93,25 +93,26 @@ export function TemplateCard({
                 <Trash2 className="h-3.5 w-3.5" />
               </Button>
             </div>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button size="sm" className="h-8 rounded-md px-3">
-                  <CopyPlus className="mr-1.5 h-3.5 w-3.5" />
-                  {t('templates.use')}
-                  <ChevronDown className="ml-1 h-3.5 w-3.5" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-max min-w-[10rem] max-w-[calc(100vw-2rem)]">
-                <DropdownMenuItem onSelect={() => onUseDirect(template)}>
-                  <PencilLine className="h-3.5 w-3.5 shrink-0 text-[#5f6b50]" />
-                  <span className="whitespace-nowrap">{t('templates.createEditable')}</span>
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => onUseGenerate(template)}>
-                  <Sparkles className="h-3.5 w-3.5 shrink-0 text-[#7c6a4c]" />
-                  <span className="whitespace-nowrap">{t('templates.createAndGenerate')}</span>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <ModelSplitButton
+              modelAction={modelAction}
+              label={t('templates.createEditable')}
+              loadingLabel={t('templates.creatingEditable')}
+              loading={directCreating}
+              disabled={directCreating}
+              icon={PencilLine}
+              tone="subtle"
+              dropdownAlign="end"
+              onRun={(modelConfigId) => onUseDirect(template, modelConfigId)}
+            />
+            <Button
+              size="sm"
+              className="h-8 rounded-md px-3"
+              onClick={() => onUseGenerate(template)}
+              disabled={directCreating}
+            >
+              <Sparkles className="mr-1.5 h-3.5 w-3.5" />
+              {t('templates.createAndGenerate')}
+            </Button>
           </div>
         </div>
       </CardContent>

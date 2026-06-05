@@ -32,6 +32,7 @@ export const messages = sqliteTable('messages', {
   toolName: text('tool_name'),
   toolCallId: text('tool_call_id'),
   tokenCount: integer('token_count'),
+  runModel: text('run_model'),
   createdAt: integer('created_at').notNull()
 })
 
@@ -58,6 +59,7 @@ export const generationRuns = sqliteTable('generation_runs', {
   totalPages: integer('total_pages').notNull().default(0),
   error: text('error'),
   metadata: text('metadata'),
+  modelConfigId: text('model_config_id'),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull()
 })

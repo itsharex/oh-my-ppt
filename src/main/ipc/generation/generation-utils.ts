@@ -308,7 +308,8 @@ export function createEmitAssistantMessage(
       content: content.trim(),
       type: 'text',
       chat_scope: context.messageScope,
-      page_id: context.messagePageId
+      page_id: context.messagePageId,
+      run_model: context.runModel
     })
     emitGenerateChunk(context.sessionId, {
       type: 'assistant_message',

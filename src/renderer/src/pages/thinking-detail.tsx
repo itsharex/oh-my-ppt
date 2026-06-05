@@ -204,10 +204,10 @@ export function ThinkingDetailPage(): ReactElement {
     }
   }
 
-  const handleSend = (content: string): void => {
+  const handleSend = (content: string, modelConfigId: string): void => {
     const attachments = pendingSources.length > 0 ? pendingSources : undefined
     setPendingSources([])
-    void sendMessage(content, attachments)
+    void sendMessage(content, attachments, modelConfigId)
   }
 
   const handleSourcesUploaded = (newSources: ThinkingSource[]): void => {
@@ -263,6 +263,7 @@ export function ThinkingDetailPage(): ReactElement {
       const sessionId = await createSession({
         topic: params.topic,
         styleId: params.styleId,
+        modelConfigId: params.modelConfigId,
         pageCount: params.pageCount,
         referenceDocumentPath: params.referenceDocumentPath,
         fontSelection: params.fontSelection,
@@ -274,6 +275,7 @@ export function ThinkingDetailPage(): ReactElement {
       })
       navigate(`/sessions/${sessionId}/generating`, {
         state: {
+          modelConfigId: params.modelConfigId,
           initialPrompt: buildThinkingGenerationPrompt({
             topic: params.topic,
             pageCount: params.pageCount,

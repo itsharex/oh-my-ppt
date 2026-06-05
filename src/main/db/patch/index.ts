@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS messages (
   tool_name TEXT,
   tool_call_id TEXT,
   token_count INTEGER,
+  run_model TEXT,
   created_at INTEGER NOT NULL
 );
 
@@ -144,6 +145,7 @@ CREATE TABLE IF NOT EXISTS generation_runs (
   total_pages INTEGER NOT NULL DEFAULT 0,
   error TEXT,
   metadata TEXT,
+  model_config_id TEXT,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
@@ -326,6 +328,7 @@ const getTableColumns = async (
     | 'messages'
     | 'sessions'
     | 'projects'
+    | 'generation_runs'
     | 'generation_pages'
     | 'session_pages'
     | 'model_configs'
@@ -621,6 +624,9 @@ const enforceMessagesSchema = async (client: LibSqlClient): Promise<void> => {
   if (!columns.has('token_count')) {
     await client.execute('ALTER TABLE messages ADD COLUMN token_count INTEGER')
   }
+  if (!columns.has('run_model')) {
+    await client.execute('ALTER TABLE messages ADD COLUMN run_model TEXT')
+  }
   await client.execute(
     'CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, created_at)'
   )
@@ -633,6 +639,10 @@ const enforceMessagesSchema = async (client: LibSqlClient): Promise<void> => {
 }
 
 const enforceGenerationSchema = async (client: LibSqlClient): Promise<void> => {
+  const runColumns = await getTableColumns(client, 'generation_runs')
+  if (!runColumns.has('model_config_id')) {
+    await client.execute('ALTER TABLE generation_runs ADD COLUMN model_config_id TEXT')
+  }
   const columns = await getTableColumns(client, 'generation_pages')
   if (!columns.has('content_outline')) {
     await client.execute('ALTER TABLE generation_pages ADD COLUMN content_outline TEXT')
@@ -642,6 +652,9 @@ const enforceGenerationSchema = async (client: LibSqlClient): Promise<void> => {
   }
   await client.execute(
     'CREATE INDEX IF NOT EXISTS idx_generation_runs_session ON generation_runs(session_id, created_at)'
+  )
+  await client.execute(
+    'CREATE INDEX IF NOT EXISTS idx_generation_runs_model_config ON generation_runs(model_config_id)'
   )
   await client.execute(
     'CREATE INDEX IF NOT EXISTS idx_generation_pages_run ON generation_pages(run_id, page_number)'

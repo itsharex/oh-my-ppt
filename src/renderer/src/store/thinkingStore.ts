@@ -24,7 +24,7 @@ interface ThinkingStore {
   loadWorkspace: (thinkingId: string) => Promise<void>
   loadLatestWorkspace: () => Promise<string | null>
   addMessage: (message: ThinkingChatMessage) => void
-  sendMessage: (content: string, attachments?: ThinkingSource[]) => void
+  sendMessage: (content: string, attachments?: ThinkingSource[], modelConfigId?: string) => void
   addThinkingStep: (step: ThinkingStep) => void
   setAnimatingText: (text: string) => void
   setLoading: (loading: boolean) => void
@@ -240,7 +240,7 @@ export const useThinkingStore = create<ThinkingStore>((set, get) => {
     setAnimatingText: (text) =>
     set({ animatingText: text }),
 
-    sendMessage: (content, attachments) => {
+    sendMessage: (content, attachments, modelConfigId) => {
     ensureThinkingStreamListeners(set, get)
     const { thinkingId, messages } = get()
     if (!thinkingId) return
@@ -259,6 +259,7 @@ export const useThinkingStore = create<ThinkingStore>((set, get) => {
     // but we show thinking events and animate the reply via stream listeners.
     ipc.thinkingChat({
       thinkingId,
+      modelConfigId,
       userMessage: content,
       recentMessages,
       ...(attachments && attachments.length > 0 ? { attachments } : {})

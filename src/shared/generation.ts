@@ -14,6 +14,7 @@ export interface ParseDocumentPlanPayload {
     path: string
     name?: string
   }>
+  modelConfigId?: string
   topic?: string
   pageCount?: number
   existingBrief?: string
@@ -39,6 +40,7 @@ export interface ParseImageReferencePayload {
     path: string
     name?: string
   }
+  modelConfigId?: string
 }
 
 export interface ParsedDocumentPlanResult {
@@ -74,6 +76,7 @@ export interface PptxImportPayload {
   filePath: string
   title?: string
   styleId?: string | null
+  modelConfigId?: string
 }
 
 export interface PptxImportProgressPayload {
@@ -134,6 +137,7 @@ export const normalizeFontSelection = (value: unknown): FontSelection => {
 
 export interface GenerateStartPayload {
   sessionId: string
+  modelConfigId?: string
   userMessage: string
   type?: 'deck' | 'page'
   chatType?: 'main' | 'page'
@@ -150,17 +154,20 @@ export interface GenerateStartPayload {
 
 export interface GenerateRetryFailedPayload {
   sessionId: string
+  modelConfigId?: string
   userMessage?: string
 }
 
 export interface GenerateAddPagePayload {
   sessionId: string
+  modelConfigId?: string
   userMessage: string
   insertAfterPageNumber: number
 }
 
 export interface GenerateRetrySinglePagePayload {
   sessionId: string
+  modelConfigId?: string
   pageId: string
 }
 

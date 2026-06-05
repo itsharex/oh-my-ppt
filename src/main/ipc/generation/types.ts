@@ -20,6 +20,9 @@ export type FinalizeContext = {
   messageScope: GenerateChatType
   messagePageId?: string
   projectId: string
+  modelConfigId?: string
+  modelConfigName?: string
+  runModel?: string
 }
 
 export type GenerationContext = {
@@ -44,6 +47,9 @@ export type GenerationContext = {
   provider: string
   apiKey: string
   model: string
+  modelConfigId?: string
+  modelConfigName?: string
+  runModel?: string
   maxTokens: number
   modelTimeouts: Record<ModelTimeoutProfile, number>
   providerBaseUrl: string
@@ -73,6 +79,7 @@ export type AnyFlowContext =
       runId: string
       messageScope: GenerateChatType
       messagePageId?: string
+      runModel?: string
     }
 
 export type FinalizeGenerationArgs = {

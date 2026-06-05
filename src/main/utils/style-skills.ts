@@ -134,6 +134,23 @@ export function resolveStylePreset(styleId?: string | null): StylePreset {
   return fallback ? rowToPreset(fallback) : rowToPreset(rows[0]);
 }
 
+export function resolveUsableStyleId(styleId?: string | null): string {
+  const db = getDb();
+  const rows = db.listStyleRowsSync().filter((row) => row.active !== false);
+  if (styleId) {
+    try {
+      const normalized = normalizeStyleId(styleId);
+      if (rows.some((row) => row.id === normalized)) return normalized;
+    } catch {
+      // Fall back below for legacy manifests/sessions with stale or malformed style ids.
+    }
+  }
+
+  const fallback = rows.find((row) => row.style === "minimal-white") || rows[0];
+  if (!fallback) throw new Error("styleId 不存在或不可用：");
+  return fallback.id;
+}
+
 export function loadStyleSkill(
   styleId?: string | null,
 ): { preset: StylePreset; prompt: string } {

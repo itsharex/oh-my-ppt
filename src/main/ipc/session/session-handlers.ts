@@ -6,7 +6,7 @@ import crypto from 'crypto'
 import { normalizeSession, normalizeMessage } from '../utils'
 import { getStyleDetail, hasStyleSkill } from '../../utils/style-skills'
 import type { IpcContext } from '../context'
-import { resolveActiveModelConfig } from '../config/model-config-utils'
+import { resolveModelConfigForTask } from '../config/model-config-utils'
 import { readAppLocale, uiText } from '../config/locale-utils'
 import { normalizeFontSelection } from '@shared/generation'
 import { normalizeSourcePlan } from '../generation/source-plan'
@@ -283,7 +283,12 @@ export function registerSessionHandlers(ctx: IpcContext): void {
       typeof record.referenceDocumentPath === 'string' ? record.referenceDocumentPath.trim() : ''
     const locale = await readAppLocale(ctx)
     const storagePath = await resolveStoragePath()
-    const activeModel = await resolveActiveModelConfig(ctx)
+    const modelConfigId =
+      typeof record.modelConfigId === 'string' ? record.modelConfigId.trim() : undefined
+    const activeModel = await resolveModelConfigForTask(ctx, {
+      modelConfigId,
+      purpose: 'session:create'
+    })
     const { provider, model } = activeModel
     const baseUrl = activeModel.baseUrl
     const normalizedTopic = typeof topic === 'string' && topic.trim() ? topic.trim() : 'Untitled'

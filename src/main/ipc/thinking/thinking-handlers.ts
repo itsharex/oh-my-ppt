@@ -3,7 +3,7 @@ import path from 'path'
 import fs from 'fs'
 import log from 'electron-log/main.js'
 import type { IpcContext } from '../context'
-import { resolveActiveModelConfig, resolveGlobalModelTimeouts } from '../config/model-config-utils'
+import { resolveGlobalModelTimeouts, resolveModelConfigForTask } from '../config/model-config-utils'
 import {
   createWorkspace,
   deleteWorkspace,
@@ -324,6 +324,7 @@ export function registerThinkingHandlers(ctx: IpcContext): void {
       _event,
       payload: {
         thinkingId: string
+        modelConfigId?: string
         userMessage: string
         recentMessages?: ThinkingChatMessage[]
         attachments?: ThinkingChatMessage['attachments']
@@ -334,7 +335,10 @@ export function registerThinkingHandlers(ctx: IpcContext): void {
       const dir = resolveThinkingDir(storagePath, thinkingId)
 
       const workspace = await readWorkspace(storagePath, thinkingId)
-      const activeModel = await resolveActiveModelConfig(ctx)
+      const activeModel = await resolveModelConfigForTask(ctx, {
+        modelConfigId: payload.modelConfigId,
+        purpose: 'thinking:chat'
+      })
       const modelTimeouts = await resolveGlobalModelTimeouts(ctx)
       await extractPendingImageTextSources(dir, {
         provider: activeModel.provider,

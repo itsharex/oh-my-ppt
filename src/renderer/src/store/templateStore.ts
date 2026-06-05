@@ -15,6 +15,7 @@ interface TemplateStore {
   createSessionFromTemplate: (payload: {
     templateId: string
     title?: string
+    modelConfigId?: string
     pageCount?: number
     referenceDocumentPath?: string
     sourcePlan?: SourceDocumentPlan
@@ -22,10 +23,12 @@ interface TemplateStore {
   createEditableSessionFromTemplate: (payload: {
     templateId: string
     title?: string
+    modelConfigId?: string
   }) => Promise<string>
   importPptxAsTemplate: (payload: {
     filePath: string
     name?: string
+    modelConfigId?: string
   }) => Promise<{ id: string; pageCount: number; warnings: string[] }>
   updateTemplateMetadata: (payload: {
     templateId: string

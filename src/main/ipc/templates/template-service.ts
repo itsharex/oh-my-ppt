@@ -4,14 +4,17 @@ import path from 'path'
 import crypto from 'crypto'
 import { LRUCache } from 'lru-cache'
 import type { IpcContext } from '../context'
-import { resolveActiveModelConfig, resolveGlobalModelTimeouts } from '../config/model-config-utils'
+import {
+  resolveGlobalModelTimeouts,
+  resolveModelConfigForTask
+} from '../config/model-config-utils'
 import { buildProjectIndexHtml, type DeckPageFile } from '../engine/template'
 import { buildDesignContractWithLLM } from '../engine/generate'
 import { parseJsonObject } from '../utils'
 import { normalizeSourcePlan } from '../generation/source-plan'
 import { importPptxToEditableHtml, type PptxImportProgressPayload } from '../../utils/pptx-importer'
 import { extractStyleFromExistingHtml } from '../../utils/style-pptx-import'
-import { createStyleSkill } from '../../utils/style-skills'
+import { createStyleSkill, resolveUsableStyleId } from '../../utils/style-skills'
 import { recordHistoryOperationStrict } from '../../history/git-history-service'
 import { copyDirExcluding } from './template-copy'
 import { resolveTemplateDesignContract } from './template-design-contract'
@@ -422,7 +425,12 @@ export async function importPptxAsTemplate(
   const templateId = createTemplateId()
   const templateDir = resolveTemplateDir(templatesRoot, templateId)
   const tempDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'ohmyppt-template-pptx-'))
-  const activeModel = await resolveActiveModelConfig(ctx)
+  const modelConfigId =
+    typeof record.modelConfigId === 'string' ? record.modelConfigId.trim() : undefined
+  const activeModel = await resolveModelConfigForTask(ctx, {
+    modelConfigId,
+    purpose: 'templates:importPptx'
+  })
   const modelTimeouts = await resolveGlobalModelTimeouts(ctx)
 
   try {
@@ -567,12 +575,18 @@ export async function createSessionFromTemplate(
   const { manifest, templateDir } = await readManifest(templatesRoot, templateId)
   if (manifest.pages.length === 0) throw new Error('模板没有可创建的页面')
 
-  const activeModel = await resolveActiveModelConfig(ctx)
+  const modelConfigId =
+    typeof record.modelConfigId === 'string' ? record.modelConfigId.trim() : undefined
+  const activeModel = await resolveModelConfigForTask(ctx, {
+    modelConfigId,
+    purpose: 'templates:createSession'
+  })
   const storagePath = await ctx.resolveStoragePath()
   const storageRoot = fs.existsSync(storagePath)
     ? await fs.promises.realpath(storagePath)
     : path.resolve(storagePath)
   const sessionId = createTemplateSessionId()
+  const styleId = resolveUsableStyleId(manifest.styleId)
   const projectDir = path.join(storagePath, sessionId)
   const deckTitle = title || manifest.name || '从模板创建的演示'
   const resolvedPageCount = pageCount || manifest.pageCount || manifest.pages.length
@@ -605,7 +619,7 @@ export async function createSessionFromTemplate(
     baseUrl: activeModel.baseUrl,
     projectDir,
     topic: deckTitle,
-    styleId: manifest.styleId || undefined,
+    styleId,
     pageCount: resolvedPageCount,
     referenceDocumentPath: userReferenceDocumentPath
   })
@@ -660,14 +674,20 @@ export async function createEditableSessionFromTemplate(
   const record = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {}
   const templateId = typeof record.templateId === 'string' ? record.templateId.trim() : ''
   const title = typeof record.title === 'string' && record.title.trim() ? record.title.trim() : ''
+  const modelConfigId =
+    typeof record.modelConfigId === 'string' ? record.modelConfigId.trim() : undefined
 
   const templatesRoot = await ensureTemplatesRoot()
   const { manifest, templateDir } = await readManifest(templatesRoot, templateId)
   if (manifest.pages.length === 0) throw new Error('模板没有可创建的页面')
 
-  const activeModel = await resolveActiveModelConfig(ctx)
+  const activeModel = await resolveModelConfigForTask(ctx, {
+    modelConfigId,
+    purpose: 'templates:createEditableSession'
+  })
   const storagePath = await ctx.resolveStoragePath()
   const sessionId = createTemplateSessionId()
+  const styleId = resolveUsableStyleId(manifest.styleId)
   const projectDir = path.join(storagePath, sessionId)
   const deckTitle = title || manifest.name || '从模板创建的演示'
 
@@ -696,7 +716,7 @@ export async function createEditableSessionFromTemplate(
     baseUrl: activeModel.baseUrl,
     projectDir,
     topic: deckTitle,
-    styleId: manifest.styleId || undefined,
+    styleId,
     pageCount: preparedPages.length
   })
   const designContract = resolveTemplateDesignContract(manifest.designContract)
@@ -711,9 +731,14 @@ export async function createEditableSessionFromTemplate(
     sessionId,
     mode: 'import',
     totalPages: preparedPages.length,
+    modelConfigId: activeModel.id,
     metadata: {
       source: 'template-direct-edit',
-      templateId
+      templateId,
+      modelConfigId: activeModel.id,
+      modelConfigName: activeModel.name,
+      provider: activeModel.provider,
+      model: activeModel.model
     }
   })
   for (const page of preparedPages) {

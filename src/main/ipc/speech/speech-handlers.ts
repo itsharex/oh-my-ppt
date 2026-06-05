@@ -7,7 +7,7 @@ import log from 'electron-log/main.js'
 import { resolveModelTimeoutMs } from '@shared/model-timeout'
 import type { SpeechLength, SpeechStyle } from '@shared/speech'
 import type { IpcContext } from '../context'
-import { resolveActiveModelConfig, resolveGlobalModelTimeouts } from '../config/model-config-utils'
+import { resolveGlobalModelTimeouts, resolveModelConfigForTask } from '../config/model-config-utils'
 import { resolveModel } from '../../agent'
 import { readAppLocale, uiText } from '../config/locale-utils'
 import { extractModelText } from '../utils'
@@ -262,7 +262,10 @@ export function registerSpeechHandlers(ctx: IpcContext): void {
         throw new Error(uiText(locale, '没有可读取的幻灯片内容', 'No readable slide content found'))
       }
 
-      const modelConfig = await resolveActiveModelConfig(ctx)
+      const modelConfig = await resolveModelConfigForTask(ctx, {
+        modelConfigId: payload?.modelConfigId,
+        purpose: 'speech:generateScript'
+      })
       const timeouts = await resolveGlobalModelTimeouts(ctx)
       const timeoutMs = resolveModelTimeoutMs(timeouts['document'], 'document')
       const model = resolveModel(

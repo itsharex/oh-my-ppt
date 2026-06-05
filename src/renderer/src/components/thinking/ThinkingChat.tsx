@@ -55,7 +55,7 @@ interface ThinkingChatProps {
   loading: boolean
   thinkingSteps: ThinkingStep[]
   animatingText: string
-  onSend: (content: string) => void
+  onSend: (content: string, modelConfigId: string) => void
   onSourcesUploaded: (sources: ThinkingSource[]) => void
   onSourceRemoved: (sourceId: string) => void
 }
@@ -175,8 +175,9 @@ export function ThinkingChat({
   const handleSend = async (): Promise<void> => {
     const text = input.trim()
     if (!text || loading || modelAction.activatingModelConfigId) return
-    if (!(await modelAction.ensureModelActive())) return
-    onSend(text)
+    const modelConfigId = await modelAction.ensureModelActive()
+    if (!modelConfigId) return
+    onSend(text, modelConfigId)
     setInput('')
   }
 

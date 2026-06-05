@@ -222,7 +222,8 @@ export function TemplateUseDialog({
 
   const handleAnalyzeDocument = async (modelConfigId = selectedModelConfigId): Promise<void> => {
     if (!template || !attachedReferenceFile || parsingDocument) return
-    if (!(await ensureModelActive(modelConfigId))) return
+    const resolvedModelConfigId = await ensureModelActive(modelConfigId)
+    if (!resolvedModelConfigId) return
 
     setParsingDocument(true)
     setDocumentParseError(null)
@@ -230,7 +231,8 @@ export function TemplateUseDialog({
       const result = await ipc.parseDocumentPlan({
         files: [{ path: attachedReferenceFile.path, name: attachedReferenceFile.name }],
         topic: title.trim() || template.name,
-        existingBrief: brief.trim()
+        existingBrief: brief.trim(),
+        modelConfigId: resolvedModelConfigId
       })
       const referenceFile = result.files[0] || attachedReferenceFile
       setAttachedReferenceFile(referenceFile)
@@ -291,7 +293,8 @@ export function TemplateUseDialog({
 
   const handleCreate = async (modelConfigId = selectedModelConfigId): Promise<void> => {
     if (!template || creating) return
-    if (!(await ensureModelActive(modelConfigId))) return
+    const resolvedModelConfigId = await ensureModelActive(modelConfigId)
+    if (!resolvedModelConfigId) return
     const deckTitle = title.trim() || template.name
     const briefText = brief.trim()
     if (!briefText) {
@@ -304,6 +307,7 @@ export function TemplateUseDialog({
       const sessionId = await createSessionFromTemplate({
         templateId: template.id,
         title: deckTitle,
+        modelConfigId: resolvedModelConfigId,
         pageCount: safePageCount,
         referenceDocumentPath: referenceDocumentPath || undefined,
         sourcePlan: acceptedSourcePlan
@@ -319,7 +323,7 @@ export function TemplateUseDialog({
       })
       onOpenChange(false)
       navigate(`/sessions/${sessionId}/template-generating`, {
-        state: { initialPrompt }
+        state: { initialPrompt, modelConfigId: resolvedModelConfigId }
       })
     } catch (err) {
       error(t('templates.createFailed'), {

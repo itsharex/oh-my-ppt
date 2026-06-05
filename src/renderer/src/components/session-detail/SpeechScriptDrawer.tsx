@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Check, Copy, FileText, Loader2, X } from 'lucide-react'
 import { cn } from '@renderer/lib/utils'
 import { Button } from '../ui/Button'
+import { useModelAction } from '@renderer/hooks/useModelAction'
+import { ModelSplitButton } from '../model/ModelActionButton'
 import {
   Select,
   SelectContent,
@@ -44,6 +46,7 @@ export function SpeechScriptDrawer({
   currentPageTitle
 }: SpeechScriptDrawerProps): React.JSX.Element {
   const t = useT()
+  const modelAction = useModelAction()
   const [script, setScript] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
 
@@ -144,6 +147,12 @@ export function SpeechScriptDrawer({
 
   const handleViewFile = (): void => {
     void ipc.openSpeechScriptFile(sessionId)
+  }
+
+  const handleGenerate = (modelConfigId: string): void => {
+    const nextConfig = { ...speechConfig, modelConfigId }
+    onConfigChange(nextConfig)
+    onGenerate(nextConfig)
   }
 
   return (
@@ -260,21 +269,24 @@ export function SpeechScriptDrawer({
 
         {/* Generate button */}
         <div className="border-t border-[#ede5d6]/60 px-3 py-2.5">
-          <Button
-            size="sm"
-            className="w-full gap-1.5 rounded-xl text-xs"
-            onClick={() => onGenerate(speechConfig)}
-            disabled={isGenerating}
-          >
-            {isGenerating ? (
-              <>
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                {generationLabel}
-              </>
-            ) : (
-              t(visibleScript ? 'sessionDetail.speechScriptRegenerate' : 'sessionDetail.speechScriptGenerate')
+          <ModelSplitButton
+            modelAction={modelAction}
+            label={t(
+              visibleScript
+                ? 'sessionDetail.speechScriptRegenerate'
+                : 'sessionDetail.speechScriptGenerate'
             )}
-          </Button>
+            loadingLabel={generationLabel}
+            loading={isGenerating}
+            disabled={isGenerating}
+            icon={FileText}
+            tone="primary"
+            size="sm"
+            className="w-full rounded-xl"
+            mainClassName="min-w-0 flex-1 justify-center text-xs"
+            triggerClassName="h-8"
+            onRun={handleGenerate}
+          />
         </div>
       </div>
 

@@ -41,7 +41,7 @@ export async function resolveEditContext(
   const { db, formatImagePathsForPrompt } = ctx
   if (!input.sessionId) throw new Error('sessionId 不能为空')
 
-  const common = await resolveCommonContext(ctx, input.sessionId)
+  const common = await resolveCommonContext(ctx, input.sessionId, input.modelConfigId)
   const sourceDocumentPaths = await resolveSourceDocuments(ctx, {
     sessionId: input.sessionId,
     projectDir: common.projectDir,
@@ -66,7 +66,8 @@ export async function resolveEditContext(
     page_id: chatType === 'page' ? chatPageId : undefined,
     selector: chatType === 'page' ? input.selector : undefined,
     image_paths: imagePaths,
-    video_paths: videoPaths
+    video_paths: videoPaths,
+    run_model: common.runModel
   })
   await db.updateSessionStatus(input.sessionId, 'active')
 
@@ -92,6 +93,9 @@ export async function resolveEditContext(
     provider: common.provider,
     apiKey: common.apiKey,
     model: common.model,
+    modelConfigId: common.modelConfigId,
+    modelConfigName: common.modelConfigName,
+    runModel: common.runModel,
     modelTimeouts: common.modelTimeouts,
     providerBaseUrl: common.providerBaseUrl,
     maxTokens: common.maxTokens,
@@ -238,10 +242,15 @@ export async function executeEditGeneration(
     sessionId: context.sessionId,
     mode: 'edit',
     totalPages: pageRefs.length,
+    modelConfigId: context.modelConfigId,
     metadata: {
       editScope: 'page',
       selectedPageId: resolvedSelectedPageId || null,
-      selector: selectedSelector || null
+      selector: selectedSelector || null,
+      modelConfigId: context.modelConfigId,
+      modelConfigName: context.modelConfigName,
+      provider: context.provider,
+      model: context.model
     }
   })
   const emitEditChunk = createDeckProgressEmitter(context.sessionId, context.appLocale)

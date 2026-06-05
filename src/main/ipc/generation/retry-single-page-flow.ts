@@ -34,6 +34,9 @@ export type RetrySinglePageContext = {
   provider: string
   apiKey: string
   model: string
+  modelConfigId?: string
+  modelConfigName?: string
+  runModel?: string
   providerBaseUrl: string
   modelTimeouts: Record<ModelTimeoutProfile, number>
   projectDir: string
@@ -55,12 +58,13 @@ export type RetrySinglePageContext = {
 export async function resolveRetrySinglePageContext(
   ctx: IpcContext,
   sessionId: string,
-  pageId: string
+  pageId: string,
+  modelConfigId?: string
 ): Promise<RetrySinglePageContext> {
   const { db } = ctx
 
   log.info('[generate:retrySinglePage] resolving context', { sessionId, pageId })
-  const common = await resolveCommonContext(ctx, sessionId)
+  const common = await resolveCommonContext(ctx, sessionId, modelConfigId)
   const { sessionRecord } = common
   const sourceDocumentPaths = await resolveSourceDocuments(ctx, {
     sessionId,
@@ -183,7 +187,15 @@ export async function executeRetrySinglePageGeneration(
     sessionId: context.sessionId,
     mode: 'retrySinglePage',
     totalPages: 1,
-    metadata: { retrySinglePage: true, pageId: context.pageId }
+    modelConfigId: context.modelConfigId,
+    metadata: {
+      retrySinglePage: true,
+      pageId: context.pageId,
+      modelConfigId: context.modelConfigId,
+      modelConfigName: context.modelConfigName,
+      provider: context.provider,
+      model: context.model
+    }
   })
   await db.upsertGenerationPage({
     runId: context.runId,

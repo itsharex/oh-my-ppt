@@ -12,9 +12,12 @@ import {
   type GenerationPreviewPage,
   type GenerationStageKey
 } from '../components/session-generating'
+import { ModelSelectButton } from '../components/model/ModelActionButton'
+import { useModelAction } from '../hooks/useModelAction'
 
 type LocationState = {
   initialPrompt?: string
+  modelConfigId?: string
   retry?: boolean
   rerunToken?: number
 }
@@ -289,6 +292,8 @@ export function SessionGeneratingPage({
   const navigate = useNavigate()
   const location = useLocation()
   const { lang, t } = useLang()
+  const modelAction = useModelAction()
+  const { ensureModelActive, selectedModelConfigId } = modelAction
   const state = (location.state as LocationState | null) || null
   const startedSessionRef = useRef<string | null>(null)
   const activeRunIdRef = useRef<string | null>(null)
@@ -313,7 +318,9 @@ export function SessionGeneratingPage({
   )
   const [presentationTitle, setPresentationTitle] = useState<string>('')
   const generatingPath =
-    generationKind === 'template' && id ? `/sessions/${id}/template-generating` : `/sessions/${id}/generating`
+    generationKind === 'template' && id
+      ? `/sessions/${id}/template-generating`
+      : `/sessions/${id}/generating`
 
   const appendEvent = (line: string, timestamp?: string): void => {
     const el = eventsContainerRef.current
@@ -628,8 +635,12 @@ export function SessionGeneratingPage({
 
     const unsubscribe = ipc.onGenerateChunk((event) => applyChunk(event))
 
-    const startRun = (): void => {
-      const runKey = `${id}:${generationKind}:${state?.retry ? 'retry' : 'generate'}:${state?.rerunToken ?? 'initial'}`
+    const startRun = async (): Promise<void> => {
+      const resolvedModelConfigId = await ensureModelActive(
+        state?.modelConfigId || selectedModelConfigId
+      )
+      if (!active || !resolvedModelConfigId) return
+      const runKey = `${id}:${generationKind}:${state?.retry ? 'retry' : 'generate'}:${state?.rerunToken ?? 'initial'}:${resolvedModelConfigId}`
       if (startedSessionRef.current === runKey) return
       startedSessionRef.current = runKey
       setStatus('running')
@@ -640,29 +651,34 @@ export function SessionGeneratingPage({
           sessionId: id,
           generationKind,
           retry: Boolean(state?.retry),
-          hasInitialPrompt: Boolean(initialPrompt)
+          hasInitialPrompt: Boolean(initialPrompt),
+          modelConfigId: resolvedModelConfigId
         })
       }
       const request = state?.retry
         ? generationKind === 'template'
           ? ipc.startTemplateGenerate({
               sessionId: id,
+              modelConfigId: resolvedModelConfigId,
               userMessage: state.initialPrompt?.trim() || '',
               type: 'deck',
               retry: true
             })
           : ipc.retryFailedPages({
               sessionId: id,
+              modelConfigId: resolvedModelConfigId,
               userMessage: state.initialPrompt?.trim() || undefined
             })
         : generationKind === 'template'
           ? ipc.startTemplateGenerate({
               sessionId: id,
+              modelConfigId: resolvedModelConfigId,
               userMessage: initialPrompt,
               type: 'deck'
             })
           : ipc.startGenerate({
               sessionId: id,
+              modelConfigId: resolvedModelConfigId,
               userMessage: initialPrompt,
               type: 'deck'
             })
@@ -845,17 +861,30 @@ export function SessionGeneratingPage({
           appendEvent(t('generating.keptFailed'), new Date().toISOString())
           return
         }
-        startRun()
+        void startRun()
       })
       .catch(() => {
-        startRun()
+        void startRun()
       })
 
     return () => {
       active = false
       unsubscribe?.()
     }
-  }, [id, navigate, location.key, generationKind, state?.initialPrompt, state?.retry, state?.rerunToken, lang, t])
+  }, [
+    id,
+    navigate,
+    location.key,
+    generationKind,
+    state?.initialPrompt,
+    state?.modelConfigId,
+    state?.retry,
+    state?.rerunToken,
+    ensureModelActive,
+    selectedModelConfigId,
+    lang,
+    t
+  ])
 
   const displayProgress = Math.max(0, Math.min(100, Math.round(progress)))
   const fullyGenerated = isSessionFullyGenerated(editorGate)
@@ -901,6 +930,7 @@ export function SessionGeneratingPage({
     navigate(generatingPath, {
       replace: true,
       state: {
+        modelConfigId: selectedModelConfigId || state?.modelConfigId,
         retry: true,
         rerunToken: Date.now()
       }
@@ -912,6 +942,7 @@ export function SessionGeneratingPage({
       replace: true,
       state: {
         initialPrompt: state?.initialPrompt,
+        modelConfigId: selectedModelConfigId || state?.modelConfigId,
         retry: false,
         rerunToken: Date.now()
       }
@@ -962,6 +993,13 @@ export function SessionGeneratingPage({
         />
 
         <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+          <div className="mb-2 flex justify-end">
+            <ModelSelectButton
+              modelAction={modelAction}
+              disabled={status === 'running'}
+              className="max-w-[14rem] bg-[#fff9ef]/90"
+            />
+          </div>
           <GenerationStatusPanel
             status={status}
             progress={displayProgress}

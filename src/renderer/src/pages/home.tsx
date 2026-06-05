@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useToastStore } from '../store'
 import { useT } from '../i18n'
 import { useModelAction } from '../hooks/useModelAction'
+import { ModelSelectButton } from '../components/model/ModelActionButton'
 import { ipc } from '@renderer/lib/ipc'
 import {
   ArrowRight,
@@ -19,7 +20,8 @@ const MAX_PPTX_SIZE_BYTES = MAX_PPTX_SIZE_MB * 1024 * 1024
 export function HomePage(): ReactElement {
   const navigate = useNavigate()
   const { success, error, warning } = useToastStore()
-  const { ensureModelActive } = useModelAction()
+  const modelAction = useModelAction()
+  const { ensureModelActive } = modelAction
   const t = useT()
   const [importingPptx, setImportingPptx] = useState(false)
   const [pptxImportProgress, setPptxImportProgress] = useState<string | null>(null)
@@ -94,10 +96,13 @@ export function HomePage(): ReactElement {
       setImportingPptx(true)
       setPptxImportProgress(t('home.pptxPreparing'))
       try {
+        const modelConfigId = await ensureModelActive()
+        if (!modelConfigId) return
         const result = await ipc.importPptx({
           filePath,
           title: selectedFile.name.replace(/\.pptx$/i, ''),
-          styleId: null
+          styleId: null,
+          modelConfigId
         })
         success(t('home.pptxImportDone'), {
           description:
@@ -118,7 +123,7 @@ export function HomePage(): ReactElement {
         setPptxImportProgress(null)
       }
     },
-    [error, navigate, success, t]
+    [ensureModelActive, error, navigate, success, t]
   )
 
   useEffect(() => {
@@ -145,6 +150,9 @@ export function HomePage(): ReactElement {
             <p className="mt-4 max-w-2xl text-[15px] leading-relaxed text-[#5d6b4d]">
               {t('thinking.homeDescription')}
             </p>
+          </div>
+          <div className="relative flex shrink-0 justify-start lg:justify-end">
+            <ModelSelectButton modelAction={modelAction} disabled={importingPptx} />
           </div>
         </div>
       </section>

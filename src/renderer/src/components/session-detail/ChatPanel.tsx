@@ -43,7 +43,7 @@ export function ChatPanel({
   error: string | null
   onDropFiles: (files: File[]) => void
   onChooseAssets: (assetType: 'image' | 'video') => void
-  onSend: () => void
+  onSend: (modelConfigId: string) => void
   onCancel: () => void
   cleanMessageContent: (content: string) => string
 }): React.JSX.Element {
@@ -113,7 +113,7 @@ export function ChatPanel({
     try {
       const resolvedModelConfigId = await modelAction.ensureModelActive(modelConfigId)
       if (!resolvedModelConfigId) return
-      onSend()
+      onSend(resolvedModelConfigId)
     } catch (err) {
       console.error('[MessagePanel] send model activation failed', err)
     }

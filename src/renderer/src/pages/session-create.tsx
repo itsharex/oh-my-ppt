@@ -261,10 +261,12 @@ export function SessionCreatePage(): ReactElement {
 
     setSubmitting(true)
     try {
-      if (!(await ensureModelActive(modelConfigId))) return
+      const resolvedModelConfigId = await ensureModelActive(modelConfigId)
+      if (!resolvedModelConfigId) return
       const sessionId = await createSession({
         topic: topicText,
         styleId: selectedStyleId,
+        modelConfigId: resolvedModelConfigId,
         pageCount: safePageCount,
         referenceDocumentPath: referenceDocumentPath || undefined,
         sourcePlan: acceptedSourcePlan,
@@ -278,7 +280,8 @@ export function SessionCreatePage(): ReactElement {
       await delay(500)
       navigate(`/sessions/${sessionId}/generating`, {
         state: {
-          initialPrompt
+          initialPrompt,
+          modelConfigId: resolvedModelConfigId
         }
       })
     } catch (err) {
@@ -387,13 +390,15 @@ export function SessionCreatePage(): ReactElement {
     modelConfigId = selectedModelConfigId
   ): Promise<void> => {
     if (!attachedReferenceFile || attachedReferenceFile.type !== 'image' || parsingDocument) return
-    if (!(await ensureModelActive(modelConfigId))) return
+    const resolvedModelConfigId = await ensureModelActive(modelConfigId)
+    if (!resolvedModelConfigId) return
 
     setParsingDocument(true)
     setDocumentParseError(null)
     try {
       const result = await ipc.parseImageReferenceDocument({
-        file: { path: attachedReferenceFile.path, name: attachedReferenceFile.name }
+        file: { path: attachedReferenceFile.path, name: attachedReferenceFile.name },
+        modelConfigId: resolvedModelConfigId
       })
       const referenceFile = result.files[0]
       if (!referenceFile) throw new Error(t('common.retryLater'))
@@ -415,7 +420,8 @@ export function SessionCreatePage(): ReactElement {
 
   const handleAnalyzeReference = async (modelConfigId: string): Promise<void> => {
     if (!attachedReferenceFile || parsingDocument) return
-    if (!(await ensureModelActive(modelConfigId))) return
+    const resolvedModelConfigId = await ensureModelActive(modelConfigId)
+    if (!resolvedModelConfigId) return
 
     setParsingDocument(true)
     setDocumentParseError(null)
@@ -423,7 +429,8 @@ export function SessionCreatePage(): ReactElement {
       const result = await ipc.parseDocumentPlan({
         files: [{ path: attachedReferenceFile.path, name: attachedReferenceFile.name }],
         topic: topic.trim(),
-        existingBrief: brief.trim()
+        existingBrief: brief.trim(),
+        modelConfigId: resolvedModelConfigId
       })
       const nextSuggestion = {
         topic: result.topic,
