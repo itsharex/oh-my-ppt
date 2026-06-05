@@ -3,6 +3,7 @@ import path from 'path'
 import crypto from 'crypto'
 import * as cheerio from 'cheerio'
 import { parse, type Chart, type Element, type Fill, type Slide } from 'pptxtojson/dist/index.js'
+import { unzipSync, zipSync } from 'fflate'
 import { buildPageScaffoldHtml, buildProjectIndexHtml, type DeckPageFile } from '../ipc/engine/template'
 import { escapeHtml } from '../ipc/utils'
 import { validatePersistedPageHtml } from '../tools/html-utils'
@@ -43,6 +44,27 @@ type ChartSeries = {
   values?: Array<{ x?: string; y?: number }>
 }
 
+type ImportedTableBorder = {
+  borderColor?: string
+  borderWidth?: number
+  borderType?: string
+}
+
+type ImportedTableCell = {
+  text?: string
+  rowSpan?: number
+  colSpan?: number
+  vMerge?: number
+  hMerge?: number
+  fillColor?: string
+  fontColor?: string
+  fontBold?: boolean
+  vAlign?: string
+  borders?: Partial<Record<TableBorderSide, ImportedTableBorder>>
+}
+
+type TableBorderSide = 'top' | 'right' | 'bottom' | 'left'
+
 type FlattenedElement = {
   element: Element
   left: number
@@ -82,6 +104,95 @@ export type ImportedPptxDeck = {
 const clampNumber = (value: unknown, fallback = 0): number => {
   const n = Number(value)
   return Number.isFinite(n) ? n : fallback
+}
+
+const decodeUtf8 = (data: Uint8Array): string => new TextDecoder().decode(data)
+
+const encodeUtf8 = (value: string): Uint8Array => new TextEncoder().encode(value)
+
+const arrayBufferFromUint8Array = (data: Uint8Array): ArrayBuffer => {
+  const copy = new Uint8Array(data.byteLength)
+  copy.set(data)
+  return copy.buffer
+}
+
+const collectPptxTableStyleIds = (tableStylesXml: string): Set<string> => {
+  const ids = new Set<string>()
+  const styleIdRe = /\bstyleId=(["'])(.*?)\1/g
+  let match: RegExpExecArray | null
+  while ((match = styleIdRe.exec(tableStylesXml)) !== null) {
+    const id = match[2]?.trim()
+    if (id) ids.add(id)
+  }
+  return ids
+}
+
+const tableStyleIdFromTblPr = (tblPrXml: string): string => {
+  const match = tblPrXml.match(/<a:tableStyleId\b[^>]*>([\s\S]*?)<\/a:tableStyleId>/)
+  return match?.[1]?.trim() || ''
+}
+
+const removeUnsupportedTableStyleFlags = (tblPrXml: string, knownStyleIds: Set<string>): {
+  xml: string
+  changed: boolean
+} => {
+  const styleId = tableStyleIdFromTblPr(tblPrXml)
+  if (styleId && knownStyleIds.has(styleId)) return { xml: tblPrXml, changed: false }
+  const nextXml = tblPrXml.replace(
+    /\s(?:firstRow|firstCol|lastRow|lastCol|bandRow|bandCol)=("1"|'1')/g,
+    ''
+  )
+  return { xml: nextXml, changed: nextXml !== tblPrXml }
+}
+
+const normalizePptxTableStyleFlags = (buffer: Buffer): {
+  arrayBuffer: ArrayBuffer
+  normalizedTableCount: number
+} => {
+  let files: Record<string, Uint8Array>
+  try {
+    files = unzipSync(new Uint8Array(buffer))
+  } catch {
+    return {
+      arrayBuffer: arrayBufferFromUint8Array(
+        new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength)
+      ),
+      normalizedTableCount: 0
+    }
+  }
+
+  const tableStylesXml = files['ppt/tableStyles.xml'] ? decodeUtf8(files['ppt/tableStyles.xml']) : ''
+  const knownStyleIds = collectPptxTableStyleIds(tableStylesXml)
+  let normalizedTableCount = 0
+
+  for (const name of Object.keys(files)) {
+    if (!/^ppt\/slides\/slide\d+\.xml$/i.test(name)) continue
+    const xml = decodeUtf8(files[name])
+    if (!xml.includes('<a:tblPr')) continue
+    const nextXml = xml.replace(
+      /<a:tblPr\b[\s\S]*?<\/a:tblPr>|<a:tblPr\b[^>]*\/>/g,
+      (tblPrXml) => {
+        const result = removeUnsupportedTableStyleFlags(tblPrXml, knownStyleIds)
+        if (result.changed) normalizedTableCount += 1
+        return result.xml
+      }
+    )
+    if (nextXml !== xml) files[name] = encodeUtf8(nextXml)
+  }
+
+  if (normalizedTableCount === 0) {
+    return {
+      arrayBuffer: arrayBufferFromUint8Array(
+        new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength)
+      ),
+      normalizedTableCount
+    }
+  }
+
+  return {
+    arrayBuffer: arrayBufferFromUint8Array(zipSync(files)),
+    normalizedTableCount
+  }
 }
 
 const stripHtml = (html: string): string => {
@@ -520,6 +631,53 @@ const borderCss = (element: Record<string, unknown>, scale: number): string[] =>
   return [`border:${Math.max(1, width * scale).toFixed(1)}px ${type} ${color}`]
 }
 
+const normalizeBorderType = (value: unknown): string => {
+  const raw = typeof value === 'string' ? value.trim().toLowerCase() : ''
+  if (['solid', 'dashed', 'dotted', 'double'].includes(raw)) return raw
+  return 'solid'
+}
+
+const tableBorderDeclaration = (
+  side: TableBorderSide,
+  border: ImportedTableBorder | undefined,
+  scale: number
+): string | null => {
+  if (!border) return null
+  const width = clampNumber(border.borderWidth)
+  if (width <= 0) return null
+  const color = sanitizeImportedCssColor(border.borderColor) || '#d1d5db'
+  const type = normalizeBorderType(border.borderType)
+  return `border-${side}:${Math.max(0.5, width * scale).toFixed(1)}px ${type} ${color}`
+}
+
+const tableBorderDeclarations = (
+  cellBorders: Partial<Record<TableBorderSide, ImportedTableBorder>> | undefined,
+  fallbackBorders: Partial<Record<TableBorderSide, ImportedTableBorder>> | undefined,
+  scale: number
+): string[] => {
+  const declarations = (['top', 'right', 'bottom', 'left'] as TableBorderSide[])
+    .map((side) => tableBorderDeclaration(side, cellBorders?.[side] || fallbackBorders?.[side], scale))
+    .filter((item): item is string => Boolean(item))
+  return declarations.length > 0 ? declarations : ['border:1px solid #d1d5db']
+}
+
+const spanAttr = (name: 'colspan' | 'rowspan', value: unknown): string => {
+  const span = Math.floor(clampNumber(value, 1))
+  return span > 1 ? ` ${name}="${span}"` : ''
+}
+
+const spanSize = (value: unknown): number => Math.max(1, Math.floor(clampNumber(value, 1)))
+
+const isMergedTableContinuation = (cell: ImportedTableCell): boolean =>
+  clampNumber(cell.hMerge) > 0 || clampNumber(cell.vMerge) > 0
+
+const tableVerticalAlign = (value: unknown): string => {
+  const raw = typeof value === 'string' ? value.trim().toLowerCase() : ''
+  if (raw === 'mid' || raw === 'middle' || raw === 'center' || raw === 'ctr') return 'middle'
+  if (raw === 'down' || raw === 'bottom' || raw === 'b') return 'bottom'
+  return 'top'
+}
+
 const overlapArea = (
   left: { x: number; y: number; w: number; h: number },
   right: { x: number; y: number; w: number; h: number }
@@ -824,27 +982,56 @@ const buildTableBlock = (args: {
   offsetX: number
   offsetY: number
 }): string => {
-  const rows = Array.isArray(args.element.data) ? (args.element.data as Array<Array<Record<string, unknown>>>) : []
+  const rows = Array.isArray(args.element.data) ? (args.element.data as ImportedTableCell[][]) : []
+  const tableBorders = args.element.borders as Partial<Record<TableBorderSide, ImportedTableBorder>> | undefined
+  const colWidths = Array.isArray(args.element.colWidths)
+    ? (args.element.colWidths as unknown[])
+        .map((width) => clampNumber(width) * args.scaleX)
+        .filter((width) => width > 0)
+    : []
+  const rowHeights = Array.isArray(args.element.rowHeights)
+    ? (args.element.rowHeights as unknown[]).map((height) => clampNumber(height) * args.scaleY)
+    : []
+  const colgroup = colWidths.length
+    ? `<colgroup>${colWidths
+        .map((width) => `<col style="width:${width.toFixed(1)}px;" />`)
+        .join('')}</colgroup>`
+    : ''
   const tableRows = rows
-    .map((row) => {
+    .map((row, rowIndex) => {
+      let logicalColIndex = 0
+      const rowHeight = rowHeights[rowIndex] && rowHeights[rowIndex] > 0
+        ? ` style="height:${rowHeights[rowIndex].toFixed(1)}px;"`
+        : ''
       const cells = row
         .map((cell) => {
+          if (isMergedTableContinuation(cell)) {
+            logicalColIndex += 1
+            return ''
+          }
+          const colIndex = logicalColIndex
+          logicalColIndex += spanSize(cell.colSpan)
           const styles = [
-            'border:1px solid #d1d5db',
+            ...tableBorderDeclarations(cell.borders, tableBorders, args.textScale),
             'padding:6px 8px',
-            cell.fillColor ? `background:${cell.fillColor}` : '',
-            cell.fontColor ? `color:${cell.fontColor}` : '',
-            cell.fontBold ? 'font-weight:700' : ''
+            'overflow-wrap:anywhere',
+            `vertical-align:${tableVerticalAlign(cell.vAlign)}`,
+            sanitizeImportedCssColor(cell.fillColor) ? `background:${sanitizeImportedCssColor(cell.fillColor)}` : '',
+            sanitizeImportedCssColor(cell.fontColor) ? `color:${sanitizeImportedCssColor(cell.fontColor)}` : '',
+            cell.fontBold ? 'font-weight:700' : '',
+            rowHeights[rowIndex] && rowHeights[rowIndex] > 0
+              ? `height:${rowHeights[rowIndex].toFixed(1)}px`
+              : ''
           ]
             .filter(Boolean)
             .join(';')
-          const colspan = cell.colSpan ? ` colspan="${Number(cell.colSpan)}"` : ''
-          const rowspan = cell.rowSpan ? ` rowspan="${Number(cell.rowSpan)}"` : ''
+          const colspan = spanAttr('colspan', cell.colSpan)
+          const rowspan = spanAttr('rowspan', cell.rowSpan)
           const content = sanitizeContentHtml(String(cell.text || ''), args.textScale)
-          return `<td${colspan}${rowspan} style="${styles}">${content}</td>`
+          return `<td data-cell-id="r${rowIndex + 1}-c${colIndex + 1}"${colspan}${rowspan} style="${styles}">${content || '&nbsp;'}</td>`
         })
         .join('')
-      return `<tr>${cells}</tr>`
+      return `<tr${rowHeight}>${cells}</tr>`
     })
     .join('')
   const css = buildBlockStyle({
@@ -858,13 +1045,18 @@ const buildTableBlock = (args: {
   })
   const animationAttrs = buildAnimationAttrs(args.animation)
   const animationAttrText = animationAttrs ? ` ${animationAttrs}` : ''
-  return `<section data-block-id="${escapeHtml(args.blockId)}"${animationAttrText} style="${css}"><table style="width:100%;height:100%;border-collapse:collapse;font-size:${Math.max(12, 12 * args.textScale).toFixed(1)}px;">${tableRows}</table></section>`
+  if (!rows.length) {
+    return `<section data-block-id="${escapeHtml(args.blockId)}" data-pptx-kind="table" data-pptx-import-mode="placeholder"${animationAttrText} style="${css};display:flex;align-items:center;justify-content:center;color:#6b7280;">表格已作为占位导入</section>`
+  }
+  return `<section data-block-id="${escapeHtml(args.blockId)}" data-pptx-kind="table" data-pptx-import-mode="editable"${animationAttrText} style="${css}"><table style="width:100%;height:100%;border-collapse:collapse;border-spacing:0;table-layout:fixed;font-size:${Math.max(12, 12 * args.textScale).toFixed(1)}px;">${colgroup}${tableRows}</table></section>`
 }
 
-const mapChartType = (chartType: string, barDir?: string): { type: string; indexAxis?: 'x' | 'y' } | null => {
+const mapChartType = (chartType: string, barDir?: string): { type: string; indexAxis?: 'x' | 'y'; fill?: boolean } | null => {
   if (/pie/i.test(chartType)) return { type: 'pie' }
   if (/doughnut/i.test(chartType)) return { type: 'doughnut' }
+  if (/area/i.test(chartType)) return { type: 'line', fill: true }
   if (/line/i.test(chartType)) return { type: 'line' }
+  if (/radar/i.test(chartType)) return { type: 'radar' }
   if (/bar/i.test(chartType)) {
     // pptxtojson uses barDir="bar" for horizontal bars and "col" for vertical columns.
     return { type: 'bar', indexAxis: barDir === 'bar' ? 'y' : 'x' }
@@ -883,6 +1075,8 @@ const buildChartBlock = (args: {
   zIndex: number
   offsetX: number
   offsetY: number
+  pageNumber?: number
+  warnings?: ImportWarning[]
 }): string => {
   const chartType = mapChartType(args.element.chartType, 'barDir' in args.element ? args.element.barDir : undefined)
   const canvasId = `chart-${args.pageId}-${args.chartIndex}`
@@ -898,23 +1092,56 @@ const buildChartBlock = (args: {
     overflow: 'hidden',
     extra: ['background:#fff']
   })
-  if (!chartType || !('data' in args.element) || !Array.isArray(args.element.data)) {
-    return `<section data-block-id="${escapeHtml(args.blockId)}"${animationAttrText} style="${css};display:flex;align-items:center;justify-content:center;color:#6b7280;">图表已作为占位导入</section>`
+  const data = 'data' in args.element ? args.element.data : null
+  const isCommonSeries = Array.isArray(data) && data.length > 0 && data.every((item) => {
+    const record = item as Partial<ChartSeries> | undefined
+    return Boolean(record && !Array.isArray(record) && Array.isArray(record.values))
+  })
+  if (!chartType || !isCommonSeries) {
+    args.warnings?.push({
+      pageNumber: args.pageNumber,
+      message: `图表 ${args.blockId}（${args.element.chartType || 'unknown'}）暂不支持结构化导入，已作为占位导入`
+    })
+    return `<section data-block-id="${escapeHtml(args.blockId)}" data-pptx-kind="chart" data-pptx-import-mode="placeholder" data-pptx-chart-type="${escapeHtml(args.element.chartType || 'unknown')}"${animationAttrText} style="${css};display:flex;align-items:center;justify-content:center;color:#6b7280;">图表已作为占位导入</section>`
   }
-  const series = args.element.data as ChartSeries[]
+  if (/3DChart/i.test(args.element.chartType)) {
+    args.warnings?.push({
+      pageNumber: args.pageNumber,
+      message: `图表 ${args.blockId} 的 3D 效果已简化为二维图表`
+    })
+  }
+  const series = data as ChartSeries[]
   const labels = series[0]?.values?.map((item) => item.x ?? '') || []
-  const datasets = series.map((item, index) => ({
-    label: item.key || `Series ${index + 1}`,
-    data: (item.values || []).map((value) => value.y ?? 0),
-    borderColor: args.element.colors?.[index] || undefined,
-    backgroundColor: args.element.colors?.[index] || undefined
-  }))
+  const isSingleDatasetChart = chartType.type === 'pie' || chartType.type === 'doughnut'
+  const datasets = isSingleDatasetChart
+    ? [
+        {
+          label: series[0]?.key || 'Series 1',
+          data: (series[0]?.values || []).map((value) => value.y ?? 0),
+          backgroundColor: args.element.colors?.length ? args.element.colors : undefined,
+          borderColor: '#ffffff',
+          borderWidth: 1
+        }
+      ]
+    : series.map((item, index) => ({
+        label: item.key || `Series ${index + 1}`,
+        data: (item.values || []).map((value) => value.y ?? 0),
+        borderColor: args.element.colors?.[index] || undefined,
+        backgroundColor: args.element.colors?.[index] || undefined,
+        fill: chartType.fill || false,
+        tension: chartType.type === 'line' ? 0.25 : undefined
+      }))
   const config = {
     type: chartType.type,
     data: { labels, datasets },
-    options: { responsive: true, maintainAspectRatio: false, indexAxis: chartType.indexAxis || 'x' }
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      indexAxis: chartType.indexAxis || 'x',
+      plugins: { legend: { display: series.length > 1 || isSingleDatasetChart } }
+    }
   }
-  return `<section data-block-id="${escapeHtml(args.blockId)}" class="ppt-chart-frame"${animationAttrText} style="${css}">
+  return `<section data-block-id="${escapeHtml(args.blockId)}" data-pptx-kind="chart" data-pptx-import-mode="editable" data-pptx-chart-type="${escapeHtml(args.element.chartType)}" class="ppt-chart-frame"${animationAttrText} style="${css}">
   <canvas id="${canvasId}" class="h-full w-full"></canvas>
 </section>
 <script>
@@ -924,6 +1151,13 @@ window.addEventListener("DOMContentLoaded", function () {
   window.PPT.createChart(el, ${JSON.stringify(config).replace(/</g, '\\u003c')});
 });
 </script>`
+}
+
+export const __pptxImporterTestUtils = {
+  buildTableBlock,
+  buildChartBlock,
+  collectPptxTableStyleIds,
+  removeUnsupportedTableStyleFlags
 }
 
 const renderElement = async (args: {
@@ -1026,7 +1260,9 @@ const renderElement = async (args: {
         scaleY: args.scaleY,
         offsetX: args.offsetX,
         offsetY: args.offsetY,
-        zIndex: args.zIndex
+        zIndex: args.zIndex,
+        pageNumber: args.pageNumber,
+        warnings: args.warnings
       }),
       titleAssigned: args.titleAssigned
     }
@@ -1271,12 +1507,9 @@ export async function importPptxToEditableHtml(args: {
   await fs.promises.mkdir(imagesDir, { recursive: true })
   args.onProgress?.({ stage: 'reading', progress: 5, label: '正在读取 PPTX 文件' })
   const buffer = await fs.promises.readFile(args.filePath)
-  const arrayBuffer =
-    buffer.byteOffset === 0 && buffer.byteLength === buffer.buffer.byteLength
-      ? (buffer.buffer as ArrayBuffer)
-      : (buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer)
+  const normalizedInput = normalizePptxTableStyleFlags(buffer)
   args.onProgress?.({ stage: 'parsing', progress: 14, label: '正在解析 PPTX 结构' })
-  const parsed = await parse(arrayBuffer, {
+  const parsed = await parse(normalizedInput.arrayBuffer, {
     imageMode: 'base64',
     videoMode: 'none',
     audioMode: 'none'
@@ -1304,6 +1537,11 @@ export async function importPptxToEditableHtml(args: {
   const registry: ImageRegistry = { index: 0, byKey: new Map() }
   const pages: ImportedPptxPage[] = []
   const allWarnings: ImportWarning[] = []
+  if (normalizedInput.normalizedTableCount > 0) {
+    allWarnings.push({
+      message: `已修正 ${normalizedInput.normalizedTableCount} 个缺失样式定义的 PPTX 表格`
+    })
+  }
   const textValidator = new PptxTextValidator()
   try {
     for (let i = 0; i < effectiveSlides.length; i += 1) {

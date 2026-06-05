@@ -2,6 +2,8 @@ import { resolve } from 'path'
 import { defineConfig } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 
+const RENDERER_SERVER_PORT = 5178
+
 export default defineConfig({
   main: {
     resolve: {
@@ -28,6 +30,14 @@ export default defineConfig({
         '@renderer': resolve('src/renderer/src'),
         '@shared': resolve('src/shared')
       }
+    },
+    server: {
+      port: RENDERER_SERVER_PORT,
+      strictPort: false
+    },
+    preview: {
+      port: RENDERER_SERVER_PORT,
+      strictPort: false
     },
     plugins: [react()]
   }
