@@ -6,16 +6,31 @@ import {
   persistManagedPages,
   renameSessionPageTitle
 } from './page-management-service'
-import { ensureHistoryBaselineSafe, recordHistoryOperationStrict } from '../../history/git-history-service'
+import { migrateLegacyPageOutlinesToSourceSkeletons } from './page-outline-utils'
+import {
+  ensureHistoryBaselineSafe,
+  recordHistoryOperationStrict
+} from '../../history/git-history-service'
 
 export function registerPageManagementHandlers(ctx: IpcContext): void {
+  ipcMain.handle('session:migratePageOutlinesToSourceSkeletons', async (_event, payload) => {
+    const record =
+      payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {}
+    const sessionId = typeof record.sessionId === 'string' ? record.sessionId.trim() : ''
+    if (!sessionId) throw new Error('sessionId 不能为空')
+    return migrateLegacyPageOutlinesToSourceSkeletons(ctx.db, sessionId)
+  })
+
   ipcMain.handle('session:reorderPages', async (_event, payload) => {
     const { sessionId, orderedPageIds, selectedPageId } = payload as {
       sessionId: string
       orderedPageIds: string[]
       selectedPageId?: string
     }
-    const { projectDir, indexPath, deckTitle, pages } = await loadEditableSessionPages(ctx, sessionId)
+    const { projectDir, indexPath, deckTitle, pages } = await loadEditableSessionPages(
+      ctx,
+      sessionId
+    )
     if (orderedPageIds.length !== pages.length) {
       throw new Error('orderedPageIds length mismatch')
     }
@@ -117,7 +132,10 @@ export function registerPageManagementHandlers(ctx: IpcContext): void {
       pageIds: string[]
       selectedPageId?: string
     }
-    const { projectDir, indexPath, deckTitle, pages } = await loadEditableSessionPages(ctx, sessionId)
+    const { projectDir, indexPath, deckTitle, pages } = await loadEditableSessionPages(
+      ctx,
+      sessionId
+    )
     if (!pageIds.length) throw new Error('pageIds is empty')
     const pageMap = new Map(pages.map((p) => [p.id, p]))
     const uniqueDeleteIds = new Set(pageIds)
@@ -209,14 +227,17 @@ export function registerPageManagementHandlers(ctx: IpcContext): void {
   })
 
   ipcMain.handle('session:createBlankPage', async (_event, payload) => {
-    const record = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {}
+    const record =
+      payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {}
     const sessionId = typeof record.sessionId === 'string' ? record.sessionId.trim() : ''
     const sourcePageId = typeof record.sourcePageId === 'string' ? record.sourcePageId.trim() : ''
     if (!sessionId) throw new Error('sessionId 不能为空')
     if (!sourcePageId) throw new Error('sourcePageId 不能为空')
     const { projectDir, pages } = await loadEditableSessionPages(ctx, sessionId)
     await ensureHistoryBaselineSafe(ctx.db, sessionId, projectDir)
-    const sourcePage = pages.find((page) => page.id === sourcePageId || page.pageId === sourcePageId)
+    const sourcePage = pages.find(
+      (page) => page.id === sourcePageId || page.pageId === sourcePageId
+    )
     const result = await createBlankSessionPage(ctx, {
       sessionId,
       sourcePageId
@@ -257,7 +278,8 @@ export function registerPageManagementHandlers(ctx: IpcContext): void {
   })
 
   ipcMain.handle('session:updatePageTitle', async (_event, payload) => {
-    const record = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {}
+    const record =
+      payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {}
     const sessionId = typeof record.sessionId === 'string' ? record.sessionId.trim() : ''
     const pageId = typeof record.pageId === 'string' ? record.pageId.trim() : ''
     const title = typeof record.title === 'string' ? record.title.replace(/\s+/g, ' ').trim() : ''
@@ -327,7 +349,8 @@ export function registerPageManagementHandlers(ctx: IpcContext): void {
   })
 
   ipcMain.handle('session:updatePageOutline', async (_event, payload) => {
-    const record = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {}
+    const record =
+      payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {}
     const sessionId = typeof record.sessionId === 'string' ? record.sessionId.trim() : ''
     const pageId = typeof record.pageId === 'string' ? record.pageId.trim() : ''
     const contentOutline =
@@ -360,28 +383,34 @@ export function registerPageManagementHandlers(ctx: IpcContext): void {
     }
 
     await ensureHistoryBaselineSafe(ctx.db, sessionId, projectDir)
-    const snapshots = await ctx.db.listLatestGenerationPageSnapshot(sessionId)
-    const snapshot =
-      snapshots.find((item) => item.page_id === page.pageId) ||
-      (page.legacyPageId
-        ? snapshots.find((item) => item.page_id === page.legacyPageId)
-        : undefined)
-    const latestRun = snapshot ? undefined : await ctx.db.getLatestGenerationRun(sessionId)
-    const runId = snapshot?.run_id || latestRun?.id
-    if (!runId) throw new Error('未找到可更新的大纲记录')
-    await ctx.db.upsertGenerationPage({
-      runId,
-      sessionId,
-      pageId: snapshot?.page_id || page.pageId,
-      pageNumber: snapshot?.page_number || page.pageNumber,
-      title: snapshot?.title || page.title,
-      contentOutline: contentOutline || null,
-      layoutIntent: snapshot?.layout_intent || null,
-      htmlPath: snapshot?.html_path || page.htmlPath,
-      status: snapshot?.status || page.status || 'completed',
-      error: snapshot?.error || null,
-      retryCount: snapshot?.retry_count || 0
-    })
+    const [session, skeletons] = await Promise.all([
+      ctx.db.getSession(sessionId),
+      ctx.db.listSourcePageSkeletons(sessionId)
+    ])
+    const skeleton = skeletons.find((item) => item.page_number === page.pageNumber)
+    const sourceDocumentPath =
+      skeleton?.source_document_path ||
+      session?.referenceDocumentPath ||
+      session?.reference_document_path ||
+      `legacy-outline:${sessionId}`
+    if (contentOutline) {
+      await ctx.db.upsertSourcePageSkeleton({
+        sessionId,
+        pageNumber: page.pageNumber,
+        title: page.title,
+        role: skeleton?.role || 'content',
+        sourceDocumentPath,
+        sourceDocumentName: skeleton?.source_document_name || session?.title || 'Manual outline',
+        sourceHeading: contentOutline,
+        headingLevel: skeleton?.heading_level || 1,
+        lineStart: skeleton?.line_start || page.pageNumber,
+        lineEnd: skeleton?.line_end || page.pageNumber,
+        reason: null,
+        confidence: skeleton?.confidence || 'medium'
+      })
+    } else {
+      await ctx.db.deleteSourcePageSkeleton(sessionId, page.pageNumber)
+    }
 
     const refreshed = await loadEditableSessionPages(ctx, sessionId)
     const prompt = `修改页面大纲：P${page.pageNumber}《${page.title}》`

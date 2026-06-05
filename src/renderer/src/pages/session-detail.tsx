@@ -448,12 +448,23 @@ export function SessionDetailPage(): React.JSX.Element {
 
   useEffect(() => {
     if (!id) return
+    let cancelled = false
     setMessages([])
     useGenerateStore.getState().setPages([])
     resetForSessionChange()
-    void loadSession(id)
+    void (async () => {
+      try {
+        await ipc.migratePageOutlinesToSourceSkeletons({ sessionId: id })
+      } catch (err) {
+        console.warn('[session] migrate page outlines failed', err)
+      }
+      if (!cancelled) {
+        await loadSession(id)
+      }
+    })()
     // Cleanup on unmount (leaving session-detail)
     return () => {
+      cancelled = true
       useGenerateStore.getState().reset()
       useSessionDetailUiStore.getState().resetForSessionChange()
       useEditHistoryStore.getState().clear()

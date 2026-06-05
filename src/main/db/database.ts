@@ -539,10 +539,7 @@ export class PPTDatabase {
       session_id: String(row.sessionId ?? row.session_id ?? ''),
       page_number: Number(row.pageNumber ?? row.page_number ?? 0) || 0,
       title: String(row.title || ''),
-      role:
-        String(row.role || 'content') === 'chapter-divider'
-          ? 'chapter-divider'
-          : 'content',
+      role: String(row.role || 'content') === 'chapter-divider' ? 'chapter-divider' : 'content',
       source_document_path: String(row.sourceDocumentPath ?? row.source_document_path ?? ''),
       source_document_name:
         typeof (row.sourceDocumentName ?? row.source_document_name) === 'string'
@@ -553,11 +550,8 @@ export class PPTDatabase {
       line_start: Number(row.lineStart ?? row.line_start ?? 0) || 1,
       line_end: Number(row.lineEnd ?? row.line_end ?? 0) || 1,
       reason:
-        typeof row.reason === 'string' && row.reason.trim().length > 0
-          ? String(row.reason)
-          : null,
-      confidence:
-        row.confidence === 'medium' || row.confidence === 'low' ? row.confidence : 'high',
+        typeof row.reason === 'string' && row.reason.trim().length > 0 ? String(row.reason) : null,
+      confidence: row.confidence === 'medium' || row.confidence === 'low' ? row.confidence : 'high',
       created_at: Number(row.createdAt ?? row.created_at ?? 0) || 0,
       updated_at: Number(row.updatedAt ?? row.updated_at ?? 0) || 0
     }
@@ -774,6 +768,76 @@ export class PPTDatabase {
     await this.db.insert(schema.sourcePageSkeletons).values(values).run()
   }
 
+  async upsertSourcePageSkeleton(args: {
+    sessionId: string
+    pageNumber: number
+    title: string
+    role?: SourcePageSkeletonRole
+    sourceDocumentPath: string
+    sourceDocumentName?: string | null
+    sourceHeading: string
+    headingLevel?: number
+    lineStart?: number
+    lineEnd?: number
+    reason?: string | null
+    confidence?: SourcePageSkeletonConfidence
+  }): Promise<void> {
+    const now = Math.floor(Date.now() / 1000)
+    const pageNumber = Math.max(1, Math.floor(args.pageNumber))
+    const lineStart = Math.max(1, Math.floor(args.lineStart || pageNumber))
+    const lineEnd = Math.max(lineStart, Math.floor(args.lineEnd || lineStart))
+    const value = {
+      id: `${args.sessionId}:${pageNumber}`,
+      sessionId: args.sessionId,
+      pageNumber,
+      title: args.title.trim() || `Slide ${pageNumber}`,
+      role: args.role === 'chapter-divider' ? 'chapter-divider' : 'content',
+      sourceDocumentPath: args.sourceDocumentPath,
+      sourceDocumentName: args.sourceDocumentName || null,
+      sourceHeading: args.sourceHeading.trim(),
+      headingLevel: Math.max(1, Math.floor(args.headingLevel || 1)),
+      lineStart,
+      lineEnd,
+      reason: args.reason || null,
+      confidence: args.confidence || 'medium',
+      createdAt: now,
+      updatedAt: now
+    }
+    if (!value.sourceHeading) return
+    await this.db
+      .insert(schema.sourcePageSkeletons)
+      .values(value)
+      .onConflictDoUpdate({
+        target: schema.sourcePageSkeletons.id,
+        set: {
+          title: value.title,
+          role: value.role,
+          sourceDocumentPath: value.sourceDocumentPath,
+          sourceDocumentName: value.sourceDocumentName,
+          sourceHeading: value.sourceHeading,
+          headingLevel: value.headingLevel,
+          lineStart: value.lineStart,
+          lineEnd: value.lineEnd,
+          reason: value.reason,
+          confidence: value.confidence,
+          updatedAt: now
+        }
+      })
+      .run()
+  }
+
+  async deleteSourcePageSkeleton(sessionId: string, pageNumber: number): Promise<void> {
+    await this.db
+      .delete(schema.sourcePageSkeletons)
+      .where(
+        and(
+          eq(schema.sourcePageSkeletons.sessionId, sessionId),
+          eq(schema.sourcePageSkeletons.pageNumber, pageNumber)
+        )
+      )
+      .run()
+  }
+
   async listSourcePageSkeletons(sessionId: string): Promise<SourcePageSkeletonRecord[]> {
     const rows = await this.db
       .select()
@@ -836,7 +900,9 @@ export class PPTDatabase {
         pageNumber: pageNumberExpr,
         updatedAt: now
       })
-      .where(and(eq(schema.sessionPages.sessionId, sessionId), inArray(schema.sessionPages.id, pageIds)))
+      .where(
+        and(eq(schema.sessionPages.sessionId, sessionId), inArray(schema.sessionPages.id, pageIds))
+      )
       .run()
   }
 
@@ -849,7 +915,9 @@ export class PPTDatabase {
         deletedAt: now,
         updatedAt: now
       })
-      .where(and(eq(schema.sessionPages.sessionId, sessionId), inArray(schema.sessionPages.id, ids)))
+      .where(
+        and(eq(schema.sessionPages.sessionId, sessionId), inArray(schema.sessionPages.id, ids))
+      )
       .run()
   }
 
@@ -866,9 +934,7 @@ export class PPTDatabase {
           ? (String(row.scope) as SessionOperationScope)
           : null,
       prompt:
-        typeof row.prompt === 'string' && row.prompt.trim().length > 0
-          ? String(row.prompt)
-          : null,
+        typeof row.prompt === 'string' && row.prompt.trim().length > 0 ? String(row.prompt) : null,
       parent_operation_id:
         typeof (row.parentOperationId ?? row.parent_operation_id) === 'string'
           ? String(row.parentOperationId ?? row.parent_operation_id)
@@ -901,7 +967,9 @@ export class PPTDatabase {
     }
   }
 
-  private normalizeSessionOperationPageRow(row: Record<string, unknown>): SessionOperationPageRecord {
+  private normalizeSessionOperationPageRow(
+    row: Record<string, unknown>
+  ): SessionOperationPageRecord {
     return {
       id: String(row.id || ''),
       operation_id: String(row.operationId ?? row.operation_id ?? ''),

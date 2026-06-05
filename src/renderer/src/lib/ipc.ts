@@ -302,6 +302,12 @@ export const ipc = {
         error?: string | null
       }>
     }>,
+  migratePageOutlinesToSourceSkeletons: (payload: { sessionId: string }) =>
+    getIpc().invoke('session:migratePageOutlinesToSourceSkeletons', payload) as Promise<{
+      migrated: boolean
+      migratedCount: number
+      existingCount: number
+    }>,
   reorderSessionPages: (payload: {
     sessionId: string
     orderedPageIds: string[]

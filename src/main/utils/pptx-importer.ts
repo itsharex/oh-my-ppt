@@ -435,6 +435,11 @@ const sanitizeContentHtml = (html: string, scale: number): string => {
   return $.root().html() || ''
 }
 
+const sanitizeTableCellContentHtml = (html: string, scale: number): string => {
+  const sanitized = sanitizeContentHtml(html, Math.min(scale, 1.25))
+  return sanitized.replace(/\u00a0/g, '&nbsp;')
+}
+
 const parseCssPx = (style: string, property: string): number | null => {
   const escaped = property.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   const match = style.match(new RegExp(`${escaped}\\s*:\\s*([0-9.]+)px`, 'i'))
@@ -676,6 +681,21 @@ const tableVerticalAlign = (value: unknown): string => {
   if (raw === 'mid' || raw === 'middle' || raw === 'center' || raw === 'ctr') return 'middle'
   if (raw === 'down' || raw === 'bottom' || raw === 'b') return 'bottom'
   return 'top'
+}
+
+const resolveSlideFit = (size: { width: number; height: number }): {
+  scale: number
+  offsetX: number
+  offsetY: number
+} => {
+  const sourceWidth = Math.max(1, size.width)
+  const sourceHeight = Math.max(1, size.height)
+  const scale = Math.min(PAGE_WIDTH / sourceWidth, PAGE_HEIGHT / sourceHeight)
+  return {
+    scale,
+    offsetX: Math.max(0, (PAGE_WIDTH - sourceWidth * scale) / 2),
+    offsetY: Math.max(0, (PAGE_HEIGHT - sourceHeight * scale) / 2)
+  }
 }
 
 const overlapArea = (
@@ -983,6 +1003,7 @@ const buildTableBlock = (args: {
   offsetY: number
 }): string => {
   const rows = Array.isArray(args.element.data) ? (args.element.data as ImportedTableCell[][]) : []
+  const tableTextScale = Math.min(args.textScale, 1.25)
   const tableBorders = args.element.borders as Partial<Record<TableBorderSide, ImportedTableBorder>> | undefined
   const colWidths = Array.isArray(args.element.colWidths)
     ? (args.element.colWidths as unknown[])
@@ -1015,6 +1036,7 @@ const buildTableBlock = (args: {
             ...tableBorderDeclarations(cell.borders, tableBorders, args.textScale),
             'padding:6px 8px',
             'overflow-wrap:anywhere',
+            'white-space:pre-wrap',
             `vertical-align:${tableVerticalAlign(cell.vAlign)}`,
             sanitizeImportedCssColor(cell.fillColor) ? `background:${sanitizeImportedCssColor(cell.fillColor)}` : '',
             sanitizeImportedCssColor(cell.fontColor) ? `color:${sanitizeImportedCssColor(cell.fontColor)}` : '',
@@ -1027,7 +1049,7 @@ const buildTableBlock = (args: {
             .join(';')
           const colspan = spanAttr('colspan', cell.colSpan)
           const rowspan = spanAttr('rowspan', cell.rowSpan)
-          const content = sanitizeContentHtml(String(cell.text || ''), args.textScale)
+          const content = sanitizeTableCellContentHtml(String(cell.text || ''), args.textScale)
           return `<td data-cell-id="r${rowIndex + 1}-c${colIndex + 1}"${colspan}${rowspan} style="${styles}">${content || '&nbsp;'}</td>`
         })
         .join('')
@@ -1048,7 +1070,7 @@ const buildTableBlock = (args: {
   if (!rows.length) {
     return `<section data-block-id="${escapeHtml(args.blockId)}" data-pptx-kind="table" data-pptx-import-mode="placeholder"${animationAttrText} style="${css};display:flex;align-items:center;justify-content:center;color:#6b7280;">表格已作为占位导入</section>`
   }
-  return `<section data-block-id="${escapeHtml(args.blockId)}" data-pptx-kind="table" data-pptx-import-mode="editable"${animationAttrText} style="${css}"><table style="width:100%;height:100%;border-collapse:collapse;border-spacing:0;table-layout:fixed;font-size:${Math.max(12, 12 * args.textScale).toFixed(1)}px;">${colgroup}${tableRows}</table></section>`
+  return `<section data-block-id="${escapeHtml(args.blockId)}" data-pptx-kind="table" data-pptx-import-mode="editable"${animationAttrText} style="${css}"><table style="width:100%;height:100%;border-collapse:collapse;border-spacing:0;table-layout:fixed;font-size:${Math.max(12, 12 * tableTextScale).toFixed(1)}px;">${colgroup}${tableRows}</table></section>`
 }
 
 const mapChartType = (chartType: string, barDir?: string): { type: string; indexAxis?: 'x' | 'y'; fill?: boolean } | null => {
@@ -1157,7 +1179,8 @@ export const __pptxImporterTestUtils = {
   buildTableBlock,
   buildChartBlock,
   collectPptxTableStyleIds,
-  removeUnsupportedTableStyleFlags
+  removeUnsupportedTableStyleFlags,
+  resolveSlideFit
 }
 
 const renderElement = async (args: {
@@ -1382,9 +1405,10 @@ const buildSlideHtml = async (args: {
   textValidator?: PptxTextValidator
 }): Promise<{ html: string; contentOutline: string; warnings: ImportWarning[] }> => {
   const imagesDir = path.join(args.projectDir, 'images')
-  const scaleX = PAGE_WIDTH / Math.max(1, args.size.width)
-  const scaleY = PAGE_HEIGHT / Math.max(1, args.size.height)
-  const textScale = Math.min(scaleX, scaleY)
+  const slideFit = resolveSlideFit(args.size)
+  const scaleX = slideFit.scale
+  const scaleY = slideFit.scale
+  const textScale = slideFit.scale
   const warnings: ImportWarning[] = []
   const backgroundCss = await fillToCss(args.slide.fill, imagesDir, args.registry)
   const blockCounters: Record<string, number> = {}
@@ -1410,8 +1434,8 @@ const buildSlideHtml = async (args: {
         scaleY,
         textScale,
         zIndex: index + 2,
-        offsetX: 0,
-        offsetY: 0,
+        offsetX: slideFit.offsetX,
+        offsetY: slideFit.offsetY,
         titleAssigned,
         pageNumber: args.pageNumber,
         warnings,

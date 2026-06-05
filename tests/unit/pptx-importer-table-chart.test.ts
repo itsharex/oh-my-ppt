@@ -16,6 +16,14 @@ const baseBlockArgs = {
 }
 
 describe('pptx importer table and chart blocks', () => {
+  it('fits 4:3 slides into the 16:9 canvas without stretching', () => {
+    const fit = __pptxImporterTestUtils.resolveSlideFit({ width: 720, height: 540 })
+
+    expect(fit.scale).toBeCloseTo(900 / 540)
+    expect(fit.offsetX).toBeCloseTo(200)
+    expect(fit.offsetY).toBeCloseTo(0)
+  })
+
   it('removes table style flags when the referenced table style is missing', () => {
     const knownStyleIds = __pptxImporterTestUtils.collectPptxTableStyleIds(
       '<a:tblStyleLst><a:tblStyle styleId="{known-style}"></a:tblStyle></a:tblStyleLst>'
@@ -85,6 +93,38 @@ describe('pptx importer table and chart blocks', () => {
     expect(html).toContain('vertical-align:middle')
     expect(html).toContain('vertical-align:bottom')
     expect(html).not.toContain('merged continuation')
+  })
+
+  it('preserves table placeholder spacing from form templates', () => {
+    const html = __pptxImporterTestUtils.buildTableBlock({
+      ...baseBlockArgs,
+      blockId: 'table-form',
+      element: {
+        left: 0,
+        top: 0,
+        width: 240,
+        height: 40,
+        colWidths: [120, 120],
+        rowHeights: [24],
+        data: [
+          [
+            {
+              text: '<p style="text-align:center"><span style="font-size:11pt;font-family:微软雅黑;font-weight:bold">完成（&nbsp;&nbsp;&nbsp;）&nbsp;</span></p>',
+              vAlign: 'mid'
+            },
+            {
+              text: '<p style="text-align:left"><span style="font-size:18pt;font-family:Aptos">&nbsp;</span></p>',
+              vAlign: 'up'
+            }
+          ]
+        ]
+      }
+    })
+
+    expect(html).toContain('white-space:pre-wrap')
+    expect(html).toContain('完成（&nbsp;&nbsp;&nbsp;）&nbsp;')
+    expect(html).toContain('font-size:13.8px')
+    expect(html).toContain('&nbsp;</span>')
   })
 
   it('marks supported charts editable and simplifies area charts to filled lines', () => {
