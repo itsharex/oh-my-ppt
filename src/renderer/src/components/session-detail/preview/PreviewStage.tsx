@@ -1,4 +1,4 @@
-import { useEffect, forwardRef } from 'react'
+import { useCallback, useEffect, forwardRef, useRef } from 'react'
 import { Loader2, Sparkles } from 'lucide-react'
 import { useSessionDetailUiStore } from '@renderer/store'
 import { PreviewIframe, type PreviewIframeHandle } from '../../preview/PreviewIframe'
@@ -17,7 +17,7 @@ export const PreviewStage = forwardRef<
     previewRefreshKey?: number
     onElementMoved: (payload: EditModeMovePayload) => void
     onElementSelected: (payload: EditSelectionPayload) => void
-    onCancelTextEdit: () => void
+    onCancelElementEdit: () => void
     onDiscardAllEdits: () => void
     onUndo: () => void
     onRedo: () => void
@@ -33,7 +33,7 @@ export const PreviewStage = forwardRef<
     previewRefreshKey = 0,
     onElementMoved,
     onElementSelected,
-    onCancelTextEdit,
+    onCancelElementEdit,
     onDiscardAllEdits,
     onUndo,
     onRedo,
@@ -43,15 +43,100 @@ export const PreviewStage = forwardRef<
   ref
 ) {
   const t = useT()
+  const previewIframeRef = useRef<PreviewIframeHandle>(null)
+  const wasEditingRef = useRef(false)
+  const previewIdentityRef = useRef('')
+  const restoreTimerRef = useRef<number | null>(null)
   const previewKey = useSessionDetailUiStore((state) => state.previewKey)
   const interactionMode = useSessionDetailUiStore((state) => state.interactionMode)
   const setInteractionMode = useSessionDetailUiStore((state) => state.setInteractionMode)
   const setWorkspaceTab = useSessionDetailUiStore((state) => state.setWorkspaceTab)
+  const editSelectedSelector = useSessionDetailUiStore((state) => state.editSelectedSelector)
   const setSelectedElement = useSessionDetailUiStore((state) => state.setSelectedElement)
   const displayTitle = sessionTitle || t('sessionDetail.sessionFallback')
 
   const isEditing = interactionMode === 'edit'
   const isInspecting = interactionMode === 'ai-inspect'
+
+  const setPreviewIframeHandle = useCallback(
+    (handle: PreviewIframeHandle | null): void => {
+      previewIframeRef.current = handle
+      if (typeof ref === 'function') {
+        ref(handle)
+        return
+      }
+      if (ref) {
+        ref.current = handle
+      }
+    },
+    [ref]
+  )
+
+  const restoreEditSelection = useCallback(
+    (selector: string): void => {
+      if (restoreTimerRef.current !== null) {
+        window.clearTimeout(restoreTimerRef.current)
+        restoreTimerRef.current = null
+      }
+
+      let attempts = 0
+      const tryRestore = (): void => {
+        attempts += 1
+        window.requestAnimationFrame(() => {
+          const restorePromise = previewIframeRef.current?.restoreEditModeSelection(selector)
+          void restorePromise?.then((restored) => {
+            if (restored || attempts >= 3) return
+            restoreTimerRef.current = window.setTimeout(tryRestore, 50)
+          })
+        })
+      }
+
+      restoreTimerRef.current = window.setTimeout(tryRestore, 0)
+    },
+    []
+  )
+
+  useEffect(() => {
+    return () => {
+      if (restoreTimerRef.current !== null) {
+        window.clearTimeout(restoreTimerRef.current)
+        restoreTimerRef.current = null
+      }
+    }
+  }, [])
+
+  const handleDidReload = useCallback((): void => {
+    onReplayPendingEdits()
+    if (!isEditing || !editSelectedSelector) return
+    restoreEditSelection(editSelectedSelector)
+  }, [editSelectedSelector, isEditing, onReplayPendingEdits, restoreEditSelection])
+
+  useEffect(() => {
+    const previewIdentity = `${selectedPage?.pageId || ''}:${previewKey}:${previewRefreshKey}`
+    const enteredEditMode = isEditing && !wasEditingRef.current
+    const previewChangedWhileEditing = isEditing && previewIdentity !== previewIdentityRef.current
+
+    wasEditingRef.current = isEditing
+    previewIdentityRef.current = previewIdentity
+
+    if (!isEditing || !editSelectedSelector) return
+    if (!enteredEditMode && !previewChangedWhileEditing) return
+
+    restoreEditSelection(editSelectedSelector)
+    return () => {
+      if (restoreTimerRef.current !== null) {
+        window.clearTimeout(restoreTimerRef.current)
+        restoreTimerRef.current = null
+      }
+    }
+  }, [
+    editSelectedSelector,
+    isEditing,
+    restoreEditSelection,
+    selectedPage?.pageId,
+    previewKey,
+    previewRefreshKey
+  ])
 
   useEffect(() => {
     if (interactionMode === 'preview') return
@@ -82,7 +167,7 @@ export const PreviewStage = forwardRef<
         } else {
           setInteractionMode('preview')
           setWorkspaceTab('preview')
-          onCancelTextEdit()
+          onCancelElementEdit()
         }
       }
     }
@@ -92,7 +177,7 @@ export const PreviewStage = forwardRef<
     interactionMode,
     isEditing,
     onDiscardAllEdits,
-    onCancelTextEdit,
+    onCancelElementEdit,
     onUndo,
     onRedo,
     setInteractionMode,
@@ -117,7 +202,7 @@ export const PreviewStage = forwardRef<
               </TooltipContent>
             </Tooltip>
             <PreviewIframe
-              ref={ref}
+              ref={setPreviewIframeHandle}
               key={`preview-${selectedPage.pageId}-${previewKey}-${previewRefreshKey}`}
               src={selectedPage.sourceUrl}
               htmlPath={selectedPage.htmlPath}
@@ -133,9 +218,9 @@ export const PreviewStage = forwardRef<
               onInspectExit={() => {
                 setInteractionMode('preview')
                 setWorkspaceTab('preview')
-                onCancelTextEdit()
+                onCancelElementEdit()
               }}
-              onDidReload={onReplayPendingEdits}
+              onDidReload={handleDidReload}
               onDeleteRequest={onDeleteRequest}
             />
             {selectedPage.status === 'failed' && (

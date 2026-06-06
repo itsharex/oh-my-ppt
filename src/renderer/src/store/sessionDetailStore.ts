@@ -42,6 +42,7 @@ interface SessionDetailUiStore {
   workspaceTab: SessionWorkspaceTab
   thumbnailVersions: Record<string, number>
   selectedSelector: string | null
+  editSelectedSelector: string | null
   selectorLabel: string
   elementTag: string
   elementText: string
@@ -96,6 +97,8 @@ interface SessionDetailUiStore {
     elementTag?: string,
     elementText?: string
   ) => void
+  setEditSelectedElement: (selector: string | null) => void
+  clearEditSelectedElement: () => void
   clearSelectedElement: () => void
   addPendingAssets: (assets: UploadedAsset[]) => void
   removePendingAsset: (assetId: string) => void
@@ -151,6 +154,7 @@ export const useSessionDetailUiStore = create<SessionDetailUiStore>((set) => ({
   workspaceTab: 'preview' as SessionWorkspaceTab,
   thumbnailVersions: {},
   selectedSelector: null,
+  editSelectedSelector: null,
   selectorLabel: '',
   elementTag: '',
   elementText: '',
@@ -246,6 +250,8 @@ export const useSessionDetailUiStore = create<SessionDetailUiStore>((set) => ({
       interactionMode:
         state.interactionMode === 'preview' ? ('preview' as InteractionMode) : state.interactionMode
     })),
+  setEditSelectedElement: (editSelectedSelector) => set({ editSelectedSelector }),
+  clearEditSelectedElement: () => set({ editSelectedSelector: null }),
   clearSelectedElement: () =>
     set({
       selectedSelector: null,
@@ -311,6 +317,7 @@ export const useSessionDetailUiStore = create<SessionDetailUiStore>((set) => ({
       interactionMode: 'preview' as InteractionMode,
       workspaceTab: 'preview' as SessionWorkspaceTab,
       selectedSelector: null,
+      editSelectedSelector: null,
       selectorLabel: '',
       elementTag: '',
       elementText: ''
@@ -333,6 +340,7 @@ export const useSessionDetailUiStore = create<SessionDetailUiStore>((set) => ({
       interactionMode: 'preview' as InteractionMode,
       workspaceTab: 'preview' as SessionWorkspaceTab,
       selectedSelector: null,
+      editSelectedSelector: null,
       selectorLabel: '',
       elementTag: '',
       elementText: '',

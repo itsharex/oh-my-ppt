@@ -112,6 +112,7 @@ export interface PreviewIframeHandle {
     selector: string,
     layout: { x?: number; y?: number; width?: number; height?: number }
   ) => void
+  restoreEditModeSelection: (selector: string) => Promise<boolean>
   clearEditModeSelection: () => void
   hideElement: (selector: string) => void
   showElement: (selector: string) => void
@@ -423,6 +424,28 @@ export const PreviewIframe = forwardRef<
           wv,
           `if (window.__pptEditModeSetLayout) window.__pptEditModeSetLayout(${JSON.stringify(selector)}, ${JSON.stringify(layout)});`
         )
+      },
+      async restoreEditModeSelection(selector: string): Promise<boolean> {
+        const wv = webviewRef.current
+        if (!wv) return false
+        try {
+          const result = await wv.executeJavaScript(
+            `(function() {
+              try {
+                if (window.__pptEditModeRestoreSelection) {
+                  return window.__pptEditModeRestoreSelection(${JSON.stringify(selector)});
+                }
+                return false;
+              } catch (e) {
+                console.debug("[EditMode] restore script error", e);
+                return false;
+              }
+            })()`
+          )
+          return Boolean(result)
+        } catch {
+          return false
+        }
       },
       clearEditModeSelection(): void {
         const wv = webviewRef.current

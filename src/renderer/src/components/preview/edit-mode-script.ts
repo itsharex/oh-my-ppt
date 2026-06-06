@@ -1995,6 +1995,28 @@ export function buildEditModeInjectScript(previewScale = 1): string {
     }
   };
 
+  window.__pptEditModeRestoreSelection = (selector) => {
+    try {
+      if (!selector || typeof selector !== "string") return false;
+      const target = document.querySelector(selector);
+      if (!(target instanceof Element)) {
+        clearVisualState();
+        console.debug("[EditMode] restore selection skipped: selector not found", selector);
+        return false;
+      }
+      setSelected(target);
+      const stableSelector = buildStableSelector(target) || selector;
+      requestAnimationFrame(() => {
+        updateOverlay();
+        emitSelected(target, stableSelector);
+      });
+      return true;
+    } catch (_error) {
+      console.debug("[EditMode] restore selection failed", _error);
+      return false;
+    }
+  };
+
   window.__pptEditModeInjectElement = (parentSelector, html, insertIndex, selectAfterInsert = true) => {
     try {
       const parent = document.querySelector(parentSelector) ||

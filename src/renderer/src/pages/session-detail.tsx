@@ -134,14 +134,17 @@ export function SessionDetailPage(): React.JSX.Element {
   const setChatType = useSessionDetailUiStore((state) => state.setChatType)
   const resetForPageChange = useSessionDetailUiStore((state) => state.resetForPageChange)
   const resetForSessionChange = useSessionDetailUiStore((state) => state.resetForSessionChange)
+  const clearEditSelectedElement = useSessionDetailUiStore(
+    (state) => state.clearEditSelectedElement
+  )
   const assetPickerOpen = useSessionDetailUiStore((state) => state.assetPickerOpen)
   const assetPickerType = useSessionDetailUiStore((state) => state.assetPickerType)
   const setAssetPickerOpen = useSessionDetailUiStore((state) => state.setAssetPickerOpen)
   const activeChatRef = useRef<{ chatType: ChatType; pageId?: string }>({ chatType: 'page' })
   const editHistory = useEditHistoryStore()
   const [isSavingEdits, setIsSavingEdits] = useState(false)
-  const [textSelection, setTextSelection] = useState<EditSelectionPayload | null>(null)
-  const [textDraft, setTextDraft] = useState<ElementEditDraft>(EMPTY_ELEMENT_DRAFT)
+  const [elementSelection, setElementSelection] = useState<EditSelectionPayload | null>(null)
+  const [elementDraft, setElementDraft] = useState<ElementEditDraft>(EMPTY_ELEMENT_DRAFT)
   const [previewRefreshKey, setPreviewRefreshKey] = useState(0)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [pendingDeleteSelector, setPendingDeleteSelector] = useState<string | null>(null)
@@ -183,11 +186,10 @@ export function SessionDetailPage(): React.JSX.Element {
 
   useEffect(() => {
     resetForPageChange()
-    window.setTimeout(() => {
-      setTextSelection(null)
-      setTextDraft(EMPTY_ELEMENT_DRAFT)
-    }, 0)
-  }, [resetForPageChange, selectedPage?.pageId])
+    setElementSelection(null)
+    setElementDraft(EMPTY_ELEMENT_DRAFT)
+    clearEditSelectedElement()
+  }, [clearEditSelectedElement, resetForPageChange, selectedPage?.pageId])
 
   const canEditInSessionDetail = useMemo(() => {
     if (!currentSession) return false
@@ -487,16 +489,16 @@ export function SessionDetailPage(): React.JSX.Element {
 
     // Sync inspector panel layout fields when the selected element is dragged
     // payload.x/y are translate offsets (--ppt-drag-x/y), convert to visual position for display
-    if (textSelection && payload.selector === textSelection.selector) {
+    if (elementSelection && payload.selector === elementSelection.selector) {
       const visualX =
         payload.visualX ??
-        (textSelection.pageBounds?.x ?? textSelection.bounds?.x ?? 0) +
+        (elementSelection.pageBounds?.x ?? elementSelection.bounds?.x ?? 0) +
           (payload.layoutMode === 'translate' ? payload.x : payload.deltaX)
       const visualY =
         payload.visualY ??
-        (textSelection.pageBounds?.y ?? textSelection.bounds?.y ?? 0) +
+        (elementSelection.pageBounds?.y ?? elementSelection.bounds?.y ?? 0) +
           (payload.layoutMode === 'translate' ? payload.y : payload.deltaY)
-      setTextDraft((prev) => ({
+      setElementDraft((prev) => ({
         ...prev,
         layoutX: String(Math.round(visualX)),
         layoutY: String(Math.round(visualY)),
@@ -507,7 +509,7 @@ export function SessionDetailPage(): React.JSX.Element {
       }))
     }
 
-    const draftZIndex = parseInt(textDraft.layoutZIndex, 10)
+    const draftZIndex = parseInt(elementDraft.layoutZIndex, 10)
     const nextEdit = {
       pageId: selectedPage.pageId,
       htmlPath: selectedPage.htmlPath,
@@ -536,8 +538,9 @@ export function SessionDetailPage(): React.JSX.Element {
       snapshot.addElements.length > 0
     if (!hasEdits) {
       previewIframeRef.current?.clearEditModeSelection()
-      setTextSelection(null)
-      setTextDraft(EMPTY_ELEMENT_DRAFT)
+      setElementSelection(null)
+      setElementDraft(EMPTY_ELEMENT_DRAFT)
+      clearEditSelectedElement()
       setPreviewRefreshKey((key) => key + 1)
       return
     }
@@ -596,8 +599,9 @@ export function SessionDetailPage(): React.JSX.Element {
       if (!result.success) throw new Error(t('sessionDetail.layoutSaveFailed'))
       editHistory.markPageSaved(selectedPage.pageId)
       previewIframeRef.current?.clearEditModeSelection()
-      setTextSelection(null)
-      setTextDraft(EMPTY_ELEMENT_DRAFT)
+      setElementSelection(null)
+      setElementDraft(EMPTY_ELEMENT_DRAFT)
+      clearEditSelectedElement()
       useSessionDetailUiStore.getState().bumpThumbnailVersion(selectedPage.pageId)
       setPreviewRefreshKey((key) => key + 1)
       const totalCount =
@@ -625,8 +629,9 @@ export function SessionDetailPage(): React.JSX.Element {
       snapshot.addElements.length > 0
     editHistory.clearPage(selectedPage.pageId)
     previewIframeRef.current?.clearEditModeSelection()
-    setTextSelection(null)
-    setTextDraft(EMPTY_ELEMENT_DRAFT)
+    setElementSelection(null)
+    setElementDraft(EMPTY_ELEMENT_DRAFT)
+    clearEditSelectedElement()
     useSessionDetailUiStore.getState().setInteractionMode('preview')
     useSessionDetailUiStore.getState().setWorkspaceTab('preview')
     if (hadPending) {
@@ -636,8 +641,8 @@ export function SessionDetailPage(): React.JSX.Element {
   }
 
   const handleDeleteElement = (): void => {
-    if (!selectedPage?.htmlPath || !selectedPage.pageId || !textSelection) return
-    const selector = textSelection.selector
+    if (!selectedPage?.htmlPath || !selectedPage.pageId || !elementSelection) return
+    const selector = elementSelection.selector
     editHistory.addDelete({
       pageId: selectedPage.pageId,
       htmlPath: selectedPage.htmlPath,
@@ -645,14 +650,15 @@ export function SessionDetailPage(): React.JSX.Element {
     })
     previewIframeRef.current?.hideElement(selector)
     previewIframeRef.current?.clearEditModeSelection()
-    setTextSelection(null)
-    setTextDraft(EMPTY_ELEMENT_DRAFT)
+    setElementSelection(null)
+    setElementDraft(EMPTY_ELEMENT_DRAFT)
+    clearEditSelectedElement()
   }
 
   const handleDeleteBySelector = (selector: string): void => {
     if (!selectedPage?.htmlPath || !selectedPage.pageId || !selector) return
     // Commit any pending inspector edit for the element being deleted.
-    if (textSelection && textSelection.selector === selector) {
+    if (elementSelection && elementSelection.selector === selector) {
       commitCurrentElementEdit()
     }
     editHistory.addDelete({
@@ -662,25 +668,30 @@ export function SessionDetailPage(): React.JSX.Element {
     })
     previewIframeRef.current?.hideElement(selector)
     previewIframeRef.current?.clearEditModeSelection()
-    setTextSelection(null)
-    setTextDraft(EMPTY_ELEMENT_DRAFT)
+    setElementSelection(null)
+    setElementDraft(EMPTY_ELEMENT_DRAFT)
+    clearEditSelectedElement()
   }
 
   const handleElementSelected = (payload: EditSelectionPayload): void => {
     // Commit previous edit before switching to new element.
     commitCurrentElementEdit()
     if (!payload.snapshot) {
-      setTextSelection(null)
-      setTextDraft(EMPTY_ELEMENT_DRAFT)
+      setElementSelection(null)
+      setElementDraft(EMPTY_ELEMENT_DRAFT)
+      clearEditSelectedElement()
       return
     }
-    setTextSelection(payload)
+    setElementSelection(payload)
+    useSessionDetailUiStore
+      .getState()
+      .setEditSelectedElement(payload.selector)
     const zValue = payload.zIndex !== undefined ? String(payload.zIndex) : '10'
     const bounds = payload.snapshot.metrics.page
     const computed = payload.snapshot.computed
     const attrs = payload.snapshot.attrs
     if (payload.isText) {
-      setTextDraft({
+      setElementDraft({
         text: payload.textTarget?.text ?? payload.text,
         html: payload.html || payload.snapshot.text?.html || '',
         color: rgbToHex(computed.color),
@@ -706,7 +717,7 @@ export function SessionDetailPage(): React.JSX.Element {
         artTextTemplateId: attrs.artTextTemplate || ''
       })
     } else {
-      setTextDraft({
+      setElementDraft({
         ...EMPTY_ELEMENT_DRAFT,
         layoutX: String(Math.round(bounds.x)),
         layoutY: String(Math.round(bounds.y)),
@@ -765,11 +776,11 @@ export function SessionDetailPage(): React.JSX.Element {
     draft: ElementEditDraft,
     fields?: Array<keyof ElementEditDraft>
   ): ElementPropertyPatch | null => {
-    if (!textSelection?.snapshot) return null
+    if (!elementSelection?.snapshot) return null
 
     const commitFields =
-      fields && fields.length > 0 ? new Set(fields) : getCommitFieldsForSelection(textSelection)
-    const initial = textSelection.snapshot
+      fields && fields.length > 0 ? new Set(fields) : getCommitFieldsForSelection(elementSelection)
+    const initial = elementSelection.snapshot
     const style: ElementPropertyStylePatch = {}
     const attrs: ElementPropertyAttrsPatch = {}
     let text: string | undefined
@@ -777,7 +788,7 @@ export function SessionDetailPage(): React.JSX.Element {
 
     if (commitFields.has('layoutZIndex')) {
       const value = parseInt(draft.layoutZIndex, 10)
-      const initialValue = textSelection.zIndex ?? 10
+      const initialValue = elementSelection.zIndex ?? 10
       if (Number.isFinite(value) && value !== initialValue) style.zIndex = value
     }
     if (commitFields.has('opacity')) {
@@ -801,7 +812,7 @@ export function SessionDetailPage(): React.JSX.Element {
     if (commitFields.has('html') && draft.html.trim() && draft.html.trim() !== initialHtml.trim()) {
       html = draft.html.trim()
     }
-    const initialText = textSelection.textTarget?.text ?? initial.text?.value ?? ''
+    const initialText = elementSelection.textTarget?.text ?? initial.text?.value ?? ''
     if (
       !html &&
       commitFields.has('text') &&
@@ -868,7 +879,7 @@ export function SessionDetailPage(): React.JSX.Element {
     return {
       html,
       text,
-      textTarget: text !== undefined ? textSelection.textTarget : undefined,
+      textTarget: text !== undefined ? elementSelection.textTarget : undefined,
       style: Object.keys(style).length > 0 ? style : undefined,
       attrs: Object.keys(attrs).length > 0 ? attrs : undefined
     }
@@ -878,20 +889,20 @@ export function SessionDetailPage(): React.JSX.Element {
     draft: ElementEditDraft,
     fields?: Array<keyof ElementEditDraft>
   ): boolean => {
-    if (!textSelection || !selectedPage?.pageId || !selectedPage.htmlPath) return false
+    if (!elementSelection || !selectedPage?.pageId || !selectedPage.htmlPath) return false
     const patch = buildElementPropertyPatch(draft, fields)
     if (!patch) return false
     editHistory.upsertPropertyEdit({
       pageId: selectedPage.pageId,
       htmlPath: selectedPage.htmlPath,
-      selector: textSelection.selector,
-      blockId: textSelection.blockId,
+      selector: elementSelection.selector,
+      blockId: elementSelection.blockId,
       patch
     })
     return true
   }
 
-  const commitCurrentElementEdit = (): boolean => commitElementDraft(textDraft)
+  const commitCurrentElementEdit = (): boolean => commitElementDraft(elementDraft)
 
   const handleTextDraftChange = (
     draft: ElementEditDraft,
@@ -916,56 +927,56 @@ export function SessionDetailPage(): React.JSX.Element {
     } = {}
 
     if (
-      textSelection &&
+      elementSelection &&
       selectedPage?.htmlPath &&
       selectedPage?.pageId &&
-      draft.layoutZIndex !== textDraft.layoutZIndex
+      draft.layoutZIndex !== elementDraft.layoutZIndex
     ) {
       const zNum = parseInt(draft.layoutZIndex, 10)
       if (Number.isFinite(zNum)) liveStyle.zIndex = zNum
     }
-    if (draft.opacity !== textDraft.opacity) {
+    if (draft.opacity !== elementDraft.opacity) {
       const opacity = Number(draft.opacity)
       if (Number.isFinite(opacity)) liveStyle.opacity = opacity
     }
-    if (draft.backgroundColor !== textDraft.backgroundColor) {
+    if (draft.backgroundColor !== elementDraft.backgroundColor) {
       liveStyle.backgroundColor = draft.backgroundColor
     }
-    if (draft.objectFit !== textDraft.objectFit) {
+    if (draft.objectFit !== elementDraft.objectFit) {
       liveStyle.objectFit = draft.objectFit
     }
-    if (draft.textAlign !== textDraft.textAlign) {
+    if (draft.textAlign !== elementDraft.textAlign) {
       liveStyle.textAlign = draft.textAlign
     }
-    if (draft.alt !== textDraft.alt) liveAttrs.alt = draft.alt
-    if (draft.poster !== textDraft.poster) liveAttrs.poster = draft.poster
-    if (draft.controls !== textDraft.controls) liveAttrs.controls = draft.controls
-    if (draft.muted !== textDraft.muted) liveAttrs.muted = draft.muted
-    if (draft.loop !== textDraft.loop) liveAttrs.loop = draft.loop
-    if (draft.autoplay !== textDraft.autoplay) liveAttrs.autoplay = draft.autoplay
-    if (draft.playsInline !== textDraft.playsInline) liveAttrs.playsInline = draft.playsInline
-    if (draft.preload !== textDraft.preload) liveAttrs.preload = draft.preload
+    if (draft.alt !== elementDraft.alt) liveAttrs.alt = draft.alt
+    if (draft.poster !== elementDraft.poster) liveAttrs.poster = draft.poster
+    if (draft.controls !== elementDraft.controls) liveAttrs.controls = draft.controls
+    if (draft.muted !== elementDraft.muted) liveAttrs.muted = draft.muted
+    if (draft.loop !== elementDraft.loop) liveAttrs.loop = draft.loop
+    if (draft.autoplay !== elementDraft.autoplay) liveAttrs.autoplay = draft.autoplay
+    if (draft.playsInline !== elementDraft.playsInline) liveAttrs.playsInline = draft.playsInline
+    if (draft.preload !== elementDraft.preload) liveAttrs.preload = draft.preload
 
-    setTextDraft(draft)
+    setElementDraft(draft)
     // Live preview in iframe
-    if (textSelection && selectedPage?.pageId) {
+    if (elementSelection && selectedPage?.pageId) {
       // Z-index: use dedicated function to avoid clearing element content
       const zNum = parseInt(draft.layoutZIndex, 10)
-      if (Number.isFinite(zNum) && draft.layoutZIndex !== textDraft.layoutZIndex) {
-        previewIframeRef.current?.applyZIndex(textSelection.selector, zNum)
+      if (Number.isFinite(zNum) && draft.layoutZIndex !== elementDraft.layoutZIndex) {
+        previewIframeRef.current?.applyZIndex(elementSelection.selector, zNum)
       }
       if (Object.keys(liveStyle).length > 0 || Object.keys(liveAttrs).length > 0) {
-        previewIframeRef.current?.applyElementProperties(textSelection.selector, {
+        previewIframeRef.current?.applyElementProperties(elementSelection.selector, {
           style: liveStyle,
           attrs: liveAttrs
         })
       }
       // Text & style: only for text elements
-      if (textSelection.isText) {
-        previewIframeRef.current?.liveUpdateElement(textSelection.selector, {
+      if (elementSelection.isText) {
+        previewIframeRef.current?.liveUpdateElement(elementSelection.selector, {
           html: draft.html,
           text: draft.text,
-          textTarget: textSelection.textTarget,
+          textTarget: elementSelection.textTarget,
           style: {
             color: draft.color,
             fontSize: draft.fontSize ? `${draft.fontSize}px` : undefined,
@@ -1044,8 +1055,9 @@ export function SessionDetailPage(): React.JSX.Element {
     commitCurrentElementEdit()
     if (!editHistory.undo(selectedPage.pageId)) return
     previewIframeRef.current?.clearEditModeSelection()
-    setTextSelection(null)
-    setTextDraft(EMPTY_ELEMENT_DRAFT)
+    setElementSelection(null)
+    setElementDraft(EMPTY_ELEMENT_DRAFT)
+    clearEditSelectedElement()
     setPreviewRefreshKey((key) => key + 1)
   }
 
@@ -1053,25 +1065,27 @@ export function SessionDetailPage(): React.JSX.Element {
     if (!selectedPage?.pageId) return
     if (!editHistory.redo(selectedPage.pageId)) return
     previewIframeRef.current?.clearEditModeSelection()
-    setTextSelection(null)
-    setTextDraft(EMPTY_ELEMENT_DRAFT)
+    setElementSelection(null)
+    setElementDraft(EMPTY_ELEMENT_DRAFT)
+    clearEditSelectedElement()
     setPreviewRefreshKey((key) => key + 1)
   }
 
-  const handleCancelTextEdit = (): void => {
+  const handleCancelElementEdit = (): void => {
     // Commit current inspector edit before closing panel.
     commitCurrentElementEdit()
     previewIframeRef.current?.clearEditModeSelection()
-    setTextSelection(null)
-    setTextDraft(EMPTY_ELEMENT_DRAFT)
+    setElementSelection(null)
+    setElementDraft(EMPTY_ELEMENT_DRAFT)
+    clearEditSelectedElement()
   }
 
   const handleCopyElement = async (): Promise<void> => {
-    if (!textSelection || !selectedPage?.pageId || !selectedPage.htmlPath) return
+    if (!elementSelection || !selectedPage?.pageId || !selectedPage.htmlPath) return
     const blockId = 'select-arcsin1-' + nanoid(8)
     let copyResult: { selector: string; htmlFragment: string } | null | undefined
     try {
-      copyResult = await previewIframeRef.current?.copyElement(textSelection.selector, blockId)
+      copyResult = await previewIframeRef.current?.copyElement(elementSelection.selector, blockId)
     } catch (error) {
       toastError(error instanceof Error ? error.message : t('sessionDetail.copyElementFailed'))
       return
@@ -1081,22 +1095,22 @@ export function SessionDetailPage(): React.JSX.Element {
       return
     }
     const newSelector = copyResult.selector
-    const bounds = textSelection.pageBounds || textSelection.bounds
-    const zValue = textSelection.zIndex !== undefined ? String(textSelection.zIndex + 1) : '10'
-    const nextSnapshot = textSelection.snapshot
+    const bounds = elementSelection.pageBounds || elementSelection.bounds
+    const zValue = elementSelection.zIndex !== undefined ? String(elementSelection.zIndex + 1) : '10'
+    const nextSnapshot = elementSelection.snapshot
       ? {
-          ...textSelection.snapshot,
+          ...elementSelection.snapshot,
           selector: newSelector,
           blockId,
           label: newSelector,
           metrics: {
-            ...textSelection.snapshot.metrics,
+            ...elementSelection.snapshot.metrics,
             page: bounds
               ? { x: bounds.x + 20, y: bounds.y + 20, width: bounds.width, height: bounds.height }
-              : textSelection.snapshot.metrics.page,
+              : elementSelection.snapshot.metrics.page,
             viewport: bounds
               ? { x: bounds.x + 20, y: bounds.y + 20, width: bounds.width, height: bounds.height }
-              : textSelection.snapshot.metrics.viewport,
+              : elementSelection.snapshot.metrics.viewport,
             translateX: 0,
             translateY: 0
           }
@@ -1114,10 +1128,10 @@ export function SessionDetailPage(): React.JSX.Element {
       selector: newSelector,
       blockId,
       label: newSelector,
-      elementTag: textSelection.elementTag,
+      elementTag: elementSelection.elementTag,
       elementText: '',
-      kind: textSelection.kind,
-      capabilities: textSelection.capabilities,
+      kind: elementSelection.kind,
+      capabilities: elementSelection.capabilities,
       snapshot: nextSnapshot,
       isText: false,
       text: '',
@@ -1455,7 +1469,7 @@ export function SessionDetailPage(): React.JSX.Element {
                 previewRefreshKey={previewRefreshKey}
                 onElementMoved={handleElementMoved}
                 onElementSelected={handleElementSelected}
-                onCancelTextEdit={handleCancelTextEdit}
+                onCancelElementEdit={handleCancelElementEdit}
                 onDiscardAllEdits={handleDiscardAllEdits}
                 onUndo={handleUndo}
                 onRedo={handleRedo}
@@ -1468,12 +1482,12 @@ export function SessionDetailPage(): React.JSX.Element {
               <SessionDetailRightPanel
                 sessionId={id}
                 elementInspector={
-                  textSelection ? (
+                  elementSelection ? (
                     <ElementInspectorPanel
-                      selection={textSelection}
-                      draft={textDraft}
+                      selection={elementSelection}
+                      draft={elementDraft}
                       onDraftChange={handleTextDraftChange}
-                      onClose={handleCancelTextEdit}
+                      onClose={handleCancelElementEdit}
                       onCopy={handleCopyElement}
                       onDelete={handleDeleteElement}
                     />
