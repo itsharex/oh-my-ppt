@@ -27,37 +27,27 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Textarea } from '../../ui/Input'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../../ui/Tooltip'
 import { resolveImageSizeOptions } from './imageSizeOptions'
+import { useImageGenerationActions } from '../hooks/useImageGenerationActions'
 
 const localAssetSrc = (absolutePath?: string): string =>
   absolutePath ? `local-asset://${encodeURIComponent(absolutePath)}` : ''
 
-export function ImageGenerationPanel({
-  sessionId,
-  selectedPageExists,
-  selectedPageHtmlPath,
-  selectedPageNumber,
-  selectedPageTitle,
-  selectedPageOutline,
-  onGenerate,
-  onCancel,
-  onAddToCanvas,
-  onSetAsBackground,
-  onRevealFile
-}: {
-  sessionId?: string
-  selectedPageExists: boolean
-  selectedPageHtmlPath?: string
-  selectedPageNumber?: number | null
-  selectedPageTitle?: string
-  selectedPageOutline?: string | null
-  onGenerate: () => void
-  onCancel: () => void
-  onAddToCanvas: (asset: GeneratedImageAsset) => void
-  onSetAsBackground: (asset: GeneratedImageAsset) => void
-  onRevealFile: (filePath: string) => void
-}): React.JSX.Element {
+export function ImageGenerationPanel({ sessionId }: { sessionId: string }): React.JSX.Element {
   const t = useT()
   const modelAction = useModelAction()
+  const {
+    selectedPage,
+    generate,
+    cancel,
+    addToCanvas,
+    setAsBackground,
+    revealFile
+  } = useImageGenerationActions(sessionId)
+  const selectedPageExists = Boolean(selectedPage?.pageId)
+  const selectedPageHtmlPath = selectedPage?.htmlPath
+  const selectedPageNumber = selectedPage?.pageNumber
+  const selectedPageTitle = selectedPage?.title
+  const selectedPageOutline = selectedPage?.contentOutline
   const imageModelConfigs = useSettingsStore((state) => state.imageModelConfigs)
   const { error: toastError, success: toastSuccess } = useToastStore()
   const imagePrompt = useSessionDetailUiStore((state) => state.imagePrompt)
@@ -264,7 +254,7 @@ export function ImageGenerationPanel({
                                       size="sm"
                                       className="h-7 w-7 shrink-0 rounded-[7px] p-0 text-[#5d6b4d] hover:bg-[#dcebcf]/72 disabled:opacity-40"
                                       disabled={!selectedPageExists}
-                                      onClick={() => onAddToCanvas(asset)}
+                                      onClick={() => void addToCanvas(asset)}
                                       aria-label={t('sessionDetail.addImageToCanvas')}
                                     >
                                       <ImagePlus className="h-3.5 w-3.5" />
@@ -284,7 +274,7 @@ export function ImageGenerationPanel({
                                       size="sm"
                                       className="h-7 w-7 shrink-0 rounded-[7px] p-0 text-[#5d6b4d] hover:bg-[#dcebcf]/72 disabled:opacity-40"
                                       disabled={!selectedPageExists}
-                                      onClick={() => onSetAsBackground(asset)}
+                                      onClick={() => void setAsBackground(asset)}
                                       aria-label={t('sessionDetail.setImageAsBackground')}
                                     >
                                       <Wallpaper className="h-3.5 w-3.5" />
@@ -302,7 +292,7 @@ export function ImageGenerationPanel({
                                       size="sm"
                                       variant="ghost"
                                       className="h-7 w-7 rounded-[7px] p-0 text-[#5d6b4d] hover:bg-[#f4ebdc]"
-                                      onClick={() => onRevealFile(asset.absolutePath)}
+                                      onClick={() => void revealFile(asset.absolutePath)}
                                       aria-label={t('sessionDetail.revealFile')}
                                     >
                                       <FolderOpen className="h-3.5 w-3.5" />
@@ -474,7 +464,7 @@ export function ImageGenerationPanel({
           {isGeneratingImage ? (
             <Button
               variant="destructive"
-              onClick={onCancel}
+              onClick={() => void cancel()}
               size="sm"
               className="shrink-0 whitespace-nowrap rounded-full px-3 text-xs shadow-[0_8px_18px_rgba(177,90,88,0.22)]"
             >
@@ -485,7 +475,7 @@ export function ImageGenerationPanel({
             <Button
               size="sm"
               disabled={generateDisabled}
-              onClick={onGenerate}
+              onClick={() => void generate()}
               className="h-8 shrink-0 whitespace-nowrap px-3 text-xs"
             >
               {isGeneratingImage && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
@@ -521,7 +511,7 @@ export function ImageGenerationPanel({
                       variant="secondary"
                       className="h-8 w-8 bg-[#fffaf1] p-0 text-[#34402c] hover:bg-[#efe5d5]"
                       disabled={!selectedPageExists}
-                      onClick={() => onAddToCanvas(previewAsset)}
+                      onClick={() => void addToCanvas(previewAsset)}
                       aria-label={t('sessionDetail.addImageToCanvas')}
                     >
                       <ImagePlus className="h-3.5 w-3.5" />
@@ -536,7 +526,7 @@ export function ImageGenerationPanel({
                       variant="secondary"
                       className="h-8 w-8 bg-[#fffaf1] p-0 text-[#34402c] hover:bg-[#efe5d5]"
                       disabled={!selectedPageExists}
-                      onClick={() => onSetAsBackground(previewAsset)}
+                      onClick={() => void setAsBackground(previewAsset)}
                       aria-label={t('sessionDetail.setImageAsBackground')}
                     >
                       <Wallpaper className="h-3.5 w-3.5" />
@@ -548,7 +538,7 @@ export function ImageGenerationPanel({
                   size="sm"
                   variant="secondary"
                   className="h-8 bg-[#fffaf1] px-2.5 text-xs text-[#34402c] hover:bg-[#efe5d5]"
-                  onClick={() => onRevealFile(previewAsset.absolutePath)}
+                  onClick={() => void revealFile(previewAsset.absolutePath)}
                 >
                   <FolderOpen className="mr-1 h-3.5 w-3.5" />
                   {t('sessionDetail.revealFile')}

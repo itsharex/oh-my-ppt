@@ -10,6 +10,7 @@ import { TextInspector } from './TextInspector'
 import type { ElementEditDraft } from './types'
 import { getElementKindLabel, hasCapability, isArtTextSelection } from './types'
 import { useT } from '@renderer/i18n'
+import { sessionDetailRightPanelContentClass } from '../workspace/right-panel/styles'
 
 export type { ElementEditDraft } from './types'
 
@@ -36,7 +37,7 @@ export function ElementInspectorPanel({
   const isArtText = isArtTextSelection(selection)
 
   return (
-    <div className="mr-3 mb-3 mt-1 flex min-h-0 w-[260px] shrink-0 flex-col overflow-hidden rounded-[2rem] border border-[#ded2bd]/60 bg-[#f3ecdf]/76 shadow-[0_14px_32px_rgba(74,59,42,0.11)] backdrop-blur-xl">
+    <div className={sessionDetailRightPanelContentClass}>
       <div className="relative mx-2.5 mt-2.5 overflow-hidden rounded-[1.35rem] border border-[#e1d6c4]/72 bg-[#fffaf1]/78 px-3 pb-2.5 pt-3 shadow-[0_4px_12px_rgba(77,61,43,0.06)]">
         <div className="pointer-events-none absolute -right-6 -top-8 h-24 w-24 rounded-[30%_70%_70%_30%/30%_30%_70%_70%] bg-[#c7d9b4]/12" />
         <div className="relative flex items-center justify-between">

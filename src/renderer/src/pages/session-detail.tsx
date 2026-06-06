@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ipc } from '@renderer/lib/ipc'
 import type {
@@ -8,7 +8,6 @@ import type {
 } from '../components/preview/edit-mode-script'
 import type { PreviewIframeHandle } from '../components/preview/PreviewIframe'
 import { TooltipProvider } from '../components/ui/Tooltip'
-import { MessagePanel } from '../components/session-detail/ai-panel'
 import { PageSidebar } from '../components/session-detail/sidebar'
 import { PreviewStage } from '../components/session-detail/preview'
 import {
@@ -16,11 +15,10 @@ import {
   type ElementEditDraft
 } from '../components/session-detail/element-inspector'
 import {
-  EmptyEditWorkbenchPanel,
+  SessionDetailRightPanel,
   WorkspaceRibbon
 } from '../components/session-detail/workspace'
 import { SessionToolbar } from '../components/session-detail/toolbar'
-import { SpeechScriptDrawer } from '../components/session-detail/speech'
 import {
   AddBlankPageDialog,
   AddPageDialog,
@@ -51,13 +49,14 @@ import {
   editTargetMatchesDeletedSelector,
   useEditHistoryStore,
   useGenerateStore,
+  useSessionDetailRuntimeStore,
   useSessionDetailUiStore,
   useSessionStore,
   useToastStore,
-  type ImageGenerationMessage
+  type AddSessionElementHandler,
+  type AddSessionElementOptions
 } from '../store'
 import type { GenerateChunkEvent } from '@shared/generation.js'
-import type { GeneratedImageAsset } from '@shared/image-generation.js'
 import { getEditorGate, parseSessionMetadata } from '../lib/sessionMetadata'
 import { buildArtTextHtmlFragment, type ArtTextTemplateId } from '../lib/artTextTemplates'
 import { escapeHtmlText } from '../lib/utils'
@@ -129,18 +128,15 @@ export function SessionDetailPage(): React.JSX.Element {
     addMessage,
     resetRuntimeState
   } = useSessionStore()
-  const { isGenerating, updateProgress, cancelGeneration, progress, currentPages, error } =
-    useGenerateStore()
+  const { isGenerating, updateProgress, progress, currentPages } = useGenerateStore()
   const chatType = useSessionDetailUiStore((state) => state.chatType)
   const selectedPageId = useSessionDetailUiStore((state) => state.selectedPageId)
-  const workspaceTab = useSessionDetailUiStore((state) => state.workspaceTab)
   const setChatType = useSessionDetailUiStore((state) => state.setChatType)
   const resetForPageChange = useSessionDetailUiStore((state) => state.resetForPageChange)
   const resetForSessionChange = useSessionDetailUiStore((state) => state.resetForSessionChange)
   const assetPickerOpen = useSessionDetailUiStore((state) => state.assetPickerOpen)
   const assetPickerType = useSessionDetailUiStore((state) => state.assetPickerType)
   const setAssetPickerOpen = useSessionDetailUiStore((state) => state.setAssetPickerOpen)
-  const speechScriptDialogOpen = useSessionDetailUiStore((state) => state.speechScriptDialogOpen)
   const activeChatRef = useRef<{ chatType: ChatType; pageId?: string }>({ chatType: 'page' })
   const editHistory = useEditHistoryStore()
   const [isSavingEdits, setIsSavingEdits] = useState(false)
@@ -150,12 +146,21 @@ export function SessionDetailPage(): React.JSX.Element {
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [pendingDeleteSelector, setPendingDeleteSelector] = useState<string | null>(null)
   const previewIframeRef = useRef<PreviewIframeHandle | null>(null)
-  const sendingMessageRef = useRef(false)
+  const addElementHandlerRef = useRef<AddSessionElementHandler | null>(null)
+  const setAddElementHandler = useSessionDetailRuntimeStore(
+    (state) => state.setAddElementHandler
+  )
+  const invokeAddElement = useCallback<AddSessionElementHandler>(
+    async (relativePath, fileName, options) => {
+      const handler = addElementHandlerRef.current
+      return handler ? handler(relativePath, fileName, options) : false
+    },
+    []
+  )
   const {
     success: toastSuccess,
     error: toastError,
-    info: toastInfo,
-    warning: toastWarning
+    info: toastInfo
   } = useToastStore()
 
   const orderedPages = useMemo(
@@ -472,230 +477,6 @@ export function SessionDetailPage(): React.JSX.Element {
     })
     return () => unsubscribe()
   }, [id])
-
-  const isSupportedImageFile = (file: File): boolean => {
-    if (file.type.startsWith('image/')) return true
-    return /\.(png|jpe?g|webp|gif|svg)$/i.test(file.name)
-  }
-  const isSupportedVideoFile = (file: File): boolean => {
-    if (/^video\/(mp4|webm|ogg)$/i.test(file.type)) return true
-    return /\.(mp4|webm|ogg)$/i.test(file.name)
-  }
-  const isSupportedMediaFile = (file: File): boolean => {
-    return isSupportedImageFile(file) || isSupportedVideoFile(file)
-  }
-
-  const uploadFiles = async (files: File[]): Promise<void> => {
-    if (!id || files.length === 0) return
-    const mediaFiles = files.filter((file) => isSupportedMediaFile(file)).slice(0, 10)
-    if (mediaFiles.length === 0) {
-      toastWarning(t('sessionDetail.mediaOnly'))
-      return
-    }
-    const payloadFiles = mediaFiles
-      .map((file) => ({
-        path: window.electron?.getPathForFile?.(file) || '',
-        name: file.name
-      }))
-      .filter((file) => file.path)
-    if (payloadFiles.length === 0) {
-      toastError(t('sessionDetail.mediaPathFailed'))
-      return
-    }
-    useSessionDetailUiStore.getState().setIsUploadingAssets(true)
-    try {
-      const result = await ipc.uploadAssets({ sessionId: id, files: payloadFiles })
-      if (result.assets.length > 0) {
-        useSessionDetailUiStore.getState().addPendingAssets(result.assets)
-        toastSuccess(t('sessionDetail.assetsAdded', { count: result.assets.length }))
-      }
-    } catch (error) {
-      toastError(error instanceof Error ? error.message : t('sessionDetail.assetUploadFailed'))
-    } finally {
-      useSessionDetailUiStore.getState().setIsUploadingAssets(false)
-      useSessionDetailUiStore.getState().setAssetDragActive(false)
-    }
-  }
-
-  const handleChooseAssets = async (assetType: 'image' | 'video'): Promise<void> => {
-    if (!id || useSessionDetailUiStore.getState().isUploadingAssets) return
-    useSessionDetailUiStore.getState().setIsUploadingAssets(true)
-    try {
-      const result = await ipc.chooseAndUploadAssets(id, assetType)
-      if (result.cancelled) return
-      if (result.assets.length > 0) {
-        useSessionDetailUiStore.getState().addPendingAssets(result.assets)
-        toastSuccess(t('sessionDetail.assetsAdded', { count: result.assets.length }))
-      }
-    } catch (error) {
-      toastError(error instanceof Error ? error.message : t('sessionDetail.assetUploadFailed'))
-    } finally {
-      useSessionDetailUiStore.getState().setIsUploadingAssets(false)
-    }
-  }
-
-  const handleSend = async (modelConfigId?: string): Promise<void> => {
-    if (!id) return
-    if (sendingMessageRef.current || isGenerating) return
-    const detailState = useSessionDetailUiStore.getState()
-    if (!detailState.input.trim() && detailState.pendingAssets.length === 0) return
-    const content = detailState.input.trim() || t('sessionDetail.useUploadedAssets')
-    const assetsForMessage = detailState.pendingAssets
-    const imagePaths = assetsForMessage
-      .map((asset) => asset.relativePath)
-      .filter((item) => item.startsWith('./images/'))
-    const videoPaths = assetsForMessage
-      .map((asset) => asset.relativePath)
-      .filter((item) => item.startsWith('./videos/'))
-    const hasSelector = Boolean(detailState.selectedSelector?.trim())
-    const selectorForMessage = hasSelector ? detailState.selectedSelector!.trim() : null
-    const effectiveChatType: 'main' | 'page' = hasSelector ? 'page' : detailState.chatType
-    const effectivePage = selectedPage ?? normalizedOrderedPages[0] ?? null
-    const targetPageId = effectiveChatType === 'page' ? effectivePage?.id : undefined
-    const targetPagePath =
-      effectiveChatType === 'page'
-        ? effectivePage?.htmlPath || normalizedOrderedPages[0]?.htmlPath
-        : undefined
-    if (effectiveChatType === 'page' && !targetPageId) {
-      toastError(t('sessionDetail.selectPageFirst'))
-      return
-    }
-    if (hasSelector && detailState.chatType !== 'page') {
-      detailState.setChatType('page')
-    }
-    sendingMessageRef.current = true
-    try {
-      useGenerateStore.setState({ isGenerating: true, error: null, status: 'running' })
-      addMessage({
-        id: crypto.randomUUID(),
-        session_id: id,
-        chat_scope: effectiveChatType,
-        page_id: effectiveChatType === 'page' ? (targetPageId as string) : null,
-        selector: effectiveChatType === 'page' ? selectorForMessage : null,
-        image_paths: imagePaths,
-        video_paths: videoPaths,
-        role: 'user',
-        content,
-        type: 'text',
-        tool_name: null,
-        tool_call_id: null,
-        token_count: null,
-        created_at: Math.floor(Date.now() / 1000)
-      })
-      detailState.setInput('')
-      detailState.clearPendingAssets()
-      detailState.clearSelectedElement()
-      const hasExistingPages = normalizedOrderedPages.length > 0
-      await ipc.startGenerate({
-        sessionId: id,
-        modelConfigId,
-        userMessage: content,
-        type: hasExistingPages ? 'page' : 'deck',
-        chatType: effectiveChatType,
-        chatPageId: effectiveChatType === 'page' ? targetPageId : undefined,
-        selectedPageId: hasExistingPages && effectiveChatType === 'page' ? targetPageId : undefined,
-        htmlPath: hasExistingPages && effectiveChatType === 'page' ? targetPagePath : undefined,
-        selector: selectorForMessage || undefined,
-        elementTag: hasSelector ? detailState.elementTag || undefined : undefined,
-        elementText: hasSelector ? detailState.elementText || undefined : undefined,
-        imagePaths,
-        videoPaths
-      })
-    } catch (error) {
-      const message = error instanceof Error ? error.message : t('generating.failed')
-      useGenerateStore.getState().setError(message)
-      toastError(message)
-    } finally {
-      sendingMessageRef.current = false
-    }
-  }
-
-  const handleGenerateImage = async (): Promise<void> => {
-    if (!id || !selectedPage?.id) {
-      toastError(t('sessionDetail.selectPageFirst'))
-      return
-    }
-    const detailState = useSessionDetailUiStore.getState()
-    const prompt = detailState.imagePrompt.trim()
-    if (!prompt) {
-      toastWarning(t('sessionDetail.imagePromptRequired'))
-      return
-    }
-    if (detailState.isGeneratingImage) return
-
-    const pageId = selectedPage.id
-    const selectedPageKey = selectedPage.id
-    const cacheKey = buildImageMessageCacheKey(id, pageId)
-    const pendingUserMessage: ImageGenerationMessage = {
-      id: `pending-image:${nanoid(8)}`,
-      role: 'user',
-      content: prompt,
-      createdAt: Math.floor(Date.now() / 1000)
-    }
-    detailState.setIsGeneratingImage(true)
-    detailState.setImageProgress({ progress: 8, label: t('sessionDetail.imageGenerating') })
-    detailState.setImagePrompt('')
-    detailState.addImageMessage(pendingUserMessage)
-    detailState.addCachedImageMessage(cacheKey, pendingUserMessage)
-    try {
-      const result = await ipc.generateImage({
-        sessionId: id,
-        pageId,
-        prompt,
-        imageModelConfigId: detailState.selectedImageModelConfigId || undefined,
-        size: detailState.imageSize,
-        count: 1
-      })
-      const latestState = useSessionDetailUiStore.getState()
-      const persistedMessages = imageHistoryToMessages([result.history])
-      const visibleMessages =
-        latestState.selectedPageId === selectedPageKey ? latestState.imageMessages : []
-      const cachedWithoutPending = mergeImageMessages(
-        latestState.imageMessageCache[cacheKey] || [],
-        visibleMessages
-      ).filter((message) => message.id !== pendingUserMessage.id)
-      const nextMessages = mergeImageMessages(cachedWithoutPending, persistedMessages)
-      latestState.cacheImageMessages(cacheKey, nextMessages)
-      if (useSessionDetailUiStore.getState().selectedPageId === selectedPageKey) {
-        latestState.setImageMessages(nextMessages)
-      }
-      detailState.setImageProgress({ progress: 100, label: t('sessionDetail.imageGenerated') })
-      toastSuccess(t('sessionDetail.imageGenerated'), {
-        description: t('sessionDetail.imageGeneratedDescription', {
-          count: result.history.assets.length
-        })
-      })
-    } catch (err) {
-      const message = err instanceof Error ? err.message : t('sessionDetail.imageGenerateFailed')
-      toastError(t('sessionDetail.imageGenerateFailed'), { description: message })
-    } finally {
-      useSessionDetailUiStore.getState().setIsGeneratingImage(false)
-    }
-  }
-
-  const handleCancelImageGeneration = async (): Promise<void> => {
-    if (!id) return
-    try {
-      await ipc.cancelImageGeneration(id)
-    } finally {
-      useSessionDetailUiStore.getState().setIsGeneratingImage(false)
-      useSessionDetailUiStore.getState().setImageProgress(null)
-    }
-  }
-
-  const handleRevealImageFile = async (filePath: string): Promise<void> => {
-    if (!id || !filePath) return
-    try {
-      await ipc.revealFile(filePath, id)
-    } catch (err) {
-      toastError(err instanceof Error ? err.message : t('common.retryLater'))
-    }
-  }
-
-  const handleCancel = async (): Promise<void> => {
-    await ipc.cancelGenerate(id!)
-    cancelGeneration()
-  }
 
   const handleOpenSpeechDialog = (): void => {
     useSessionDetailUiStore.getState().setSpeechScriptDialogOpen(true)
@@ -1486,7 +1267,7 @@ export function SessionDetailPage(): React.JSX.Element {
   const handleAddElement = async (
     relativePath: string,
     _fileName: string,
-    options: { persistImmediately?: boolean; prompt?: string; asBackground?: boolean } = {}
+    options: AddSessionElementOptions = {}
   ): Promise<boolean> => {
     if (!id || !selectedPage?.pageId || !selectedPage.htmlPath) return false
     const selectedHtmlPath = selectedPage.htmlPath
@@ -1494,6 +1275,7 @@ export function SessionDetailPage(): React.JSX.Element {
     const parentSelector = `body[data-page-id="${selectedPage.pageId}"] [data-ppt-guard-root="1"]`
     const isVideo = /^\.\/videos\//i.test(relativePath)
     const isBackground = Boolean(options.asBackground && !isVideo)
+    if (isBackground) previewIframeRef.current?.clearEditModeSelection()
     const safeRelativePath = escapeHtmlText(relativePath)
     // Offset each added element so they don't overlap
     const existingCount = editHistory.addElements.filter(
@@ -1580,47 +1362,14 @@ export function SessionDetailPage(): React.JSX.Element {
     return true
   }
 
-  const handleAddGeneratedImageToCanvas = async (asset: GeneratedImageAsset): Promise<void> => {
-    if (!selectedPage?.pageId) {
-      toastError(t('sessionDetail.selectPageFirst'))
-      return
-    }
-    useSessionDetailUiStore.getState().setInteractionMode('edit')
-    try {
-      const added = await handleAddElement(asset.relativePath, asset.fileName, {
-        persistImmediately: true,
-        prompt: '从生图结果添加图片到画布'
-      })
-      if (added) {
-        useSessionDetailUiStore.getState().setWorkspaceTab('edit')
-        toastSuccess(t('sessionDetail.imageAddedToCanvas'))
-      }
-    } catch (err) {
-      toastError(err instanceof Error ? err.message : t('sessionDetail.layoutSaveFailed'))
-    }
-  }
+  useEffect(() => {
+    addElementHandlerRef.current = handleAddElement
+  }, [handleAddElement])
 
-  const handleSetGeneratedImageAsBackground = async (asset: GeneratedImageAsset): Promise<void> => {
-    if (!selectedPage?.pageId) {
-      toastError(t('sessionDetail.selectPageFirst'))
-      return
-    }
-    useSessionDetailUiStore.getState().setInteractionMode('edit')
-    useSessionDetailUiStore.getState().setWorkspaceTab('ai')
-    previewIframeRef.current?.clearEditModeSelection()
-    try {
-      const added = await handleAddElement(asset.relativePath, asset.fileName, {
-        persistImmediately: true,
-        asBackground: true,
-        prompt: '从生图结果设置页面背景'
-      })
-      if (added) {
-        toastSuccess(t('sessionDetail.imageSetAsBackground'))
-      }
-    } catch (err) {
-      toastError(err instanceof Error ? err.message : t('sessionDetail.layoutSaveFailed'))
-    }
-  }
+  useEffect(() => {
+    setAddElementHandler(invokeAddElement)
+    return () => setAddElementHandler(null)
+  }, [invokeAddElement, setAddElementHandler])
 
   const handleUploadAndAdd = async (assetType: 'image' | 'video'): Promise<void> => {
     if (!id) return
@@ -1637,6 +1386,10 @@ export function SessionDetailPage(): React.JSX.Element {
     navigate('/sessions')
   }
 
+  if (!id) {
+    return <div className="h-full bg-[#f5f1e8]" />
+  }
+
   return (
     <TooltipProvider delayDuration={180}>
       <div className="flex h-full min-h-0 flex-col bg-[#f5f1e8] text-foreground outline-none">
@@ -1648,7 +1401,7 @@ export function SessionDetailPage(): React.JSX.Element {
             }`}
           >
             <div className="app-no-drag flex items-center gap-1.5">
-              <SessionToolbar sessionId={id || ''} />
+              <SessionToolbar sessionId={id} />
             </div>
           </div>
         </header>
@@ -1690,7 +1443,7 @@ export function SessionDetailPage(): React.JSX.Element {
           />
 
           <div className="flex min-h-0 flex-1">
-            <PageSidebar sessionId={id || ''} />
+            <PageSidebar sessionId={id} />
 
             <div className="flex min-h-0 flex-1">
               <PreviewStage
@@ -1712,57 +1465,33 @@ export function SessionDetailPage(): React.JSX.Element {
                   setDeleteConfirmOpen(true)
                 }}
               />
-              {speechScriptDialogOpen && id ? (
-                <SpeechScriptDrawer sessionId={id} />
-              ) : workspaceTab === 'ai' ? (
-                <MessagePanel
-                  sessionId={id}
-                  selectedPageExists={Boolean(selectedPage?.pageId)}
-                  selectedPageHtmlPath={selectedPage?.htmlPath}
-                  selectedPageNumber={selectedPage?.pageNumber}
-                  selectedPageTitle={selectedPage?.title}
-                  selectedPageOutline={selectedPage?.contentOutline}
-                  isGenerating={isGenerating}
-                  progress={progress}
-                  error={error}
-                  onDropFiles={(files) => void uploadFiles(files)}
-                  onChooseAssets={(assetType) => void handleChooseAssets(assetType)}
-                  onSend={(modelConfigId) => void handleSend(modelConfigId)}
-                  onCancel={() => void handleCancel()}
-                  onGenerateImage={() => void handleGenerateImage()}
-                  onCancelImageGeneration={() => void handleCancelImageGeneration()}
-                  onAddGeneratedImageToCanvas={(asset) =>
-                    void handleAddGeneratedImageToCanvas(asset)
-                  }
-                  onSetGeneratedImageAsBackground={(asset) =>
-                    void handleSetGeneratedImageAsBackground(asset)
-                  }
-                  onRevealImageFile={(filePath) => void handleRevealImageFile(filePath)}
-                />
-              ) : workspaceTab === 'edit' && textSelection ? (
-                <ElementInspectorPanel
-                  selection={textSelection}
-                  draft={textDraft}
-                  onDraftChange={handleTextDraftChange}
-                  onClose={handleCancelTextEdit}
-                  onCopy={handleCopyElement}
-                  onDelete={handleDeleteElement}
-                />
-              ) : workspaceTab === 'edit' ? (
-                <EmptyEditWorkbenchPanel />
-              ) : null}
+              <SessionDetailRightPanel
+                sessionId={id}
+                elementInspector={
+                  textSelection ? (
+                    <ElementInspectorPanel
+                      selection={textSelection}
+                      draft={textDraft}
+                      onDraftChange={handleTextDraftChange}
+                      onClose={handleCancelTextEdit}
+                      onCopy={handleCopyElement}
+                      onDelete={handleDeleteElement}
+                    />
+                  ) : undefined
+                }
+              />
             </div>
           </div>
         </div>
 
-        <HistoryDialog sessionId={id || ''} />
-        <AddBlankPageDialog sessionId={id || ''} />
-        <AddPageDialog sessionId={id || ''} />
+        <HistoryDialog sessionId={id} />
+        <AddBlankPageDialog sessionId={id} />
+        <AddPageDialog sessionId={id} />
         <PageProgressOverlay />
-        <PageTitleEditDialog sessionId={id || ''} />
-        <DeletePageDialog sessionId={id || ''} />
+        <PageTitleEditDialog sessionId={id} />
+        <DeletePageDialog sessionId={id} />
         <AssetPickerDialog
-          sessionId={id || ''}
+          sessionId={id}
           assetType={assetPickerType}
           open={assetPickerOpen}
           onClose={() => setAssetPickerOpen(false)}

@@ -1,19 +1,21 @@
 import { create } from 'zustand'
 import type { UploadedAsset } from '@shared/generation.js'
-import type { GeneratedImageAsset } from '@shared/image-generation.js'
 import type { SpeechConfig } from '@shared/speech'
+import type {
+  ImageGenerationMessage,
+  InteractionMode,
+  SessionDetailAiPanelMode,
+  SessionDetailChatType,
+  SessionWorkspaceTab
+} from '@renderer/types/session-detail'
 
-export type SessionDetailChatType = 'main' | 'page'
-export type SessionDetailAiPanelMode = 'chat' | 'image'
-export type InteractionMode = 'preview' | 'ai-inspect' | 'edit'
-export type SessionWorkspaceTab = 'preview' | 'edit' | 'animation' | 'speech' | 'ai'
-export type ImageGenerationMessage = {
-  id: string
-  role: 'user' | 'assistant'
-  content: string
-  assets?: GeneratedImageAsset[]
-  createdAt: number
-}
+export type {
+  ImageGenerationMessage,
+  InteractionMode,
+  SessionDetailAiPanelMode,
+  SessionDetailChatType,
+  SessionWorkspaceTab
+} from '@renderer/types/session-detail'
 
 interface SessionDetailUiStore {
   input: string

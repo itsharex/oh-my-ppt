@@ -27,35 +27,22 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Tooltip, TooltipContent, TooltipTrigger } from '../../ui/Tooltip'
 import { MessageBubble } from './MessageBubble'
 import { useT } from '@renderer/i18n'
+import { useChatPanelController } from '../hooks/useChatPanelController'
 
-type PanelProgress = {
-  label?: string
-  progress: number
-}
-
-export function ChatPanel({
-  selectedPageExists,
-  selectedPageNumber,
-  isGenerating,
-  progress,
-  error,
-  onDropFiles,
-  onChooseAssets,
-  onSend,
-  onCancel
-}: {
-  selectedPageExists: boolean
-  selectedPageNumber?: number | null
-  isGenerating: boolean
-  progress: PanelProgress | null
-  error: string | null
-  onDropFiles: (files: File[]) => void
-  onChooseAssets: (assetType: 'image' | 'video') => void
-  onSend: (modelConfigId: string) => void
-  onCancel: () => void
-}): React.JSX.Element {
+export function ChatPanel({ sessionId }: { sessionId: string }): React.JSX.Element {
   const t = useT()
   const modelAction = useModelAction()
+  const {
+    selectedPageExists,
+    selectedPageNumber,
+    isGenerating,
+    progress,
+    error,
+    uploadFiles,
+    chooseAssets,
+    send,
+    cancel
+  } = useChatPanelController(sessionId)
   const messages = useSessionStore((state) => state.currentMessages)
   const chatType = useSessionDetailUiStore((state) => state.chatType)
   const input = useSessionDetailUiStore((state) => state.input)
@@ -117,7 +104,7 @@ export function ChatPanel({
     try {
       const resolvedModelConfigId = await modelAction.ensureModelActive(modelConfigId)
       if (!resolvedModelConfigId) return
-      onSend(resolvedModelConfigId)
+      await send(resolvedModelConfigId)
     } catch (err) {
       console.error('[MessagePanel] send model activation failed', err)
     }
@@ -205,7 +192,7 @@ export function ChatPanel({
         }}
         onDrop={(event) => {
           event.preventDefault()
-          onDropFiles(Array.from(event.dataTransfer.files))
+          void uploadFiles(Array.from(event.dataTransfer.files))
         }}
       >
         {selectedSelector && (
@@ -307,11 +294,11 @@ export function ChatPanel({
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" side="top" className="w-40">
-                <DropdownMenuItem onSelect={() => onChooseAssets('image')}>
+                <DropdownMenuItem onSelect={() => void chooseAssets('image')}>
                   <ImageIcon className="h-4 w-4" />
                   {t('sessionDetail.chooseImage')}
                 </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => onChooseAssets('video')}>
+                <DropdownMenuItem onSelect={() => void chooseAssets('video')}>
                   <Video className="h-4 w-4" />
                   {t('sessionDetail.chooseVideo')}
                 </DropdownMenuItem>
@@ -329,7 +316,7 @@ export function ChatPanel({
           {isGenerating ? (
             <Button
               variant="destructive"
-              onClick={onCancel}
+              onClick={() => void cancel()}
               size="sm"
               className="shrink-0 whitespace-nowrap rounded-full px-3 text-xs shadow-[0_8px_18px_rgba(177,90,88,0.22)]"
             >
