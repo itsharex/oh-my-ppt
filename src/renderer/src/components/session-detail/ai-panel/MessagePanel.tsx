@@ -13,12 +13,12 @@ export function MessagePanel({ sessionId }: { sessionId: string }): React.JSX.El
 
   return (
     <div className={sessionDetailRightPanelContentClass}>
-      <div className="mx-2.5 mt-2.5 grid grid-cols-2 gap-1 rounded-[1.1rem] border border-[#ded2bd]/70 bg-[#fffaf1]/78 p-1 shadow-[0_4px_12px_rgba(77,61,43,0.06)]">
+      <div className="mx-2 mt-2 grid grid-cols-2 gap-1 rounded-[0.8rem] border border-[#ded2bd]/58 bg-[#fffaf1]/68 p-0.75 shadow-[0_2px_8px_rgba(77,61,43,0.05)]">
         <button
           type="button"
           onClick={() => setAiPanelMode('chat')}
           className={cn(
-            'inline-flex h-8 items-center justify-center gap-1.5 rounded-[0.85rem] text-xs font-medium transition-colors',
+            'inline-flex h-7 items-center justify-center gap-1.5 rounded-[0.8rem] text-[11px] font-medium transition-colors',
             aiPanelMode === 'chat'
               ? 'bg-[#dbe7ca] text-[#2f3b28] shadow-sm'
               : 'text-[#6d604d] hover:bg-[#f4ebdc]'
@@ -31,7 +31,7 @@ export function MessagePanel({ sessionId }: { sessionId: string }): React.JSX.El
           type="button"
           onClick={() => setAiPanelMode('image')}
           className={cn(
-            'inline-flex h-8 items-center justify-center gap-1.5 rounded-[0.85rem] text-xs font-medium transition-colors',
+            'inline-flex h-7 items-center justify-center gap-1.5 rounded-[0.8rem] text-[11px] font-medium transition-colors',
             aiPanelMode === 'image'
               ? 'bg-[#dbe7ca] text-[#2f3b28] shadow-sm'
               : 'text-[#6d604d] hover:bg-[#f4ebdc]'

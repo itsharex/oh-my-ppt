@@ -142,31 +142,31 @@ export function SpeechScriptDrawer({ sessionId }: { sessionId: string }): React.
   return (
     <div className={sessionDetailRightPanelContentClass}>
       {/* Header card */}
-      <div className="relative mx-2.5 mt-2.5 overflow-hidden rounded-[1.35rem] border border-[#e1d6c4]/72 bg-[#fffaf1]/78 px-3 pb-2.5 pt-3 shadow-[0_6px_16px_rgba(77,61,43,0.08)]">
-        <div className="pointer-events-none absolute -right-6 -top-8 h-24 w-24 rounded-[30%_70%_70%_30%/30%_30%_70%_70%] bg-[#c7d9b4]/12" />
+      <div className="relative mx-2 mt-2 overflow-hidden rounded-[0.85rem] border border-[#e1d6c4]/58 bg-[#fffaf1]/68 px-2.5 py-2 shadow-[0_2px_8px_rgba(77,61,43,0.05)]">
+        <div className="pointer-events-none absolute -right-8 -top-10 h-20 w-20 rounded-[30%_70%_70%_30%/30%_30%_70%_70%] bg-[#c7d9b4]/10" />
         <div className="relative flex items-center justify-between">
-          <h3 className="text-sm font-semibold tracking-[0.04em] text-[#34402c]">
+          <h3 className="text-[12px] font-semibold tracking-[0.03em] text-[#34402c]">
             {t('sessionDetail.speechScriptDialogTitle')}
           </h3>
           <button
             type="button"
             aria-label={t('sessionDetail.closeSpeechDrawer')}
             onClick={close}
-            className="rounded-md p-1 text-[#9a8f80] transition-colors hover:bg-[#ebe4d6]/80 hover:text-[#3e4a32]"
+            className="rounded-md p-0.5 text-[#9a8f80] transition-colors hover:bg-[#ebe4d6]/80 hover:text-[#3e4a32]"
           >
-            <X className="h-3.5 w-3.5" />
+            <X className="h-3 w-3" />
           </button>
         </div>
 
         {/* Scope tabs */}
-        <div className="mt-2.5 flex gap-0.5 rounded-xl bg-[#ede5d6]/60 p-0.5">
+        <div className="mt-2 flex gap-0.5 rounded-lg bg-[#ede5d6]/52 p-0.5">
           {(['all', 'single'] as SpeechScope[]).map((s) => (
             <button
               key={s}
               type="button"
               onClick={() => handleScopeChange(s)}
               className={cn(
-                'flex-1 rounded-[0.6rem] py-1.5 text-xs font-medium transition-all',
+                'flex-1 rounded-[0.55rem] py-1 text-[11px] font-medium transition-all',
                 speechConfig.scope === s
                   ? 'bg-[#fffaf1] text-[#3e4a32] shadow-[0_1px_3px_rgba(74,59,42,0.08)]'
                   : 'text-[#9a8f80] hover:text-[#5a6b4a]'
@@ -181,24 +181,24 @@ export function SpeechScriptDrawer({ sessionId }: { sessionId: string }): React.
       </div>
 
       {/* Scope description */}
-      <p className="shrink-0 px-3 pt-2.5 text-[11px] text-[#9a8f80]">
+      <p className="shrink-0 px-2.5 pt-2 text-[10px] text-[#9a8f80]">
         {speechConfig.scope === 'all'
           ? t('sessionDetail.speechScriptScopeAllDesc')
           : currentPageTitle || t('sessionDetail.speechScriptScopeSingleDesc')}
       </p>
 
       {/* Config card (fixed, no scroll) */}
-      <div className="mx-2.5 mt-2 shrink-0 overflow-hidden rounded-[1.15rem] border border-[#e1d6c4]/72 bg-[#fffaf1]/78 shadow-[0_4px_12px_rgba(77,61,43,0.06)]">
+      <div className="mx-2 mt-1.5 shrink-0 overflow-hidden rounded-[0.8rem] border border-[#e1d6c4]/58 bg-[#fffaf1]/68 shadow-[0_2px_8px_rgba(77,61,43,0.05)]">
         {/* Style row */}
-        <div className="flex items-center gap-2.5 border-b border-[#ede5d6]/60 px-3 py-2">
-          <span className="shrink-0 text-[11px] font-semibold tracking-[0.06em] text-[#7a875f]">
+        <div className="flex items-center gap-2 border-b border-[#ede5d6]/50 px-2.5 py-1.5">
+          <span className="shrink-0 text-[10px] font-semibold tracking-[0.05em] text-[#7a875f]">
             {t('sessionDetail.speechScriptStyle')}
           </span>
           <Select
             value={speechConfig.style}
             onValueChange={(v) => setSpeechConfig({ ...speechConfig, style: v as SpeechStyle })}
           >
-            <SelectTrigger className="h-8 flex-1 border-[#d8ccb5]/60 bg-[#fffdf8]/60 text-xs">
+            <SelectTrigger className="h-7 flex-1 border-[#d8ccb5]/60 bg-[#fffdf8]/60 text-[11px]">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -216,9 +216,9 @@ export function SpeechScriptDrawer({ sessionId }: { sessionId: string }): React.
 
         {/* Custom style textarea */}
         {speechConfig.style === 'custom' && (
-          <div className="border-b border-[#ede5d6]/60 px-3 py-2">
+          <div className="border-b border-[#ede5d6]/50 px-2.5 py-1.5">
             <textarea
-              className="w-full resize-none rounded-lg border border-[#d8ccb5]/80 bg-[#fffdf8]/88 px-2.5 py-1.5 text-xs text-[#3f4b35] placeholder:text-[#b0a898] focus:border-[#9bb98a] focus:outline-none"
+              className="w-full resize-none rounded-lg border border-[#d8ccb5]/80 bg-[#fffdf8]/88 px-2.5 py-1.5 text-[11px] text-[#3f4b35] placeholder:text-[#b0a898] focus:border-[#9bb98a] focus:outline-none"
               rows={2}
               placeholder={t('sessionDetail.speechScriptStyleCustomPlaceholder')}
               value={speechConfig.customStyle ?? ''}
@@ -228,15 +228,15 @@ export function SpeechScriptDrawer({ sessionId }: { sessionId: string }): React.
         )}
 
         {/* Length row */}
-        <div className="flex items-center gap-2.5 px-3 py-2">
-          <span className="shrink-0 text-[11px] font-semibold tracking-[0.06em] text-[#7a875f]">
+        <div className="flex items-center gap-2 px-2.5 py-1.5">
+          <span className="shrink-0 text-[10px] font-semibold tracking-[0.05em] text-[#7a875f]">
             {t('sessionDetail.speechScriptLength')}
           </span>
           <Select
             value={speechConfig.length}
             onValueChange={(v) => setSpeechConfig({ ...speechConfig, length: v as SpeechLength })}
           >
-            <SelectTrigger className="h-8 flex-1 border-[#d8ccb5]/60 bg-[#fffdf8]/60 text-xs">
+            <SelectTrigger className="h-7 flex-1 border-[#d8ccb5]/60 bg-[#fffdf8]/60 text-[11px]">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
