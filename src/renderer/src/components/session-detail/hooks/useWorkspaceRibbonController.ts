@@ -4,8 +4,10 @@ import {
   useGenerateStore,
   useSessionDetailRuntimeStore,
   useSessionDetailUiStore,
+  useToastStore,
   type WorkspaceRibbonRegisteredActions
 } from '@renderer/store'
+import { useT } from '@renderer/i18n'
 import type { SessionWorkspaceTab } from '@renderer/types/session-detail'
 import { normalizePagesForSelection } from '../shared'
 import type { WorkspaceRibbonState } from '../workspace/toolbar/types'
@@ -44,8 +46,11 @@ export function useWorkspaceRibbonController(isSavingEdits: boolean): {
   state: WorkspaceRibbonState
   activateTab: (tab: SessionWorkspaceTab) => void
 } {
+  const t = useT()
   const isGenerating = useGenerateStore((state) => state.isGenerating)
   const currentPages = useGenerateStore((state) => state.currentPages)
+  const toastInfo = useToastStore((state) => state.info)
+  const toastWarning = useToastStore((state) => state.warning)
   const selectedPageId = useSessionDetailUiStore((state) => state.selectedPageId)
   const activeTab = useSessionDetailUiStore((state) => state.workspaceTab)
   const setActiveTab = useSessionDetailUiStore((state) => state.setWorkspaceTab)
@@ -68,11 +73,28 @@ export function useWorkspaceRibbonController(isSavingEdits: boolean): {
   const canUndo = useEditHistoryStore((state) => state.canUndo(pageId))
   const canRedo = useEditHistoryStore((state) => state.canRedo(pageId))
   const hasPendingEdits = useEditHistoryStore((state) => state.hasPendingEdits(pageId))
+  const hasAnyPendingEdits = useEditHistoryStore(
+    (state) =>
+      state.dragEdits.length > 0 ||
+      state.textEdits.length > 0 ||
+      state.propertyEdits.length > 0 ||
+      state.deletes.length > 0 ||
+      state.addElements.length > 0
+  )
 
   const activateTab = useCallback(
     (tab: SessionWorkspaceTab): void => {
+      if (tab === 'browse' && hasAnyPendingEdits) {
+        toastWarning(t('sessionDetail.browseRequiresSavedEdits'))
+        return
+      }
       setActiveTab(tab)
       if (tab === 'preview') {
+        setInteractionMode('preview')
+        setSpeechScriptDialogOpen(false)
+        return
+      }
+      if (tab === 'browse') {
         setInteractionMode('preview')
         setSpeechScriptDialogOpen(false)
         return
@@ -87,19 +109,25 @@ export function useWorkspaceRibbonController(isSavingEdits: boolean): {
         clearSelectedElement()
         setInteractionMode('ai-inspect')
         setSpeechScriptDialogOpen(false)
+        toastInfo(t('sessionDetail.inspectActiveToast'))
         return
       }
       if (interactionMode !== 'edit') {
         setInteractionMode('edit')
       }
       setSpeechScriptDialogOpen(false)
+      toastInfo(t('sessionDetail.editModeToast'))
     },
     [
       clearSelectedElement,
+      hasAnyPendingEdits,
       interactionMode,
       setActiveTab,
       setInteractionMode,
-      setSpeechScriptDialogOpen
+      setSpeechScriptDialogOpen,
+      t,
+      toastInfo,
+      toastWarning
     ]
   )
 

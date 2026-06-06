@@ -10,6 +10,7 @@ import type { PreviewIframeHandle } from '../components/preview/PreviewIframe'
 import { TooltipProvider } from '../components/ui/Tooltip'
 import { PageSidebar } from '../components/session-detail/sidebar'
 import { PreviewStage } from '../components/session-detail/preview'
+import { BrowseView } from '../components/session-detail/browse/BrowseView'
 import {
   ElementInspectorPanel,
   type ElementEditDraft
@@ -141,6 +142,7 @@ export function SessionDetailPage(): React.JSX.Element {
   const assetPickerOpen = useSessionDetailUiStore((state) => state.assetPickerOpen)
   const assetPickerType = useSessionDetailUiStore((state) => state.assetPickerType)
   const setAssetPickerOpen = useSessionDetailUiStore((state) => state.setAssetPickerOpen)
+  const workspaceTab = useSessionDetailUiStore((state) => state.workspaceTab)
   const activeChatRef = useRef<{ chatType: ChatType; pageId?: string }>({ chatType: 'page' })
   const editHistory = useEditHistoryStore()
   const [isSavingEdits, setIsSavingEdits] = useState(false)
@@ -1431,46 +1433,50 @@ export function SessionDetailPage(): React.JSX.Element {
         <div className="flex min-h-0 flex-1 flex-col bg-[#f5f1e8]">
           <WorkspaceRibbon isSavingEdits={isSavingEdits} />
 
-          <div className="flex min-h-0 flex-1">
-            <PageSidebar sessionId={id} />
-
+          {workspaceTab === 'browse' ? (
+            <BrowseView sessionId={id} />
+          ) : (
             <div className="flex min-h-0 flex-1">
-              <PreviewStage
-                ref={previewIframeRef}
-                selectedPage={selectedPage}
-                sessionTitle={currentSession?.title}
-                isGenerating={isGenerating}
-                progressLabel={progress?.label}
-                previewRefreshKey={previewRefreshKey}
-                onElementMoved={handleElementMoved}
-                onElementSelected={handleElementSelected}
-                onCancelElementEdit={handleCancelElementEdit}
-                onDiscardAllEdits={handleDiscardAllEdits}
-                onUndo={handleUndo}
-                onRedo={handleRedo}
-                onReplayPendingEdits={replayPendingEdits}
-                onDeleteRequest={(selector) => {
-                  setPendingDeleteSelector(selector)
-                  setDeleteConfirmOpen(true)
-                }}
-              />
-              <SessionDetailRightPanel
-                sessionId={id}
-                elementInspector={
-                  elementSelection ? (
-                    <ElementInspectorPanel
-                      selection={elementSelection}
-                      draft={elementDraft}
-                      onDraftChange={handleTextDraftChange}
-                      onClose={handleCancelElementEdit}
-                      onCopy={handleCopyElement}
-                      onDelete={handleDeleteElement}
-                    />
-                  ) : undefined
-                }
-              />
+              <PageSidebar sessionId={id} />
+
+              <div className="flex min-h-0 flex-1">
+                <PreviewStage
+                  ref={previewIframeRef}
+                  selectedPage={selectedPage}
+                  sessionTitle={currentSession?.title}
+                  isGenerating={isGenerating}
+                  progressLabel={progress?.label}
+                  previewRefreshKey={previewRefreshKey}
+                  onElementMoved={handleElementMoved}
+                  onElementSelected={handleElementSelected}
+                  onCancelElementEdit={handleCancelElementEdit}
+                  onDiscardAllEdits={handleDiscardAllEdits}
+                  onUndo={handleUndo}
+                  onRedo={handleRedo}
+                  onReplayPendingEdits={replayPendingEdits}
+                  onDeleteRequest={(selector) => {
+                    setPendingDeleteSelector(selector)
+                    setDeleteConfirmOpen(true)
+                  }}
+                />
+                <SessionDetailRightPanel
+                  sessionId={id}
+                  elementInspector={
+                    elementSelection ? (
+                      <ElementInspectorPanel
+                        selection={elementSelection}
+                        draft={elementDraft}
+                        onDraftChange={handleTextDraftChange}
+                        onClose={handleCancelElementEdit}
+                        onCopy={handleCopyElement}
+                        onDelete={handleDeleteElement}
+                      />
+                    ) : undefined
+                  }
+                />
+              </div>
             </div>
-          </div>
+          )}
         </div>
 
         <HistoryDialog sessionId={id} />
