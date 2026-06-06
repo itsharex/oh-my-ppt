@@ -1,12 +1,14 @@
 import type { GeneratedImageAsset } from '@shared/image-generation.js'
 import type { GeneratedPage } from '@renderer/store/sessionStore'
 import type { GenerateProgress } from '@renderer/store/generateStore'
+import type { ArtTextTemplateId } from '@renderer/lib/artTextTemplates'
 
 export type SessionDetailChatType = 'main' | 'page'
 export type SessionDetailAiPanelMode = 'chat' | 'image'
 export type InteractionMode = 'preview' | 'ai-inspect' | 'edit'
 export type SessionWorkspaceTab = 'preview' | 'edit' | 'animation' | 'speech' | 'ai'
 export type ChatType = SessionDetailChatType
+export type InsertAssetType = 'image' | 'video'
 
 export type ImageGenerationMessage = {
   id: string
@@ -32,6 +34,17 @@ export type AddSessionElementHandler = (
   fileName: string,
   options?: AddSessionElementOptions
 ) => Promise<boolean>
+
+export interface WorkspaceRibbonRegisteredActions {
+  onUndo: () => void
+  onRedo: () => void
+  onSaveCurrentPage: () => void
+  onBackToSessions: () => void
+  onAddFromLibrary: (type: InsertAssetType) => void
+  onAddFromLocal: (type: InsertAssetType) => void
+  onAddText: () => void
+  onAddArtText: (templateId: ArtTextTemplateId) => void
+}
 
 export interface ChatPanelController {
   selectedPageExists: boolean

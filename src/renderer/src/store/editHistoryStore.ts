@@ -295,6 +295,7 @@ interface EditHistoryState {
   redo: (pageId: string) => EditSnapshot | null
   canUndo: (pageId?: string | null) => boolean
   canRedo: (pageId?: string | null) => boolean
+  hasPendingEdits: (pageId?: string | null) => boolean
   markPageSaved: (pageId: string) => void
   clearPage: (pageId: string) => void
   clear: () => void
@@ -543,6 +544,18 @@ export const useEditHistoryStore = create<EditHistoryState>((set, get) => ({
 
   canUndo: (pageId) => Boolean(pageId && (get().undoStacks[pageId]?.length || 0) > 0),
   canRedo: (pageId) => Boolean(pageId && (get().redoStacks[pageId]?.length || 0) > 0),
+  hasPendingEdits: (pageId) => {
+    if (!pageId) return false
+    const state = get()
+    const snapshot = getSnapshotForPageFromState(state, pageId)
+    return Boolean(
+      snapshot.dragEdits.length > 0 ||
+        snapshot.textEdits.length > 0 ||
+        snapshot.propertyEdits.length > 0 ||
+        snapshot.deletes.length > 0 ||
+        snapshot.addElements.length > 0
+    )
+  },
 
   markPageSaved: (pageId) =>
     set((state) => ({

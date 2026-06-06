@@ -2,7 +2,6 @@ import type { ReactNode } from 'react'
 import { useSessionDetailUiStore } from '@renderer/store'
 import { MessagePanel } from '../../ai-panel'
 import { SpeechScriptDrawer } from '../../speech'
-import { EmptyEditWorkbenchPanel } from '../workbench'
 import { sessionDetailRightPanelClass } from './styles'
 
 interface SessionDetailRightPanelProps {
@@ -19,7 +18,7 @@ export function SessionDetailRightPanel({
     (state) => state.speechScriptDialogOpen
   )
 
-  if (!speechScriptDialogOpen && workspaceTab !== 'ai' && workspaceTab !== 'edit') return null
+  if (!speechScriptDialogOpen && workspaceTab !== 'ai' && !elementInspector) return null
 
   return (
     <aside className={sessionDetailRightPanelClass}>
@@ -28,7 +27,7 @@ export function SessionDetailRightPanel({
       ) : workspaceTab === 'ai' ? (
         <MessagePanel sessionId={sessionId} />
       ) : (
-        elementInspector || <EmptyEditWorkbenchPanel />
+        elementInspector
       )}
     </aside>
   )

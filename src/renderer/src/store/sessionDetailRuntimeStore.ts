@@ -1,15 +1,21 @@
 import { create } from 'zustand'
-import type { AddSessionElementHandler } from '@renderer/types/session-detail'
+import type {
+  AddSessionElementHandler,
+  WorkspaceRibbonRegisteredActions
+} from '@renderer/types/session-detail'
 
 export type {
   AddSessionElementHandler,
-  AddSessionElementOptions
+  AddSessionElementOptions,
+  WorkspaceRibbonRegisteredActions
 } from '@renderer/types/session-detail'
 
 interface SessionDetailRuntimeStore {
   addElementHandler: AddSessionElementHandler | null
   setAddElementHandler: (handler: AddSessionElementHandler | null) => void
   addElement: AddSessionElementHandler
+  workspaceRibbonActions: WorkspaceRibbonRegisteredActions | null
+  setWorkspaceRibbonActions: (actions: WorkspaceRibbonRegisteredActions | null) => void
 }
 
 export const useSessionDetailRuntimeStore = create<SessionDetailRuntimeStore>((set, get) => ({
@@ -18,5 +24,7 @@ export const useSessionDetailRuntimeStore = create<SessionDetailRuntimeStore>((s
   addElement: async (relativePath, fileName, options) => {
     const handler = get().addElementHandler
     return handler ? handler(relativePath, fileName, options) : false
-  }
+  },
+  workspaceRibbonActions: null,
+  setWorkspaceRibbonActions: (workspaceRibbonActions) => set({ workspaceRibbonActions })
 }))

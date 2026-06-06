@@ -36,6 +36,7 @@ import {
   normalizePagesForSelection,
   type ChatType
 } from '../components/session-detail/shared'
+import { useWorkspaceRibbonActionsRegistration } from '../components/session-detail/hooks/useWorkspaceRibbonController'
 import {
   buildSelectedElementFromSnapshot,
   EMPTY_ELEMENT_DRAFT,
@@ -479,10 +480,6 @@ export function SessionDetailPage(): React.JSX.Element {
     })
     return () => unsubscribe()
   }, [id])
-
-  const handleOpenSpeechDialog = (): void => {
-    useSessionDetailUiStore.getState().setSpeechScriptDialogOpen(true)
-  }
 
   const handleElementMoved = (payload: EditModeMovePayload): void => {
     if (!id || !selectedPage?.htmlPath || !selectedPage.pageId) return
@@ -1385,7 +1382,18 @@ export function SessionDetailPage(): React.JSX.Element {
     return () => setAddElementHandler(null)
   }, [invokeAddElement, setAddElementHandler])
 
-  const handleUploadAndAdd = async (assetType: 'image' | 'video'): Promise<void> => {
+  const handleBackToSessions = (): void => {
+    useGenerateStore.getState().reset()
+    useSessionDetailUiStore.getState().resetForSessionChange()
+    resetRuntimeState()
+    navigate('/sessions')
+  }
+
+  const handleAddFromLibrary = (assetType: 'image' | 'video'): void => {
+    setAssetPickerOpen(true, assetType)
+  }
+
+  const handleAddFromLocal = async (assetType: 'image' | 'video'): Promise<void> => {
     if (!id) return
     const result = await ipc.chooseAndUploadAssets(id, assetType)
     if (result.cancelled || !result.assets?.length) return
@@ -1393,12 +1401,16 @@ export function SessionDetailPage(): React.JSX.Element {
     await handleAddElement(asset.relativePath, asset.originalName || asset.fileName)
   }
 
-  const handleBackToSessions = (): void => {
-    useGenerateStore.getState().reset()
-    useSessionDetailUiStore.getState().resetForSessionChange()
-    resetRuntimeState()
-    navigate('/sessions')
-  }
+  useWorkspaceRibbonActionsRegistration({
+    onUndo: handleUndo,
+    onRedo: handleRedo,
+    onSaveCurrentPage: () => void handleSaveAllEdits(),
+    onBackToSessions: handleBackToSessions,
+    onAddFromLibrary: handleAddFromLibrary,
+    onAddFromLocal: (type) => void handleAddFromLocal(type),
+    onAddText: () => void handleAddTextElement(),
+    onAddArtText: (templateId) => void handleAddArtTextElement(templateId)
+  })
 
   if (!id) {
     return <div className="h-full bg-[#f5f1e8]" />
@@ -1421,40 +1433,7 @@ export function SessionDetailPage(): React.JSX.Element {
         </header>
 
         <div className="flex min-h-0 flex-1 flex-col bg-[#f5f1e8]">
-          <WorkspaceRibbon
-            selectedPageKey={
-              selectedPage?.htmlPath ? `${selectedPage.pageId}:${selectedPage.htmlPath}` : null
-            }
-            isGenerating={isGenerating}
-            isSavingEdits={isSavingEdits}
-            canUndo={editHistory.canUndo(selectedPage?.pageId)}
-            canRedo={editHistory.canRedo(selectedPage?.pageId)}
-            hasPendingEdits={
-              selectedPage
-                ? (() => {
-                    const s = editHistory.getSnapshotForPage(selectedPage.pageId)
-                    return (
-                      s.dragEdits.length > 0 ||
-                      s.textEdits.length > 0 ||
-                      s.propertyEdits.length > 0 ||
-                      s.deletes.length > 0 ||
-                      s.addElements.length > 0
-                    )
-                  })()
-                : false
-            }
-            actions={{
-              onUndo: handleUndo,
-              onRedo: handleRedo,
-              onSaveCurrentPage: () => void handleSaveAllEdits(),
-              onBackToSessions: handleBackToSessions,
-              onAddText: () => void handleAddTextElement(),
-              onAddArtText: (templateId) => void handleAddArtTextElement(templateId),
-              onAddFromLibrary: (type) => setAssetPickerOpen(true, type),
-              onAddFromLocal: (type) => void handleUploadAndAdd(type),
-              onOpenSpeechScript: handleOpenSpeechDialog
-            }}
-          />
+          <WorkspaceRibbon isSavingEdits={isSavingEdits} />
 
           <div className="flex min-h-0 flex-1">
             <PageSidebar sessionId={id} />

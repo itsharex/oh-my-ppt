@@ -1,38 +1,17 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { cn } from '@renderer/lib/utils'
-import {
-  useSessionDetailUiStore,
-  type SessionWorkspaceTab
-} from '@renderer/store'
+import { useWorkspaceRibbonController } from '../hooks/useWorkspaceRibbonController'
 import { DynamicToolRow } from './toolbar/DynamicToolRow'
 import { PrimaryActions } from './toolbar/PrimaryActions'
 import { WorkspaceTabs } from './toolbar/WorkspaceTabs'
-import type { WorkspaceRibbonActions, WorkspaceRibbonState } from './toolbar/types'
 
 export function WorkspaceRibbon({
-  selectedPageKey,
-  isGenerating,
-  isSavingEdits,
-  canUndo,
-  canRedo,
-  hasPendingEdits,
-  actions
+  isSavingEdits
 }: {
-  selectedPageKey: string | null
-  isGenerating: boolean
   isSavingEdits: boolean
-  canUndo: boolean
-  canRedo: boolean
-  hasPendingEdits: boolean
-  actions: WorkspaceRibbonActions
 }): React.JSX.Element | null {
   const [isPreviewSettling, setIsPreviewSettling] = useState(false)
-  const activeTab = useSessionDetailUiStore((s) => s.workspaceTab)
-  const setActiveTab = useSessionDetailUiStore((s) => s.setWorkspaceTab)
-  const interactionMode = useSessionDetailUiStore((s) => s.interactionMode)
-  const setInteractionMode = useSessionDetailUiStore((s) => s.setInteractionMode)
-  const clearSelectedElement = useSessionDetailUiStore((s) => s.clearSelectedElement)
-  const setSpeechScriptDialogOpen = useSessionDetailUiStore((s) => s.setSpeechScriptDialogOpen)
+  const { selectedPageKey, state, activateTab } = useWorkspaceRibbonController(isSavingEdits)
 
   useEffect(() => {
     if (!selectedPageKey) {
@@ -46,46 +25,9 @@ export function WorkspaceRibbon({
     return () => window.clearTimeout(timer)
   }, [selectedPageKey])
 
-  const state: WorkspaceRibbonState = useMemo(
-    () => ({
-      isGenerating,
-      isSavingEdits,
-      canUndo,
-      canRedo,
-      hasPendingEdits,
-      activeTab
-    }),
-    [activeTab, canRedo, canUndo, hasPendingEdits, isGenerating, isSavingEdits]
-  )
-
   if (!selectedPageKey) return null
 
-  const toolbarDisabled = isGenerating || isSavingEdits || isPreviewSettling
-
-  const activateTab = (tab: SessionWorkspaceTab): void => {
-    setActiveTab(tab)
-    if (tab === 'preview') {
-      setInteractionMode('preview')
-      setSpeechScriptDialogOpen(false)
-      return
-    }
-    if (tab === 'speech') {
-      clearSelectedElement()
-      setInteractionMode('preview')
-      actions.onOpenSpeechScript()
-      return
-    }
-    if (tab === 'ai') {
-      clearSelectedElement()
-      setInteractionMode('ai-inspect')
-      setSpeechScriptDialogOpen(false)
-      return
-    }
-    if (interactionMode !== 'edit') {
-      setInteractionMode('edit')
-    }
-    setSpeechScriptDialogOpen(false)
-  }
+  const toolbarDisabled = state.isGenerating || state.isSavingEdits || isPreviewSettling
 
   return (
     <div
@@ -97,23 +39,19 @@ export function WorkspaceRibbon({
       <div className="actions-tool flex min-w-0 items-center gap-2 px-1.5 py-0.5">
         <PrimaryActions
           disabled={toolbarDisabled}
-          isSavingEdits={isSavingEdits}
-          canUndo={canUndo}
-          canRedo={canRedo}
-          hasPendingEdits={hasPendingEdits}
-          onBackToSessions={actions.onBackToSessions}
-          onSaveCurrentPage={actions.onSaveCurrentPage}
-          onUndo={actions.onUndo}
-          onRedo={actions.onRedo}
+          isSavingEdits={state.isSavingEdits}
+          canUndo={state.canUndo}
+          canRedo={state.canRedo}
+          hasPendingEdits={state.hasPendingEdits}
         />
-        <WorkspaceTabs activeTab={activeTab} disabled={toolbarDisabled} onActivate={activateTab} />
+        <WorkspaceTabs
+          activeTab={state.activeTab}
+          disabled={toolbarDisabled}
+          onActivate={activateTab}
+        />
       </div>
 
-      <DynamicToolRow
-        state={state}
-        disabled={toolbarDisabled}
-        actions={actions}
-      />
+      <DynamicToolRow state={state} disabled={toolbarDisabled} />
     </div>
   )
 }

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { ChartColumn, ChevronDown, ImagePlus, Sigma, Sparkles, Type, Video } from 'lucide-react'
 import { ART_TEXT_TEMPLATES } from '@renderer/lib/artTextTemplates'
 import { useT } from '@renderer/i18n'
+import { useSessionDetailRuntimeStore } from '@renderer/store'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -232,9 +233,10 @@ const artTextPreviewStyles = `
 }
 `
 
-export function InsertToolRow({ disabled, actions }: ToolRowProps): React.JSX.Element {
+export function InsertToolRow({ disabled }: ToolRowProps): React.JSX.Element {
   const t = useT()
   const [artTextOpen, setArtTextOpen] = useState(false)
+  const actions = useSessionDetailRuntimeStore((state) => state.workspaceRibbonActions)
 
   const renderUnavailableTool = (label: string, Icon: typeof Sparkles): React.JSX.Element => (
     <button type="button" className={unavailableToolButtonClass} disabled>
@@ -260,10 +262,10 @@ export function InsertToolRow({ disabled, actions }: ToolRowProps): React.JSX.El
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="min-w-[10rem]">
-          <DropdownMenuItem onClick={() => actions.onAddFromLibrary(type)}>
+          <DropdownMenuItem onClick={() => actions?.onAddFromLibrary(type)}>
             {t('editMode.fromLibrary')}
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => actions.onAddFromLocal(type)}>
+          <DropdownMenuItem onClick={() => actions?.onAddFromLocal(type)}>
             {t('editMode.fromLocal')}
           </DropdownMenuItem>
         </DropdownMenuContent>
@@ -323,7 +325,7 @@ export function InsertToolRow({ disabled, actions }: ToolRowProps): React.JSX.El
               key={template.id}
               className={`ppt-art-preview-card ppt-art-preview-${template.id}`}
               onClick={() => {
-                actions.onAddArtText(template.id)
+                actions?.onAddArtText(template.id)
                 setArtTextOpen(false)
               }}
             >
@@ -341,7 +343,7 @@ export function InsertToolRow({ disabled, actions }: ToolRowProps): React.JSX.El
       <button
         type="button"
         className={toolButtonClass}
-        onClick={actions.onAddText}
+        onClick={() => actions?.onAddText()}
         disabled={disabled}
       >
         <span className={iconWrapClass}>
