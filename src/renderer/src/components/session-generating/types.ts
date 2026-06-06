@@ -1,4 +1,4 @@
-export type GenerationRunStatus = 'running' | 'completed' | 'failed'
+export type GenerationRunStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
 
 export type GenerationPageStatus = 'pending' | 'generating' | 'completed' | 'failed'
 

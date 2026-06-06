@@ -24,10 +24,15 @@ export type SessionRunState = {
   sessionId: string
   runId: string
   mode: 'generate' | 'edit' | 'retry' | 'addPage' | 'retrySinglePage'
+  kind?: 'standard' | 'template' | 'retry'
   previousSessionStatus?: string
-  status: 'running' | 'completed' | 'failed'
+  status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
   progress: number
   totalPages: number
+  completedPageBaseCount: number
+  failedPageBaseKeys: string[]
+  completedPageKeys: string[]
+  failedPageKeys: string[]
   events: GenerateChunkEvent[]
   error: string | null
   startedAt: number
@@ -73,8 +78,12 @@ export interface IpcContext {
     sessionId: string
     runId: string
     mode: 'generate' | 'edit' | 'retry' | 'addPage' | 'retrySinglePage'
+    kind?: 'standard' | 'template' | 'retry'
     totalPages: number
     previousSessionStatus?: string
+    status?: 'queued' | 'running'
+    completedPageBaseCount?: number
+    failedPageBaseKeys?: string[]
   }) => void
   trackSessionRunChunk: (sessionId: string, chunk: GenerateChunkEvent) => void
   emitGenerateChunk: (sessionId: string, chunk: GenerateChunkEvent) => void
@@ -146,6 +155,21 @@ export interface IpcContext {
     page: SessionPageFile
     timeoutMs: number
   }) => Promise<{ pngBuffer: Buffer; warning?: string }>
+}
+
+export function getSessionRunPageCounts(state: {
+  completedPageBaseCount: number
+  failedPageBaseKeys: string[]
+  completedPageKeys: string[]
+  failedPageKeys: string[]
+}): { completedPageCount: number; failedPageCount: number } {
+  const completedPageCount = state.completedPageBaseCount + state.completedPageKeys.length
+  const completed = new Set(state.completedPageKeys)
+  const failed = new Set(state.failedPageKeys)
+  for (const pageKey of state.failedPageBaseKeys) {
+    if (!completed.has(pageKey)) failed.add(pageKey)
+  }
+  return { completedPageCount, failedPageCount: failed.size }
 }
 
 export function createIpcContext(
@@ -296,7 +320,7 @@ export function createIpcContext(
 
   const pruneFinishedSessionRunStates = (now = Date.now()): void => {
     for (const [sessionId, state] of sessionRunStates) {
-      if (state.status === 'running') continue
+      if (state.status === 'queued' || state.status === 'running') continue
       if (now - state.updatedAt > FINISHED_SESSION_RUN_STATE_TTL_MS) {
         sessionRunStates.delete(sessionId)
       }
@@ -367,8 +391,12 @@ export function createIpcContext(
     sessionId: string
     runId: string
     mode: 'generate' | 'edit' | 'retry' | 'addPage' | 'retrySinglePage'
+    kind?: 'standard' | 'template' | 'retry'
     totalPages: number
     previousSessionStatus?: string
+    status?: 'queued' | 'running'
+    completedPageBaseCount?: number
+    failedPageBaseKeys?: string[]
   }): void => {
     const now = Date.now()
     pruneFinishedSessionRunStates(now)
@@ -376,10 +404,15 @@ export function createIpcContext(
       sessionId: args.sessionId,
       runId: args.runId,
       mode: args.mode,
+      kind: args.kind,
       previousSessionStatus: args.previousSessionStatus,
-      status: 'running',
+      status: args.status || 'running',
       progress: 0,
       totalPages: Math.max(1, Math.floor(args.totalPages || 1)),
+      completedPageBaseCount: Math.max(0, Math.floor(args.completedPageBaseCount || 0)),
+      failedPageBaseKeys: args.failedPageBaseKeys || [],
+      completedPageKeys: [],
+      failedPageKeys: [],
       events: [],
       error: null,
       startedAt: now,
@@ -391,6 +424,38 @@ export function createIpcContext(
     const state = sessionRunStates.get(sessionId)
     if (!state) return
     if (state.runId !== chunk.payload.runId) return
+
+    if (
+      chunk.type === 'page_generated' ||
+      chunk.type === 'page_updated' ||
+      chunk.type === 'page_failed'
+    ) {
+      const payload = chunk.payload as { pageId?: unknown; id?: unknown; pageNumber?: unknown }
+      const pageId =
+        typeof payload.pageId === 'string' && payload.pageId.trim().length > 0
+          ? payload.pageId.trim()
+          : typeof payload.id === 'string' && payload.id.trim().length > 0
+            ? payload.id.trim()
+            : ''
+      const pageKey =
+        pageId ||
+        (typeof payload.pageNumber === 'number' && Number.isFinite(payload.pageNumber)
+          ? `page-number:${Math.floor(payload.pageNumber)}`
+          : '')
+      if (pageKey) {
+        const completed = new Set(state.completedPageKeys)
+        const failed = new Set(state.failedPageKeys)
+        if (chunk.type === 'page_failed') {
+          completed.delete(pageKey)
+          failed.add(pageKey)
+        } else {
+          failed.delete(pageKey)
+          completed.add(pageKey)
+        }
+        state.completedPageKeys = Array.from(completed)
+        state.failedPageKeys = Array.from(failed)
+      }
+    }
 
     const compactChunk =
       chunk.type === 'page_generated' || chunk.type === 'page_updated'
@@ -421,7 +486,11 @@ export function createIpcContext(
     }
 
     if (chunk.type === 'run_error') {
-      state.status = 'failed'
+      state.status = /^(生成已取消|Generation cancelled|Generation canceled)$/i.test(
+        chunk.payload.message || ''
+      )
+        ? 'cancelled'
+        : 'failed'
       state.error = chunk.payload.message || 'Generation failed'
       return
     }
@@ -444,7 +513,7 @@ export function createIpcContext(
   }
 
   const emitGenerateChunk = (sessionId: string, chunk: GenerateChunkEvent): void => {
-    const enrichedChunk = {
+    let enrichedChunk = {
       ...chunk,
       payload: {
         ...chunk.payload,
@@ -468,6 +537,18 @@ export function createIpcContext(
       log.info('[generate:chunk] emit', summarizeGenerateChunk(enrichedChunk))
     }
     trackSessionRunChunk(sessionId, enrichedChunk)
+    const state = sessionRunStates.get(sessionId)
+    if (state?.runId === enrichedChunk.payload.runId) {
+      const pageCounts = getSessionRunPageCounts(state)
+      enrichedChunk = {
+        ...enrichedChunk,
+        payload: {
+          ...enrichedChunk.payload,
+          completedPageCount: pageCounts.completedPageCount,
+          failedPageCount: pageCounts.failedPageCount
+        }
+      } as GenerateChunkEvent
+    }
 
     const windows = BrowserWindow.getAllWindows()
     for (const win of windows) {

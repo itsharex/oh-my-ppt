@@ -8,6 +8,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../com
 import { FileArchive, FileText, FileUp, FolderOpen, LayoutTemplate, MessageSquare, MessagesSquare, Pencil, Sparkles, Trash2, X, type LucideIcon } from 'lucide-react'
 import { type Session, useSessionStore, useTemplateStore } from '../store'
 import { useToastStore } from '../store'
+import { ipc, type GenerateRunStateSnapshot } from '../lib/ipc'
 import { getEditorGate, parseSessionMetadata } from '../lib/sessionMetadata'
 import { useT } from '../i18n'
 import { SaveTemplateDialog } from '../components/templates/SaveTemplateDialog'
@@ -15,6 +16,10 @@ import dayjs from 'dayjs'
 import duration from 'dayjs/plugin/duration'
 
 dayjs.extend(duration)
+
+type ActiveGenerateRun = GenerateRunStateSnapshot & {
+  status: 'queued' | 'running'
+}
 
 const getSourceTag = (
   session: Session,
@@ -99,9 +104,85 @@ export function SessionsPage(): React.JSX.Element {
   const [importingSession, setImportingSession] = useState(false)
   const [saveTemplateTarget, setSaveTemplateTarget] = useState<Session | null>(null)
   const [savingTemplate, setSavingTemplate] = useState(false)
+  const [activeRuns, setActiveRuns] = useState<Record<string, ActiveGenerateRun>>({})
 
   useEffect(() => {
     void fetchSessions()
+  }, [fetchSessions])
+
+  useEffect(() => {
+    let mounted = true
+    void ipc
+      .listActiveGenerateRuns()
+      .then((runs) => {
+        if (!mounted) return
+        setActiveRuns(
+          Object.fromEntries(
+            runs
+              .filter((run): run is ActiveGenerateRun => run.status === 'queued' || run.status === 'running')
+              .map((run) => [run.sessionId, run])
+          )
+        )
+      })
+      .catch(() => {})
+
+    const unsubscribe = ipc.onGenerateChunk((chunk) => {
+      const sessionId = chunk.payload.sessionId
+      if (!sessionId) return
+      if (chunk.type === 'run_completed' || chunk.type === 'run_error') {
+        void fetchSessions()
+      }
+      setActiveRuns((prev) => {
+        if (chunk.type === 'run_completed' || chunk.type === 'run_error') {
+          const previous = prev[sessionId]
+          if (!previous || previous.runId !== chunk.payload.runId) return prev
+          const next = { ...prev }
+          delete next[sessionId]
+          return next
+        }
+        const previous = prev[sessionId]
+        if (previous?.runId && previous.runId !== chunk.payload.runId) return prev
+        const stage = 'stage' in chunk.payload ? chunk.payload.stage : ''
+        const completedPageCount =
+          'completedPageCount' in chunk.payload &&
+          typeof chunk.payload.completedPageCount === 'number'
+            ? chunk.payload.completedPageCount
+            : previous?.completedPageCount || 0
+        const failedPageCount =
+          'failedPageCount' in chunk.payload && typeof chunk.payload.failedPageCount === 'number'
+            ? chunk.payload.failedPageCount
+            : previous?.failedPageCount || 0
+        return {
+          ...prev,
+          [sessionId]: {
+            sessionId,
+            runId: chunk.payload.runId,
+            status: stage === 'queued' ? 'queued' : 'running',
+            hasActiveRun: true,
+            progress:
+              'progress' in chunk.payload && typeof chunk.payload.progress === 'number'
+                ? Math.max(0, Math.min(90, Math.floor(chunk.payload.progress)))
+                : previous?.progress || 0,
+            totalPages:
+              'totalPages' in chunk.payload && typeof chunk.payload.totalPages === 'number'
+                ? Math.max(1, Math.floor(chunk.payload.totalPages))
+                : previous?.totalPages || 1,
+            events: previous?.events || [],
+            error: null,
+            startedAt: previous?.startedAt || Date.now(),
+            updatedAt: Date.now(),
+            kind: previous?.kind,
+            completedPageCount,
+            failedPageCount
+          }
+        }
+      })
+    })
+
+    return () => {
+      mounted = false
+      unsubscribe?.()
+    }
   }, [fetchSessions])
 
   const sortedSessions = sessions
@@ -113,8 +194,14 @@ export function SessionsPage(): React.JSX.Element {
   }): boolean => getEditorGate(session, 0.68).canEdit
 
   const getSessionRoute = (session: { id: string; status: string; metadata: string | null; page_count: number | null }): string => {
-    if (canEnterEditor(session)) return `/sessions/${session.id}`
+    const activeRun = activeRuns[session.id]
     const metadata = parseSessionMetadata(session.metadata)
+    if (activeRun) {
+      return activeRun.kind === 'template' || metadata.source === 'template'
+        ? `/sessions/${session.id}/template-generating`
+        : `/sessions/${session.id}/generating`
+    }
+    if (canEnterEditor(session)) return `/sessions/${session.id}`
     return metadata.source === 'template'
       ? `/sessions/${session.id}/template-generating`
       : `/sessions/${session.id}/generating`
@@ -269,18 +356,36 @@ export function SessionsPage(): React.JSX.Element {
         <div className="grid gap-3">
           {sortedSessions.map((session) => {
             const editorGate = getEditorGate(session)
+            const activeRun = activeRuns[session.id]
+            const displayGeneratedCount = activeRun
+              ? Math.max(editorGate.generatedCount, activeRun.completedPageCount || 0)
+              : editorGate.generatedCount
+            const displayFailedCount = activeRun
+              ? activeRun.failedPageCount || 0
+              : editorGate.failedCount
+            const displayTotalCount = activeRun
+              ? Math.max(editorGate.totalCount, activeRun.totalPages, displayGeneratedCount + displayFailedCount)
+              : editorGate.totalCount
             const hasCompletedPages = editorGate.generatedCount > 0
             const isFullyComplete = canEnterEditor(session) && editorGate.generatedCount >= editorGate.totalCount && editorGate.failedCount === 0
             const isPartialComplete = !isFullyComplete && canEnterEditor(session)
             const isContinuable = !isFullyComplete && !isPartialComplete && hasCompletedPages
-            const statusText = isFullyComplete
+            const statusText = activeRun
+              ? activeRun.status === 'queued'
+                ? t('sessions.statusQueued')
+                : activeRun.progress > 0
+                  ? t('sessions.statusGeneratingProgress', { progress: activeRun.progress })
+                  : t('sessions.statusGenerating')
+              : isFullyComplete
               ? t('sessions.statusComplete')
               : isPartialComplete
                 ? t('sessions.statusPartialComplete')
                 : isContinuable
                   ? t('sessions.statusContinuable')
                   : t('sessions.statusRegenerate')
-            const actionText = isFullyComplete || isPartialComplete
+            const actionText = activeRun
+              ? t('sessions.actionViewProgress')
+              : isFullyComplete || isPartialComplete
               ? t('sessions.actionEnter')
               : isContinuable
                 ? t('sessions.actionContinue')
@@ -297,7 +402,9 @@ export function SessionsPage(): React.JSX.Element {
             const SourceIcon = sourceTag.Icon
             const sourceTagBaseClass =
               'inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-[11px] font-semibold leading-none'
-            const statusClassName = isFullyComplete
+            const statusClassName = activeRun
+              ? 'border-[#9fc7df]/80 bg-[#edf8ff] text-[#286a9a] shadow-[0_0_0_1px_rgba(116,182,229,0.14)]'
+              : isFullyComplete
               ? 'border-[#bad8b7]/80 bg-[#eef9ec] text-[#4a7a46]'
               : isPartialComplete
                 ? 'border-[#b5c9a8]/80 bg-[#eef5e8] text-[#4f7b3f]'
@@ -380,7 +487,7 @@ export function SessionsPage(): React.JSX.Element {
                     {sourceTag.label}
                   </span>
                   <span className="rounded-lg border border-[#e1d1b7]/80 bg-[#fff7e8]/75 px-2 py-1 text-[#7c6a4c]">
-                    {t('sessions.pagesCount', { generated: editorGate.generatedCount, total: editorGate.totalCount })}
+                    {t('sessions.pagesCount', { generated: displayGeneratedCount, total: displayTotalCount })}
                   </span>
                   {session.generation_duration_sec ? (
                     <span className="rounded-lg border border-[#d5cfc5]/60 bg-[#f9f6f1] px-2 py-1 text-[#6b6560]">
@@ -395,9 +502,9 @@ export function SessionsPage(): React.JSX.Element {
                   <span className="rounded-lg border border-[#d5cfc5]/60 bg-[#f9f6f1] px-2 py-1 text-[#6b6560]">
                     {dayjs.unix(session.updated_at).format('YYYY/MM/DD HH:mm')}
                   </span>
-                  {!isFullyComplete && editorGate.failedCount > 0 && (
+                  {!isFullyComplete && displayFailedCount > 0 && (
                     <span className="rounded-lg border border-[#d7b5ae]/70 bg-[#fff7f2]/80 px-2 py-1 text-[#93564f]">
-                      {t('sessions.failedCount', { count: editorGate.failedCount })}
+                      {t('sessions.failedCount', { count: displayFailedCount })}
                     </span>
                   )}
                 </div>

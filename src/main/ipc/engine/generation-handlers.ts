@@ -1,7 +1,6 @@
 import { ipcMain } from 'electron'
 import log from 'electron-log/main.js'
-import type { IpcContext } from '../context'
-import type { SessionStatus } from '../../db/schema'
+import { getSessionRunPageCounts, type IpcContext } from '../context'
 import { createEmitAssistantMessage } from '../generation/generation-utils'
 import { executeDeckGeneration, resolveDeckContext } from '../generation/deck-flow'
 import {
@@ -15,16 +14,7 @@ import type { DeckContext, EditContext, RetryContext } from '../generation/types
 import { resolveAddPageContext, executeAddPageGeneration, type AddPageContext } from '../generation/add-page-flow'
 import { resolveRetrySinglePageContext, executeRetrySinglePageGeneration, type RetrySinglePageContext } from '../generation/retry-single-page-flow'
 import { finalizeGenerationFailure } from '../generation/finalization'
-
-function normalizeRestoredSessionStatus(status: unknown): SessionStatus {
-  return status === 'completed' || status === 'failed' || status === 'archived' ? status : 'active'
-}
-
-type StartingSessionRun = {
-  controller: AbortController
-  operation: string
-  startedAt: number
-}
+import { GenerateJobManager } from '../generation/job-manager'
 
 export function registerGenerationHandlers(ctx: IpcContext): void {
   const {
@@ -35,56 +25,13 @@ export function registerGenerationHandlers(ctx: IpcContext): void {
     beginSessionRunState,
     emitGenerateChunk
   } = ctx
-  const startingSessionRuns = new Map<string, StartingSessionRun>()
   const emitAssistant = createEmitAssistantMessage(db, emitGenerateChunk)
-
-  const reserveStartingSessionRun = (
-    operation: string,
-    sessionId: string
-  ):
-    | { alreadyRunning: true; runId?: string }
-    | { alreadyRunning: false; startingRun: StartingSessionRun } => {
-    const runningState = sessionRunStates.get(sessionId)
-    if (runningState?.status === 'running') {
-      log.info(`[${operation}] attach to existing run`, {
-        sessionId,
-        runId: runningState.runId
-      })
-      return { alreadyRunning: true, runId: runningState.runId }
-    }
-    const existingStartingRun = startingSessionRuns.get(sessionId)
-    if (existingStartingRun) {
-      log.info(`[${operation}] attach to starting run`, {
-        sessionId,
-        operation: existingStartingRun.operation,
-        startedAt: existingStartingRun.startedAt
-      })
-      return { alreadyRunning: true }
-    }
-    const startingRun = {
-      controller: new AbortController(),
-      operation,
-      startedAt: Date.now()
-    }
-    startingSessionRuns.set(sessionId, startingRun)
-    return { alreadyRunning: false, startingRun }
-  }
-
-  const releaseStartingSessionRun = (
-    sessionId: string,
-    startingRun: StartingSessionRun | null
-  ): void => {
-    if (!startingRun) return
-    if (startingSessionRuns.get(sessionId) === startingRun) {
-      startingSessionRuns.delete(sessionId)
-    }
-  }
-
-  const assertStartingRunNotCanceled = (startingRun: StartingSessionRun | null): void => {
-    if (startingRun?.controller.signal.aborted) {
-      throw new Error('生成已取消')
-    }
-  }
+  const jobManager = new GenerateJobManager(ctx)
+  const interruptedJobsReady = jobManager.abortInterruptedJobs('应用退出导致生成中断，可继续生成').catch((error) => {
+    log.warn('[generate:job] failed to abort interrupted jobs', {
+      message: error instanceof Error ? error.message : String(error)
+    })
+  })
 
   const logPreContextFailure = (operation: string, sessionId: string, error: unknown): void => {
     log.error(`[${operation}] failed before context`, {
@@ -93,7 +40,21 @@ export function registerGenerationHandlers(ctx: IpcContext): void {
     })
   }
 
+  const getSessionPageStatusSnapshot = async (
+    sessionId: string
+  ): Promise<{ completed: number; failedKeys: string[] }> => {
+    const pages = await db.listSessionPages(sessionId)
+    return {
+      completed: pages.filter((page) => page.status === 'completed').length,
+      failedKeys: pages
+        .filter((page) => page.status === 'failed')
+        .map((page) => page.file_slug || page.legacy_page_id || page.id)
+        .filter((pageKey) => pageKey.length > 0)
+    }
+  }
+
   ipcMain.handle('generate:state', async (_event, rawSessionId: unknown) => {
+    await interruptedJobsReady
     pruneFinishedSessionRunStates()
     const sessionId = typeof rawSessionId === 'string' ? rawSessionId.trim() : ''
     if (!sessionId) {
@@ -102,17 +63,58 @@ export function registerGenerationHandlers(ctx: IpcContext): void {
 
     const activeState = sessionRunStates.get(sessionId)
     if (activeState) {
+      const pageCounts = getSessionRunPageCounts(activeState)
       return {
         sessionId,
         runId: activeState.runId,
         status: activeState.status,
-        hasActiveRun: activeState.status === 'running',
+        hasActiveRun: activeState.status === 'queued' || activeState.status === 'running',
         progress: activeState.progress,
         totalPages: activeState.totalPages,
+        completedPageCount: pageCounts.completedPageCount,
+        failedPageCount: pageCounts.failedPageCount,
         events: activeState.events,
         error: activeState.error,
         startedAt: activeState.startedAt,
-        updatedAt: activeState.updatedAt
+        updatedAt: activeState.updatedAt,
+        kind: activeState.kind
+      }
+    }
+
+    const latestJob = await db.getLatestGenerationJob(sessionId)
+    if (latestJob) {
+      const generationRun = await db.getGenerationRun(latestJob.id)
+      const session = await db.getSession(sessionId)
+      const sessionRecord = (session || {}) as Record<string, unknown>
+      const pageCount = Number(sessionRecord.page_count ?? sessionRecord.pageCount ?? 1) || 1
+      const status =
+        latestJob.status === 'pending'
+          ? 'queued'
+          : latestJob.status === 'active'
+            ? 'running'
+            : latestJob.status === 'aborted'
+              ? generationRun?.error && /取消|cancel/i.test(generationRun.error)
+                ? 'cancelled'
+                : 'failed'
+              : generationRun?.status === 'completed'
+                ? 'completed'
+                : generationRun?.status === 'failed' || generationRun?.status === 'partial'
+                  ? 'failed'
+                  : 'idle'
+      return {
+        sessionId,
+        runId: latestJob.id,
+        status,
+        hasActiveRun: latestJob.status === 'pending' || latestJob.status === 'active',
+        progress: status === 'completed' ? 100 : 0,
+        totalPages: Math.max(1, Math.floor(generationRun?.total_pages || pageCount)),
+        completedPageCount: 0,
+        failedPageCount: 0,
+        events: [],
+        error: generationRun?.error || latestJob.abort_reason || null,
+        startedAt: (latestJob.activated_at || latestJob.created_at) * 1000,
+        updatedAt: latestJob.updated_at * 1000,
+        kind: latestJob.kind
       }
     }
 
@@ -129,6 +131,8 @@ export function registerGenerationHandlers(ctx: IpcContext): void {
       hasActiveRun: false,
       progress: normalizedStatus === 'completed' ? 100 : 0,
       totalPages: Math.max(1, Math.floor(pageCount)),
+      completedPageCount: 0,
+      failedPageCount: 0,
       events: [],
       error: null,
       startedAt: null,
@@ -136,7 +140,40 @@ export function registerGenerationHandlers(ctx: IpcContext): void {
     }
   })
 
+  ipcMain.handle('generate:listActive', async () => {
+    await interruptedJobsReady
+    pruneFinishedSessionRunStates()
+    const jobs = await db.listActiveGenerationJobs()
+    return jobs.flatMap((job) => {
+      const state = sessionRunStates.get(job.session_id)
+      if (
+        state?.runId === job.id &&
+        state.status !== 'queued' &&
+        state.status !== 'running'
+      ) {
+        return []
+      }
+      return [{
+        sessionId: job.session_id,
+        runId: job.id,
+        status: job.status === 'pending' ? 'queued' : 'running',
+        hasActiveRun: true,
+        progress: state?.progress ?? 0,
+        totalPages: state?.totalPages ?? 1,
+        ...(state
+          ? getSessionRunPageCounts(state)
+          : { completedPageCount: 0, failedPageCount: 0 }),
+        events: state?.events ?? [],
+        error: state?.error ?? null,
+        startedAt: state?.startedAt ?? (job.activated_at || job.created_at) * 1000,
+        updatedAt: state?.updatedAt ?? job.updated_at * 1000,
+        kind: job.kind
+      }]
+    })
+  })
+
   ipcMain.handle('generate:start', async (event, payload) => {
+    await interruptedJobsReady
     pruneFinishedSessionRunStates()
     const requestedSessionId =
       payload &&
@@ -144,16 +181,14 @@ export function registerGenerationHandlers(ctx: IpcContext): void {
       typeof (payload as { sessionId?: unknown }).sessionId === 'string'
         ? String((payload as { sessionId?: string }).sessionId).trim()
         : ''
-    const startingReservation = requestedSessionId
-      ? reserveStartingSessionRun('generate:start', requestedSessionId)
-      : null
-    if (startingReservation?.alreadyRunning) {
-      return { success: true, runId: startingReservation.runId, alreadyRunning: true }
+    const reservation = requestedSessionId ? jobManager.reserve('generate:start', requestedSessionId) : null
+    if (reservation?.alreadyRunning) {
+      return { success: true, runId: reservation.runId, alreadyRunning: true }
     }
-    const startingRun =
-      startingReservation?.alreadyRunning === false ? startingReservation.startingRun : null
+    const reserved = reservation?.alreadyRunning === false ? reservation.reservation : null
 
     let context: DeckContext | EditContext | null = null
+    let handedToBackground = false
     try {
       const requestedType =
         payload &&
@@ -172,40 +207,57 @@ export function registerGenerationHandlers(ctx: IpcContext): void {
         requestedType === 'page'
           ? await resolveEditContext(ctx, event, payload)
           : await resolveDeckContext(ctx, event, payload)
-      assertStartingRunNotCanceled(startingRun)
-      beginSessionRunState({
-        sessionId: context.sessionId,
-        runId: context.runId,
-        mode: context.effectiveMode,
-        totalPages: context.totalPages,
-        previousSessionStatus: context.previousSessionStatus
-      })
+      jobManager.assertNotCancelled(reserved)
       if (isDeckAllPageEdit && context.effectiveMode === 'edit') {
+        beginSessionRunState({
+          sessionId: context.sessionId,
+          runId: context.runId,
+          mode: context.effectiveMode,
+          totalPages: context.totalPages,
+          previousSessionStatus: context.previousSessionStatus
+        })
         await executeDeckAllPageEditGeneration(ctx, emitAssistant, context)
       } else if (context.effectiveMode === 'edit') {
+        beginSessionRunState({
+          sessionId: context.sessionId,
+          runId: context.runId,
+          mode: context.effectiveMode,
+          totalPages: context.totalPages,
+          previousSessionStatus: context.previousSessionStatus
+        })
         await executeEditGeneration(ctx, emitAssistant, context)
       } else {
-        await executeDeckGeneration(ctx, emitAssistant, context)
+        if (!reserved) throw new Error('生成任务 reservation 缺失')
+        const result = await jobManager.enqueue({
+          reservation: reserved,
+          kind: 'standard',
+          context,
+          totalPages: context.totalPages,
+          execute: (deckContext) => executeDeckGeneration(ctx, emitAssistant, deckContext)
+        })
+        handedToBackground = true
+        return { success: true, runId: result.runId, queued: result.queued }
       }
       return { success: true, runId: context.runId }
     } catch (error) {
-      if (context) {
+      if (context && !handedToBackground) {
         await finalizeGenerationFailure(ctx, context, error)
       } else {
         logPreContextFailure('generate:start', requestedSessionId, error)
       }
       throw error
     } finally {
-      if (requestedSessionId) {
-        releaseStartingSessionRun(requestedSessionId, startingRun)
+      if (!handedToBackground) {
+        jobManager.release(reserved)
       }
-      if (context) {
+      if (context && !handedToBackground) {
         agentManager.removeSession(context.sessionId)
       }
     }
   })
 
   ipcMain.handle('generate:startTemplate', async (event, payload) => {
+    await interruptedJobsReady
     pruneFinishedSessionRunStates()
     const requestedSessionId =
       payload &&
@@ -213,46 +265,53 @@ export function registerGenerationHandlers(ctx: IpcContext): void {
       typeof (payload as { sessionId?: unknown }).sessionId === 'string'
         ? String((payload as { sessionId?: string }).sessionId).trim()
         : ''
-    const startingReservation = requestedSessionId
-      ? reserveStartingSessionRun('generate:startTemplate', requestedSessionId)
+    const reservation = requestedSessionId
+      ? jobManager.reserve('generate:startTemplate', requestedSessionId)
       : null
-    if (startingReservation?.alreadyRunning) {
-      return { success: true, runId: startingReservation.runId, alreadyRunning: true }
+    if (reservation?.alreadyRunning) {
+      return { success: true, runId: reservation.runId, alreadyRunning: true }
     }
-    const startingRun =
-      startingReservation?.alreadyRunning === false ? startingReservation.startingRun : null
+    const reserved = reservation?.alreadyRunning === false ? reservation.reservation : null
 
     let context: Awaited<ReturnType<typeof resolveTemplateDeckContext>> | null = null
+    let handedToBackground = false
     try {
       context = await resolveTemplateDeckContext(ctx, event, payload)
-      assertStartingRunNotCanceled(startingRun)
-      beginSessionRunState({
-        sessionId: context.sessionId,
-        runId: context.runId,
-        mode: context.effectiveMode,
+      jobManager.assertNotCancelled(reserved)
+      if (!reserved) throw new Error('生成任务 reservation 缺失')
+      const templateBaseSnapshot = context.templateRetry
+        ? await getSessionPageStatusSnapshot(context.sessionId)
+        : { completed: 0, failedKeys: [] }
+      const result = await jobManager.enqueue({
+        reservation: reserved,
+        kind: 'template',
+        context,
         totalPages: context.totalPages,
-        previousSessionStatus: context.previousSessionStatus
+        completedPageBaseCount: templateBaseSnapshot.completed,
+        failedPageBaseKeys: templateBaseSnapshot.failedKeys,
+        execute: (templateContext) => executeTemplateDeckGeneration(ctx, emitAssistant, templateContext)
       })
-      await executeTemplateDeckGeneration(ctx, emitAssistant, context)
-      return { success: true, runId: context.runId }
+      handedToBackground = true
+      return { success: true, runId: result.runId, queued: result.queued }
     } catch (error) {
-      if (context) {
+      if (context && !handedToBackground) {
         await finalizeGenerationFailure(ctx, context, error)
       } else {
         logPreContextFailure('generate:startTemplate', requestedSessionId, error)
       }
       throw error
     } finally {
-      if (requestedSessionId) {
-        releaseStartingSessionRun(requestedSessionId, startingRun)
+      if (!handedToBackground) {
+        jobManager.release(reserved)
       }
-      if (context) {
+      if (context && !handedToBackground) {
         agentManager.removeSession(context.sessionId)
       }
     }
   })
 
   ipcMain.handle('generate:retryFailedPages', async (event, payload) => {
+    await interruptedJobsReady
     pruneFinishedSessionRunStates()
     const requestedSessionId =
       payload &&
@@ -260,53 +319,58 @@ export function registerGenerationHandlers(ctx: IpcContext): void {
       typeof (payload as { sessionId?: unknown }).sessionId === 'string'
         ? String((payload as { sessionId?: string }).sessionId).trim()
         : ''
-    const startingReservation = requestedSessionId
-      ? reserveStartingSessionRun('generate:retryFailedPages', requestedSessionId)
+    const reservation = requestedSessionId
+      ? jobManager.reserve('generate:retryFailedPages', requestedSessionId)
       : null
-    if (startingReservation?.alreadyRunning) {
-      return { success: true, runId: startingReservation.runId, alreadyRunning: true }
+    if (reservation?.alreadyRunning) {
+      return { success: true, runId: reservation.runId, alreadyRunning: true }
     }
 
-    const startingRun =
-      startingReservation?.alreadyRunning === false ? startingReservation.startingRun : null
+    const reserved = reservation?.alreadyRunning === false ? reservation.reservation : null
     let context: RetryContext | null = null
+    let handedToBackground = false
     try {
       context = await resolveRetryContext(ctx, event, payload)
-      assertStartingRunNotCanceled(startingRun)
+      jobManager.assertNotCancelled(reserved)
       const retryTotalPages = Math.max(
         1,
         (await db.listLatestGenerationPageSnapshot(context.sessionId)).filter(
           (page) => page.status !== 'completed'
         ).length || context.totalPages
       )
-      assertStartingRunNotCanceled(startingRun)
-      beginSessionRunState({
-        sessionId: context.sessionId,
-        runId: context.runId,
-        mode: 'retry',
-        previousSessionStatus: context.previousSessionStatus,
-        totalPages: retryTotalPages
+      const retryBaseSnapshot = await getSessionPageStatusSnapshot(context.sessionId)
+      jobManager.assertNotCancelled(reserved)
+      if (!reserved) throw new Error('生成任务 reservation 缺失')
+      const result = await jobManager.enqueue({
+        reservation: reserved,
+        kind: 'retry',
+        context,
+        totalPages: retryTotalPages,
+        completedPageBaseCount: retryBaseSnapshot.completed,
+        failedPageBaseKeys: retryBaseSnapshot.failedKeys,
+        execute: (retryContext) => executeRetryFailedPages(ctx, emitAssistant, retryContext)
       })
-      await executeRetryFailedPages(ctx, emitAssistant, context)
-      return { success: true, runId: context.runId }
+      handedToBackground = true
+      return { success: true, runId: result.runId, queued: result.queued }
     } catch (error) {
-      if (context) {
+      if (context && !handedToBackground) {
         await finalizeGenerationFailure(ctx, context, error)
       } else {
         logPreContextFailure('generate:retryFailedPages', requestedSessionId, error)
       }
       throw error
     } finally {
-      if (requestedSessionId) {
-        releaseStartingSessionRun(requestedSessionId, startingRun)
+      if (!handedToBackground) {
+        jobManager.release(reserved)
       }
-      if (context) {
+      if (context && !handedToBackground) {
         agentManager.removeSession(context.sessionId)
       }
     }
   })
 
   ipcMain.handle('generate:addPage', async (_event, payload) => {
+    await interruptedJobsReady
     pruneFinishedSessionRunStates()
     const addPagePayload =
       payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {}
@@ -320,12 +384,12 @@ export function registerGenerationHandlers(ctx: IpcContext): void {
       throw new Error('userMessage is required for addPage')
     }
 
-    const startingReservation = reserveStartingSessionRun('generate:addPage', requestedSessionId)
-    if (startingReservation.alreadyRunning) {
-      return { success: true, runId: startingReservation.runId, alreadyRunning: true }
+    const reservation = jobManager.reserve('generate:addPage', requestedSessionId)
+    if (reservation.alreadyRunning) {
+      return { success: true, runId: reservation.runId, alreadyRunning: true }
     }
 
-    const startingRun = startingReservation.startingRun
+    const reserved = reservation.reservation
     let addPageCtx: AddPageContext | null = null
     try {
       const insertAfter = Number(addPagePayload.insertAfterPageNumber) || 0
@@ -342,7 +406,7 @@ export function registerGenerationHandlers(ctx: IpcContext): void {
         insertAfter,
         modelConfigId
       )
-      assertStartingRunNotCanceled(startingRun)
+      jobManager.assertNotCancelled(reserved)
 
       // Persist user message
       await db.addMessage(addPageCtx.sessionId, {
@@ -352,7 +416,7 @@ export function registerGenerationHandlers(ctx: IpcContext): void {
         chat_scope: 'main' as const,
         run_model: addPageCtx.runModel
       })
-      assertStartingRunNotCanceled(startingRun)
+      jobManager.assertNotCancelled(reserved)
 
       beginSessionRunState({
         sessionId: addPageCtx.sessionId,
@@ -372,9 +436,7 @@ export function registerGenerationHandlers(ctx: IpcContext): void {
       }
       throw error
     } finally {
-      if (requestedSessionId) {
-        releaseStartingSessionRun(requestedSessionId, startingRun)
-      }
+      jobManager.release(reserved)
       if (addPageCtx) {
         agentManager.removeSession(addPageCtx.sessionId)
       }
@@ -382,6 +444,7 @@ export function registerGenerationHandlers(ctx: IpcContext): void {
   })
 
   ipcMain.handle('generate:retrySinglePage', async (_event, payload) => {
+    await interruptedJobsReady
     pruneFinishedSessionRunStates()
     const addPagePayload =
       payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {}
@@ -396,15 +459,12 @@ export function registerGenerationHandlers(ctx: IpcContext): void {
       throw new Error('pageId 不能为空')
     }
 
-    const startingReservation = reserveStartingSessionRun(
-      'generate:retrySinglePage',
-      requestedSessionId
-    )
-    if (startingReservation.alreadyRunning) {
-      return { success: true, runId: startingReservation.runId, alreadyRunning: true }
+    const reservation = jobManager.reserve('generate:retrySinglePage', requestedSessionId)
+    if (reservation.alreadyRunning) {
+      return { success: true, runId: reservation.runId, alreadyRunning: true }
     }
 
-    const startingRun = startingReservation.startingRun
+    const reserved = reservation.reservation
     let retryCtx: RetrySinglePageContext | null = null
     try {
       const modelConfigId =
@@ -417,7 +477,7 @@ export function registerGenerationHandlers(ctx: IpcContext): void {
         requestedPageId,
         modelConfigId
       )
-      assertStartingRunNotCanceled(startingRun)
+      jobManager.assertNotCancelled(reserved)
 
       beginSessionRunState({
         sessionId: retryCtx.sessionId,
@@ -437,9 +497,7 @@ export function registerGenerationHandlers(ctx: IpcContext): void {
       }
       throw error
     } finally {
-      if (requestedSessionId) {
-        releaseStartingSessionRun(requestedSessionId, startingRun)
-      }
+      jobManager.release(reserved)
       if (retryCtx) {
         agentManager.removeSession(retryCtx.sessionId)
       }
@@ -447,20 +505,15 @@ export function registerGenerationHandlers(ctx: IpcContext): void {
   })
 
   ipcMain.handle('generate:cancel', async (_event, sessionId) => {
+    await interruptedJobsReady
     const normalizedSessionId = typeof sessionId === 'string' ? sessionId.trim() : ''
     const cancelSessionId = normalizedSessionId || String(sessionId || '')
     if (!cancelSessionId) return { success: true }
-    const startingRun = normalizedSessionId ? startingSessionRuns.get(normalizedSessionId) : null
-    if (startingRun && !startingRun.controller.signal.aborted) {
-      startingRun.controller.abort()
-      log.info('[generate:cancel] cancel starting run', {
-        sessionId: cancelSessionId,
-        operation: startingRun.operation
-      })
-    }
+    const handledByJobManager = await jobManager.cancel(cancelSessionId)
+    if (handledByJobManager) return { success: true }
     agentManager.cancelSession(cancelSessionId)
     const activeState = sessionRunStates.get(cancelSessionId)
-    if (activeState?.status === 'running') {
+    if (activeState?.status === 'queued' || activeState?.status === 'running') {
       emitGenerateChunk(cancelSessionId, {
         type: 'run_error',
         payload: {
@@ -468,10 +521,6 @@ export function registerGenerationHandlers(ctx: IpcContext): void {
           message: '生成已取消'
         }
       })
-      await db.updateSessionStatus(
-        cancelSessionId,
-        normalizeRestoredSessionStatus(activeState.previousSessionStatus)
-      )
     }
     return { success: true }
   })

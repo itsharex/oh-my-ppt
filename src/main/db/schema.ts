@@ -64,6 +64,33 @@ export const generationRuns = sqliteTable('generation_runs', {
   updatedAt: integer('updated_at').notNull()
 })
 
+export const generationJobs = sqliteTable(
+  'generation_jobs',
+  {
+    id: text('id')
+      .primaryKey()
+      .references(() => generationRuns.id, { onDelete: 'cascade' }),
+    sessionId: text('session_id')
+      .notNull()
+      .references(() => sessions.id, { onDelete: 'cascade' }),
+    kind: text('kind').notNull(),
+    status: text('status').notNull(),
+    abortReason: text('abort_reason'),
+    createdAt: integer('created_at').notNull(),
+    activatedAt: integer('activated_at'),
+    updatedAt: integer('updated_at').notNull(),
+    finishedAt: integer('finished_at')
+  },
+  (table) => ({
+    generationJobsSessionStatusIdx: index('idx_generation_jobs_session_status').on(
+      table.sessionId,
+      table.status,
+      table.updatedAt
+    ),
+    generationJobsStatusIdx: index('idx_generation_jobs_status').on(table.status, table.updatedAt)
+  })
+)
+
 export const generationPages = sqliteTable('generation_pages', {
   id: text('id').primaryKey(),
   runId: text('run_id')

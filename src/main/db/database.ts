@@ -16,6 +16,8 @@ type ChatScope = 'main' | 'page'
 type StyleSource = 'builtin' | 'custom' | 'override'
 type GenerationRunMode = 'generate' | 'retry' | 'edit' | 'import' | 'addPage' | 'retrySinglePage'
 type GenerationRunStatus = 'running' | 'completed' | 'failed' | 'partial'
+export type GenerationJobKind = 'standard' | 'template' | 'retry'
+export type GenerationJobStatus = 'pending' | 'active' | 'finished' | 'aborted'
 type GenerationPageStatus = 'pending' | 'running' | 'completed' | 'failed'
 type SessionPageStatus = schema.SessionPageStatus
 type SourcePageSkeletonRole = 'chapter-divider' | 'content'
@@ -113,6 +115,18 @@ export interface GenerationRunRecord {
   model_config_id: string | null
   created_at: number
   updated_at: number
+}
+
+export interface GenerationJobRecord {
+  id: string
+  session_id: string
+  kind: GenerationJobKind
+  status: GenerationJobStatus
+  abort_reason: string | null
+  created_at: number
+  activated_at: number | null
+  updated_at: number
+  finished_at: number | null
 }
 
 export interface GenerationPageRecord {
@@ -512,6 +526,33 @@ export class PPTDatabase {
     }
   }
 
+  private normalizeGenerationJobRow(row: Record<string, unknown>): GenerationJobRecord {
+    const status = String(row.status || 'pending')
+    const kind = String(row.kind || 'standard')
+    return {
+      id: String(row.id || ''),
+      session_id: String(row.sessionId ?? row.session_id ?? ''),
+      kind: (kind === 'template' || kind === 'retry' ? kind : 'standard') as GenerationJobKind,
+      status: (
+        status === 'active' || status === 'finished' || status === 'aborted' ? status : 'pending'
+      ) as GenerationJobStatus,
+      abort_reason:
+        typeof (row.abortReason ?? row.abort_reason) === 'string'
+          ? String(row.abortReason ?? row.abort_reason)
+          : null,
+      created_at: Number(row.createdAt ?? row.created_at ?? 0) || 0,
+      activated_at:
+        typeof (row.activatedAt ?? row.activated_at) === 'number'
+          ? Number(row.activatedAt ?? row.activated_at)
+          : null,
+      updated_at: Number(row.updatedAt ?? row.updated_at ?? 0) || 0,
+      finished_at:
+        typeof (row.finishedAt ?? row.finished_at) === 'number'
+          ? Number(row.finishedAt ?? row.finished_at)
+          : null
+    }
+  }
+
   private normalizeGenerationPageRow(row: Record<string, unknown>): GenerationPageRecord {
     return {
       id: String(row.id || ''),
@@ -614,8 +655,119 @@ export class PPTDatabase {
         createdAt: now,
         updatedAt: now
       })
+      .onConflictDoUpdate({
+        target: schema.generationRuns.id,
+        set: {
+          sessionId: data.sessionId,
+          mode: data.mode,
+          status: 'running',
+          totalPages: Math.max(0, Math.floor(data.totalPages || 0)),
+          error: null,
+          metadata: data.metadata ? JSON.stringify(data.metadata) : null,
+          modelConfigId:
+            typeof data.modelConfigId === 'string' && data.modelConfigId.trim().length > 0
+              ? data.modelConfigId.trim()
+              : null,
+          updatedAt: now
+        }
+      })
       .run()
     return id
+  }
+
+  async createGenerationJob(data: {
+    id: string
+    sessionId: string
+    kind: GenerationJobKind
+    status: Extract<GenerationJobStatus, 'pending' | 'active'>
+  }): Promise<void> {
+    const now = Math.floor(Date.now() / 1000)
+    await this.db
+      .insert(schema.generationJobs)
+      .values({
+        id: data.id,
+        sessionId: data.sessionId,
+        kind: data.kind,
+        status: data.status,
+        abortReason: null,
+        createdAt: now,
+        activatedAt: data.status === 'active' ? now : null,
+        updatedAt: now,
+        finishedAt: null
+      })
+      .onConflictDoUpdate({
+        target: schema.generationJobs.id,
+        set: {
+          sessionId: data.sessionId,
+          kind: data.kind,
+          status: data.status,
+          abortReason: null,
+          activatedAt: data.status === 'active' ? now : null,
+          updatedAt: now,
+          finishedAt: null
+        }
+      })
+      .run()
+  }
+
+  async updateGenerationJobStatus(
+    jobId: string,
+    status: GenerationJobStatus,
+    options?: { abortReason?: string | null }
+  ): Promise<void> {
+    const now = Math.floor(Date.now() / 1000)
+    const set: Record<string, unknown> = {
+      status,
+      updatedAt: now
+    }
+    if (status === 'active') {
+      set.activatedAt = now
+      set.finishedAt = null
+      set.abortReason = null
+    }
+    if (status === 'finished') {
+      set.finishedAt = now
+      set.abortReason = null
+    }
+    if (status === 'aborted') {
+      set.finishedAt = now
+      set.abortReason = options?.abortReason || null
+    }
+    await this.db
+      .update(schema.generationJobs)
+      .set(set)
+      .where(eq(schema.generationJobs.id, jobId))
+      .run()
+  }
+
+  async getGenerationJob(jobId: string): Promise<GenerationJobRecord | undefined> {
+    const row = await this.db
+      .select()
+      .from(schema.generationJobs)
+      .where(eq(schema.generationJobs.id, jobId))
+      .get()
+    return row ? this.normalizeGenerationJobRow(row as Record<string, unknown>) : undefined
+  }
+
+  async getLatestGenerationJob(sessionId: string): Promise<GenerationJobRecord | undefined> {
+    const row = await this.db
+      .select()
+      .from(schema.generationJobs)
+      .where(eq(schema.generationJobs.sessionId, sessionId))
+      .orderBy(desc(schema.generationJobs.updatedAt), desc(schema.generationJobs.createdAt))
+      .limit(1)
+      .get()
+    return row ? this.normalizeGenerationJobRow(row as Record<string, unknown>) : undefined
+  }
+
+  async listActiveGenerationJobs(): Promise<GenerationJobRecord[]> {
+    const rows = await this.db
+      .select()
+      .from(schema.generationJobs)
+      .where(inArray(schema.generationJobs.status, ['pending', 'active']))
+      .orderBy(asc(schema.generationJobs.createdAt))
+      .all()
+    return rows.map((row) => this.normalizeGenerationJobRow(row as Record<string, unknown>))
   }
 
   async updateGenerationRunStatus(

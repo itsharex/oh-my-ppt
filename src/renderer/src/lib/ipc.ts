@@ -101,14 +101,17 @@ export interface StyleParseResult {
 export interface GenerateRunStateSnapshot {
   sessionId: string
   runId: string | null
-  status: 'idle' | 'running' | 'completed' | 'failed'
+  status: 'idle' | 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
   hasActiveRun: boolean
   progress: number
   totalPages: number
+  completedPageCount?: number
+  failedPageCount?: number
   events: GenerateChunkEvent[]
   error: string | null
   startedAt: number | null
   updatedAt: number | null
+  kind?: 'standard' | 'template' | 'retry'
 }
 
 export interface ExportDeckResult {
@@ -494,18 +497,21 @@ export const ipc = {
       success: boolean
       runId?: string
       alreadyRunning?: boolean
+      queued?: boolean
     }>,
   startTemplateGenerate: (payload: GenerateStartPayload & { retry?: boolean }) =>
     getIpc().invoke('generate:startTemplate', payload) as Promise<{
       success: boolean
       runId?: string
       alreadyRunning?: boolean
+      queued?: boolean
     }>,
   retryFailedPages: (payload: GenerateRetryFailedPayload) =>
     getIpc().invoke('generate:retryFailedPages', payload) as Promise<{
       success: boolean
       runId?: string
       alreadyRunning?: boolean
+      queued?: boolean
     }>,
   addPage: (payload: GenerateAddPagePayload) =>
     getIpc().invoke('generate:addPage', payload) as Promise<{
@@ -520,6 +526,8 @@ export const ipc = {
     }>,
   getGenerateState: (sessionId: string) =>
     getIpc().invoke('generate:state', sessionId) as Promise<GenerateRunStateSnapshot>,
+  listActiveGenerateRuns: () =>
+    getIpc().invoke('generate:listActive') as Promise<GenerateRunStateSnapshot[]>,
   cancelGenerate: (sessionId: string) =>
     getIpc().invoke('generate:cancel', sessionId) as Promise<{ success: boolean }>,
   listHistoryVersions: (payload: { sessionId: string; limit?: number }) =>

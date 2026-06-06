@@ -151,6 +151,20 @@ CREATE TABLE IF NOT EXISTS generation_runs (
 );
 CREATE INDEX IF NOT EXISTS idx_generation_runs_session ON generation_runs(session_id, created_at);
 
+CREATE TABLE IF NOT EXISTS generation_jobs (
+  id TEXT PRIMARY KEY REFERENCES generation_runs(id) ON DELETE CASCADE,
+  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,
+  status TEXT NOT NULL,
+  abort_reason TEXT,
+  created_at INTEGER NOT NULL,
+  activated_at INTEGER,
+  updated_at INTEGER NOT NULL,
+  finished_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_generation_jobs_session_status ON generation_jobs(session_id, status, updated_at);
+CREATE INDEX IF NOT EXISTS idx_generation_jobs_status ON generation_jobs(status, updated_at);
+
 CREATE TABLE IF NOT EXISTS generation_pages (
   id TEXT PRIMARY KEY,
   run_id TEXT NOT NULL REFERENCES generation_runs(id) ON DELETE CASCADE,
@@ -329,6 +343,7 @@ const getTableColumns = async (
     | 'sessions'
     | 'projects'
     | 'generation_runs'
+    | 'generation_jobs'
     | 'generation_pages'
     | 'session_pages'
     | 'model_configs'
@@ -639,9 +654,32 @@ const enforceMessagesSchema = async (client: LibSqlClient): Promise<void> => {
 }
 
 const enforceGenerationSchema = async (client: LibSqlClient): Promise<void> => {
+  await client.execute(`
+    CREATE TABLE IF NOT EXISTS generation_jobs (
+      id TEXT PRIMARY KEY REFERENCES generation_runs(id) ON DELETE CASCADE,
+      session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL,
+      status TEXT NOT NULL,
+      abort_reason TEXT,
+      created_at INTEGER NOT NULL,
+      activated_at INTEGER,
+      updated_at INTEGER NOT NULL,
+      finished_at INTEGER
+    )
+  `)
   const runColumns = await getTableColumns(client, 'generation_runs')
   if (!runColumns.has('model_config_id')) {
     await client.execute('ALTER TABLE generation_runs ADD COLUMN model_config_id TEXT')
+  }
+  const jobColumns = await getTableColumns(client, 'generation_jobs')
+  if (!jobColumns.has('abort_reason')) {
+    await client.execute('ALTER TABLE generation_jobs ADD COLUMN abort_reason TEXT')
+  }
+  if (!jobColumns.has('activated_at')) {
+    await client.execute('ALTER TABLE generation_jobs ADD COLUMN activated_at INTEGER')
+  }
+  if (!jobColumns.has('finished_at')) {
+    await client.execute('ALTER TABLE generation_jobs ADD COLUMN finished_at INTEGER')
   }
   const columns = await getTableColumns(client, 'generation_pages')
   if (!columns.has('content_outline')) {
@@ -655,6 +693,12 @@ const enforceGenerationSchema = async (client: LibSqlClient): Promise<void> => {
   )
   await client.execute(
     'CREATE INDEX IF NOT EXISTS idx_generation_runs_model_config ON generation_runs(model_config_id)'
+  )
+  await client.execute(
+    'CREATE INDEX IF NOT EXISTS idx_generation_jobs_session_status ON generation_jobs(session_id, status, updated_at)'
+  )
+  await client.execute(
+    'CREATE INDEX IF NOT EXISTS idx_generation_jobs_status ON generation_jobs(status, updated_at)'
   )
   await client.execute(
     'CREATE INDEX IF NOT EXISTS idx_generation_pages_run ON generation_pages(run_id, page_number)'

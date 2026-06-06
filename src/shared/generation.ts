@@ -211,6 +211,8 @@ export interface GenerateStagePayload {
   progress?: number
   currentPage?: number
   totalPages?: number
+  completedPageCount?: number
+  failedPageCount?: number
   timestamp?: string
 }
 
