@@ -39,6 +39,7 @@ export interface WorkspaceRibbonRegisteredActions {
   onUndo: () => void
   onRedo: () => void
   onSaveCurrentPage: () => void
+  onDiscardAllEdits: () => void
   onBackToSessions: () => void
   onAddFromLibrary: (type: InsertAssetType) => void
   onAddFromLocal: (type: InsertAssetType) => void

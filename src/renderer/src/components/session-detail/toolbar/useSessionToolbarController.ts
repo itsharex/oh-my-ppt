@@ -74,9 +74,11 @@ export function useSessionToolbarController(sessionId: string) {
 
   return {
     hasPages: pages.length > 0,
+    isGenerating,
     historyDisabled,
     canPreview: Boolean(selectedPage?.htmlPath || pages[0]?.htmlPath),
     canRevealFile: Boolean(selectedPage?.htmlPath),
+    sessionTitle: currentSession?.title || '',
     saveTemplateOpen,
     savingTemplate,
     defaultTemplateName: currentSession?.title || '未命名模板',

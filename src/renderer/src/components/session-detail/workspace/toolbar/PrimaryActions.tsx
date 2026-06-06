@@ -1,4 +1,4 @@
-import { Check, Home, Loader2, Redo2, Undo2 } from 'lucide-react'
+import { Check, Loader2, Redo2, RotateCcw, Undo2 } from 'lucide-react'
 import { cn } from '@renderer/lib/utils'
 import { useT } from '@renderer/i18n'
 import { useSessionDetailRuntimeStore } from '@renderer/store'
@@ -26,21 +26,6 @@ export function PrimaryActions({
         <TooltipTrigger asChild>
           <button
             type="button"
-            className="inline-flex h-6 w-6 shrink-0 items-center justify-center bg-[#d4e4c1]/88 text-[#3e4a32] shadow-[0_4px_9px_rgba(93,107,77,0.11)] transition-colors hover:bg-[#8fbc8f]/42 disabled:opacity-40"
-            style={{ borderRadius: '5% 95% 10% 90% / 85% 15% 85% 15%' }}
-            onClick={() => actions?.onBackToSessions()}
-            disabled={disabled}
-            aria-label={t('sessionDetail.backToSessions')}
-          >
-            <Home className="h-3 w-3" />
-          </button>
-        </TooltipTrigger>
-        <TooltipContent side="bottom">{t('sessionDetail.backToSessions')}</TooltipContent>
-      </Tooltip>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            type="button"
             className={cn(
               'inline-flex h-6 shrink-0 items-center justify-center rounded-full px-2.5 text-[10px] font-bold leading-none transition-colors disabled:pointer-events-none disabled:opacity-45',
               hasPendingEdits
@@ -60,6 +45,25 @@ export function PrimaryActions({
           </button>
         </TooltipTrigger>
         <TooltipContent side="bottom">{t('sessionDetail.saveCurrentPageTooltip')}</TooltipContent>
+      </Tooltip>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            className={cn(
+              'inline-flex h-[22px] w-[22px] items-center justify-center rounded-full transition-colors disabled:pointer-events-none disabled:opacity-45',
+              hasPendingEdits
+                ? 'text-[#b8860b] hover:bg-[#f5deb3]/54 hover:text-[#8b6914]'
+                : 'text-[#a4aa9a]'
+            )}
+            onClick={() => actions?.onDiscardAllEdits()}
+            disabled={disabled || !hasPendingEdits}
+            aria-label={t('sessionDetail.discardAllEditsTooltip')}
+          >
+            <RotateCcw className="h-3 w-3" />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">{t('sessionDetail.discardAllEditsTooltip')}</TooltipContent>
       </Tooltip>
       <div className="ml-0.5 flex items-center gap-0.5 rounded-full bg-[#f5f1e8]/48 p-0.5 shadow-[inset_0_1px_3px_rgba(74,59,42,0.045)]">
         <Tooltip>

@@ -2,7 +2,6 @@ import { useCallback, useEffect, forwardRef, useRef } from 'react'
 import { Loader2, Sparkles } from 'lucide-react'
 import { useSessionDetailUiStore } from '@renderer/store'
 import { PreviewIframe, type PreviewIframeHandle } from '../../preview/PreviewIframe'
-import { Tooltip, TooltipContent, TooltipTrigger } from '../../ui/Tooltip'
 import type { EditModeMovePayload, EditSelectionPayload } from '../../preview/edit-mode-script'
 import type { SessionPreviewPage } from '../shared/types'
 import { useT } from '@renderer/i18n'
@@ -27,7 +26,6 @@ export const PreviewStage = forwardRef<
 >(function PreviewStage(
   {
     selectedPage,
-    sessionTitle,
     isGenerating,
     progressLabel,
     previewRefreshKey = 0,
@@ -53,8 +51,6 @@ export const PreviewStage = forwardRef<
   const setWorkspaceTab = useSessionDetailUiStore((state) => state.setWorkspaceTab)
   const editSelectedSelector = useSessionDetailUiStore((state) => state.editSelectedSelector)
   const setSelectedElement = useSessionDetailUiStore((state) => state.setSelectedElement)
-  const displayTitle = sessionTitle || t('sessionDetail.sessionFallback')
-
   const isEditing = interactionMode === 'edit'
   const isInspecting = interactionMode === 'ai-inspect'
 
@@ -191,16 +187,6 @@ export const PreviewStage = forwardRef<
         <div className="pointer-events-none absolute -bottom-24 left-8 h-48 w-64 rounded-[5%_95%_10%_90%/85%_15%_85%_15%] bg-[#c8b89e]/20" />
         {selectedPage ? (
           <div className="relative h-full overflow-hidden rounded-[1.55rem] bg-[#f5f1e8] p-2 shadow-[0_10px_24px_rgba(93,107,77,0.11)]">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div className="absolute left-3 top-3 z-20 max-w-[calc(100%-1.5rem)] truncate border-l-2 border-[#7f9468] bg-[#fffaf1]/68 px-3 py-1.5 text-sm font-medium leading-5 text-[#3e4a32] shadow-[0_6px_16px_rgba(74,59,42,0.08)] backdrop-blur-md sm:max-w-[460px]">
-                  {displayTitle}
-                </div>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" align="start">
-                {displayTitle}
-              </TooltipContent>
-            </Tooltip>
             <PreviewIframe
               ref={setPreviewIframeHandle}
               key={`preview-${selectedPage.pageId}-${previewKey}-${previewRefreshKey}`}

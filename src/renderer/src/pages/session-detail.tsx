@@ -629,11 +629,7 @@ export function SessionDetailPage(): React.JSX.Element {
     setElementSelection(null)
     setElementDraft(EMPTY_ELEMENT_DRAFT)
     clearEditSelectedElement()
-    useSessionDetailUiStore.getState().setInteractionMode('preview')
-    useSessionDetailUiStore.getState().setWorkspaceTab('preview')
-    if (hadPending) {
-      setPreviewRefreshKey((key) => key + 1)
-    }
+    if (hadPending) setPreviewRefreshKey((k) => k + 1)
     if (hadPending) toastInfo(t('sessionDetail.discardedAdjustments'))
   }
 
@@ -1405,6 +1401,7 @@ export function SessionDetailPage(): React.JSX.Element {
     onUndo: handleUndo,
     onRedo: handleRedo,
     onSaveCurrentPage: () => void handleSaveAllEdits(),
+    onDiscardAllEdits: handleDiscardAllEdits,
     onBackToSessions: handleBackToSessions,
     onAddFromLibrary: handleAddFromLibrary,
     onAddFromLocal: (type) => void handleAddFromLocal(type),
@@ -1420,14 +1417,13 @@ export function SessionDetailPage(): React.JSX.Element {
     <TooltipProvider delayDuration={180}>
       <div className="flex h-full min-h-0 flex-col bg-[#f5f1e8] text-foreground outline-none">
         <header className="app-drag-region app-titlebar relative shrink-0 bg-[#f5f1e8]/95 shadow-[0_10px_26px_rgba(93,107,77,0.055)] backdrop-blur-xl">
-          <div className="absolute left-0 top-0 h-full w-[220px] bg-[#f5f1e8]" />
           <div
-            className={`relative flex h-full items-center justify-end pl-[244px] ${
-              isMac ? 'px-3' : 'pr-[calc(var(--app-titlebar-control-safe-area)+16px)]'
+            className={`relative flex h-full items-center ${
+              isMac ? '' : 'pr-[calc(var(--app-titlebar-control-safe-area)+16px)]'
             }`}
           >
-            <div className="app-no-drag flex items-center gap-1.5">
-              <SessionToolbar sessionId={id} />
+            <div className="app-no-drag flex-1">
+              <SessionToolbar sessionId={id} isSavingEdits={isSavingEdits} />
             </div>
           </div>
         </header>

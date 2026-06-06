@@ -27,6 +27,7 @@ export function useWorkspaceRibbonActionsRegistration(
       onUndo: () => actionsRef.current.onUndo(),
       onRedo: () => actionsRef.current.onRedo(),
       onSaveCurrentPage: () => actionsRef.current.onSaveCurrentPage(),
+      onDiscardAllEdits: () => actionsRef.current.onDiscardAllEdits(),
       onBackToSessions: () => actionsRef.current.onBackToSessions(),
       onAddFromLibrary: (type) => actionsRef.current.onAddFromLibrary(type),
       onAddFromLocal: (type) => actionsRef.current.onAddFromLocal(type),
