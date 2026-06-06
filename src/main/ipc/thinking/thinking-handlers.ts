@@ -18,7 +18,9 @@ import {
   prepareMultipleSources
 } from '../../thinking/source-prepare'
 import { invalidateRuntime, runThinkingChat } from '../../thinking/thinking-agent'
-import { normalizeFontSelection, type SourceDocumentPlan } from '@shared/generation'
+import { buildThinkingSourceBrief } from '../../thinking/source-brief'
+import { buildThinkingSourcePlan } from '../../thinking/source-plan'
+import { normalizeFontSelection } from '@shared/generation'
 import type { ThinkingChatMessage, ThinkingPrepareGenerationResult } from '@shared/thinking'
 
 async function updateSourcesManifest(
@@ -118,65 +120,6 @@ function parseTopicFromThinkingMd(thinkingMd: string): string {
 function parsePageCountFromThinkingMd(thinkingMd: string): number {
   const matches = thinkingMd.match(/^##\s*Page\s+\d+\s*:/gm)
   return matches ? matches.length : 0
-}
-
-function buildThinkingSourcePlan(
-  thinkingMd: string,
-  thinkingDocumentPath: string
-): SourceDocumentPlan | null {
-  const lines = thinkingMd.split(/\r?\n/)
-  const headings: Array<{ pageNumber: number; title: string; lineNumber: number }> = []
-
-  lines.forEach((line, index) => {
-    const match = line.match(/^##\s*Page\s+(\d+)\s*:\s*(.+)$/)
-    if (!match) return
-    const pageNumber = Number.parseInt(match[1], 10)
-    const title = match[2].trim()
-    if (!Number.isFinite(pageNumber) || !title) return
-    headings.push({ pageNumber, title, lineNumber: index + 1 })
-  })
-
-  if (headings.length === 0) return null
-
-  return {
-    version: 1,
-    confidence: 'high',
-    sourceDocumentPath: thinkingDocumentPath,
-    sourceDocumentName: path.basename(thinkingDocumentPath),
-    pageSkeleton: headings.map((heading, index) => {
-      const next = headings[index + 1]
-      const lineStart = heading.lineNumber
-      const lineEnd = Math.max(lineStart, next ? next.lineNumber - 1 : lines.length)
-      const blockLines = lines.slice(heading.lineNumber, lineEnd)
-      const roleText =
-        blockLines
-          .find((line) => /^-\s*Role\s*:/i.test(line.trim()))
-          ?.replace(/^-\s*Role\s*:\s*/i, '')
-          .trim() || ''
-      const objective =
-        blockLines
-          .find((line) => /^-\s*Objective\s*:/i.test(line.trim()))
-          ?.replace(/^-\s*Objective\s*:\s*/i, '')
-          .trim() || ''
-      const roleBasis = `${heading.title}\n${roleText}`
-      const role = /chapter|section|divider|cover|title|agenda|章节|过渡|封面|目录|标题/i.test(
-        roleBasis
-      )
-        ? 'chapter-divider'
-        : 'content'
-
-      return {
-        pageNumber: heading.pageNumber,
-        title: heading.title,
-        role,
-        sourceHeading: `Page ${heading.pageNumber}: ${heading.title}`,
-        headingLevel: 2,
-        lineStart,
-        lineEnd,
-        reason: objective || roleText || 'Thinking page section'
-      }
-    })
-  }
 }
 
 function readMarkdownSectionBlock(markdown: string, heading: string): string {
@@ -365,6 +308,20 @@ export function registerThinkingHandlers(ctx: IpcContext): void {
         }
       }
 
+      const documentAttachments = Array.isArray(attachments)
+        ? attachments.filter((attachment) => attachment.kind !== 'image')
+        : []
+      const sourceBrief =
+        documentAttachments.length > 0
+          ? await buildThinkingSourceBrief({
+              thinkingDir: dir,
+              attachments: documentAttachments
+            })
+          : ''
+      const thinkingUserMessage = [userMessage, sourceBrief]
+        .filter((part) => part.trim().length > 0)
+        .join('\n\n')
+
       const result = await runThinkingChat({
         thinkingId,
         thinkingDir: dir,
@@ -372,7 +329,7 @@ export function registerThinkingHandlers(ctx: IpcContext): void {
         thinkingMd: workspace.thinkingMd,
         contextMd: workspace.contextMd,
         sourcesDir: `${dir}/sources`,
-        userMessage,
+        userMessage: thinkingUserMessage,
         recentMessages: Array.isArray(recentMessages)
           ? recentMessages.slice(-8)
           : workspace.messages.slice(-8),
@@ -385,13 +342,12 @@ export function registerThinkingHandlers(ctx: IpcContext): void {
         onThinkingEvent: emitThinkingEvent
       })
 
-      const now = Date.now()
       await writeMessagesList(dir, [
         ...workspace.messages,
         {
           role: 'user',
           content: userMessage,
-          timestamp: now,
+          timestamp: Date.now(),
           ...(Array.isArray(attachments) && attachments.length > 0 ? { attachments } : {})
         },
         {

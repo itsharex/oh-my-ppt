@@ -49,11 +49,13 @@ export const en = {
     documentPathFailedTitle: 'Failed to read document',
     documentPathFailed: 'Cannot read the document path. Please choose again.',
     referenceAttached: 'Reference document attached',
-    referenceProcessingWait: 'The reference file is still processing. Please wait before generating.',
+    referenceProcessingWait:
+      'The reference file is still processing. Please wait before generating.',
     referenceAttachFailed: 'Failed to attach reference document',
     removeReference: 'Remove reference document',
     documentParsed: 'Document parsed',
-    documentParsedDescription: 'Processed {count} source item(s) and filled the title, pages, and outline',
+    documentParsedDescription:
+      'Processed {count} source item(s) and filled the title, pages, and outline',
     documentParseFailed: 'Failed to parse document',
     pptxSingleOnlyTitle: 'Too many files',
     pptxSingleOnly: 'Import one PPTX at a time.',
@@ -83,11 +85,13 @@ export const en = {
     previewDescription: '{count} pages. Scan the full structure and visual rhythm.',
     pageFallback: 'Page {pageNumber}',
     useDialogTitle: 'Create session from template',
-    useDialogDescription: 'Enter a content direction or upload a document outline. Generation uses the source document and keeps the template visuals.',
+    useDialogDescription:
+      'Enter a content direction or upload a document outline. Generation uses the source document and keeps the template visuals.',
     sessionTitleLabel: 'Session title',
     briefLabel: 'Brief / outline',
     parsed: 'Parsed',
-    briefPlaceholder: 'Describe the topic, audience, structure, and priorities, or upload a document to parse an outline.',
+    briefPlaceholder:
+      'Describe the topic, audience, structure, and priorities, or upload a document to parse an outline.',
     parsingDocument: 'Parsing...',
     processingDocument: 'Processing...',
     uploadDocument: 'Upload reference document',
@@ -110,7 +114,8 @@ export const en = {
     updateAvailable: 'New version {version} available',
     updateAvailableDescription: 'Current version: {currentVersion}. Click to download.',
     updateAvailableTitle: 'New version {version} available',
-    updateAvailableDialogDescription: 'Current version: {currentVersion}. You can download the update now.',
+    updateAvailableDialogDescription:
+      'Current version: {currentVersion}. You can download the update now.',
     currentVersion: 'Current version',
     latestVersion: 'Latest version',
     download: 'Download',
@@ -142,7 +147,8 @@ export const en = {
     uploadReferenceTooltip:
       'Supports txt, md, csv, docx (≤{maxSize}MB), and png/jpg/webp images (≤{imageMaxSize}MB). Uploading only attaches source material and does not change the form. For images, click "Parse" on the image tag first so the app can turn them into generation-ready reference content.',
     referenceAttached: 'Reference file attached',
-    imageReferenceAttachedNeedsParse: 'Image uploaded. Parse it into a readable reference document first.',
+    imageReferenceAttachedNeedsParse:
+      'Image uploaded. Parse it into a readable reference document first.',
     imageReferenceNeedsParse:
       'The uploaded image cannot be used directly as a reference file. Click "Parse" on the image tag first.',
     imageReferenceNeedsParseShort: 'Image cannot be used until parsed',
@@ -151,7 +157,8 @@ export const en = {
     parseImageReference: 'Parse',
     parsingImageReference: 'Parsing',
     imageReferenceParsed: 'Image parsed into a readable reference document',
-    referenceProcessingWait: 'The reference file is still processing. Please wait before generating.',
+    referenceProcessingWait:
+      'The reference file is still processing. Please wait before generating.',
     referenceAttachFailed: 'Failed to attach reference file',
     removeReference: 'Remove reference file',
     revealReferenceFile: 'Show reference file',
@@ -359,7 +366,8 @@ export const en = {
     imageProviderOfficialDocs: 'Official docs',
     baseUrlHint: 'Enter a service URL compatible with the selected provider protocol.',
     baseUrlHintGoogle: 'Leave empty for official Google API. Fill only if using a proxy.',
-    maxTokensHint: 'Max output tokens, default 4096. Generally no need to change. Adjust based on model limits.',
+    maxTokensHint:
+      'Max output tokens, default 4096. Generally no need to change. Adjust based on model limits.',
     timeoutSection: 'Model timeouts (seconds)',
     timeoutPlanning: 'Outline planning',
     timeoutDesign: 'Design contract',
@@ -390,7 +398,8 @@ export const en = {
     defaultImageSize: 'Default size',
     defaultImageQuality: 'Default quality',
     defaultImageCount: 'Default count',
-    imageExtraJsonHint: 'Optional. Override endpoint, headers, requestBody, or other provider-specific fields.',
+    imageExtraJsonHint:
+      'Optional. Override endpoint, headers, requestBody, or other provider-specific fields.',
     fillImageModelConfig: 'Enter valid model_config JSON.',
     storage: 'Storage',
     storagePath: 'Storage path',
@@ -421,7 +430,8 @@ export const en = {
     proxySection: 'Network Proxy',
     proxyLabel: 'Proxy address',
     proxyPlaceholder: 'e.g. http://127.0.0.1:7890',
-    proxyHint: 'Supports HTTP and SOCKS5 proxies for accessing services like Gemini. Leave empty to disable.',
+    proxyHint:
+      'Supports HTTP and SOCKS5 proxies for accessing services like Gemini. Leave empty to disable.',
     proxySavedDescription: 'Proxy settings saved. Takes effect immediately.'
   },
   styles: {
@@ -494,13 +504,20 @@ export const en = {
       'State the target audience and use case (e.g. "youth mental health PPT") so the model understands context.',
     promptReferenceTitle: 'Style Extraction Prompt Reference',
     promptReferenceSubtitle: '(can be used for generation elsewhere)',
-    promptRef1: 'Open with a natural-language paragraph describing the overall visual mood, e.g. "clean, bright, light-toned with generous whitespace"',
-    promptRef2: '## Colors: List primary, background, text colors with hex values, e.g. "background #FFFFFF, text dark gray #1F2937"',
-    promptRef3: '## Typography: Describe font style, weight, size hierarchy, line height, e.g. "bold sans-serif titles, regular body, line height 1.6+"',
-    promptRef4: '## Layout: Specify alignment, information hierarchy, whitespace and density, e.g. "modular sections, centered or left-aligned, moderate density"',
-    promptRef5: '## Animation: Describe entrance animations, duration, easing, e.g. "fade-in or gentle slide-up, 0.4s–0.6s, ease-out"',
-    promptRef6: '## Use case: Define target audience and scenario, e.g. "business reports, product intros, project summaries — formal but not dull"',
-    promptRef7: '## Avoid: List elements to avoid, e.g. "no high-saturation clashing colors, no heavy gradients and shadows"',
+    promptRef1:
+      'Open with a natural-language paragraph describing the overall visual mood, e.g. "clean, bright, light-toned with generous whitespace"',
+    promptRef2:
+      '## Colors: List primary, background, text colors with hex values, e.g. "background #FFFFFF, text dark gray #1F2937"',
+    promptRef3:
+      '## Typography: Describe font style, weight, size hierarchy, line height, e.g. "bold sans-serif titles, regular body, line height 1.6+"',
+    promptRef4:
+      '## Layout: Specify alignment, information hierarchy, whitespace and density, e.g. "modular sections, centered or left-aligned, moderate density"',
+    promptRef5:
+      '## Animation: Describe entrance animations, duration, easing, e.g. "fade-in or gentle slide-up, 0.4s–0.6s, ease-out"',
+    promptRef6:
+      '## Use case: Define target audience and scenario, e.g. "business reports, product intros, project summaries — formal but not dull"',
+    promptRef7:
+      '## Avoid: List elements to avoid, e.g. "no high-saturation clashing colors, no heavy gradients and shadows"',
     emptyMarkdown: '_No Markdown content_',
     saveStyle: 'Save style',
     currentMode: 'Current mode: {mode}',
@@ -615,7 +632,8 @@ Business presentations, product introductions, project summaries — formal but 
     speechScriptStyleConversational: 'Conversational',
     speechScriptStyleStorytelling: 'Storytelling',
     speechScriptStyleCustom: 'Custom',
-    speechScriptStyleCustomPlaceholder: 'Describe the style you want, e.g. humorous and engaging, use lots of analogies and examples...',
+    speechScriptStyleCustomPlaceholder:
+      'Describe the style you want, e.g. humorous and engaging, use lots of analogies and examples...',
     speechScriptGenerating: 'Generating slide {current} of {total}',
     speechScriptGeneratingSingle: 'Generating slide {pageNumber}',
     speechScriptGeneratingInit: 'Preparing...',
@@ -743,8 +761,10 @@ Business presentations, product introductions, project summaries — formal but 
     copyElementFailed: 'Failed to copy element',
     deleteElement: 'Delete element',
     deleteElementConfirm: 'Are you sure you want to delete this element? This cannot be undone.',
-    nonTextElementHint: 'Still working on this feature.\nYou can use AI mode to inspect and edit elements for now.',
-    inspectorUnavailable: 'Cannot read this element’s real properties.\nSelect an element inside the page again.',
+    nonTextElementHint:
+      'Still working on this feature.\nYou can use AI mode to inspect and edit elements for now.',
+    inspectorUnavailable:
+      'Cannot read this element’s real properties.\nSelect an element inside the page again.',
     deleteElementFailed: 'Failed to delete element',
     exitInspect: 'Exit inspect',
     inspectElement: 'Inspect element',
@@ -789,7 +809,8 @@ Business presentations, product introductions, project summaries — formal but 
     pptxPreparingEditableDescription:
       'Export may take longer while fonts are embedded. Please wait. Preserving all elements editable where possible, including text, shapes, images, and tables.',
     pptxPreparingImage: 'Preparing image PPTX',
-    pptxPreparingImageDescription: 'Each page is exported as a high-resolution image for pixel-perfect fidelity.',
+    pptxPreparingImageDescription:
+      'Each page is exported as a high-resolution image for pixel-perfect fidelity.',
     pptxExported: 'PPTX exported ({count} pages)',
     pptxEditableDescription: 'All elements were preserved editable where possible.',
     pptxImageDescription: 'Each page is a high-resolution image for pixel-perfect fidelity.',
@@ -850,7 +871,8 @@ Business presentations, product introductions, project summaries — formal but 
     collapseSidebar: 'Collapse sidebar',
     expandSidebar: 'Expand sidebar',
     untitledPage: 'Untitled page',
-    addBlankPageHint: 'Choose an existing page as the base. It will be copied to the end with only page text cleared.',
+    addBlankPageHint:
+      'Choose an existing page as the base. It will be copied to the end with only page text cleared.',
     addBlankPageCreate: 'Create blank page',
     addBlankPageFailed: 'Failed to add blank page',
     addPageHint: 'Auto-generated in the current style — just describe the page you want',
@@ -961,15 +983,18 @@ Business presentations, product introductions, project summaries — formal but 
   },
   thinking: {
     homeTitle: 'Start a Presentation',
-    homeDescription: 'Have a topic or source material ready? Generate a first draft now. Still shaping the idea? Chat first to build the outline.',
+    homeDescription:
+      'Have a topic or source material ready? Generate a first draft now. Still shaping the idea? Chat first to build the outline.',
     quickCreate: 'Quick Create',
-    quickCreateDescription: 'Enter a topic, upload documents/images or import a PPTX, choose style and page count, then generate an editable first draft.',
+    quickCreateDescription:
+      'Enter a topic, upload documents/images or import a PPTX, choose style and page count, then generate an editable first draft.',
     quickCreateBadge: 'Draft fast',
     quickCreatePointOne: 'Set topic, pages, and style, with optional source material.',
     quickCreatePointTwo: 'Best when you have a direction and want an editable draft quickly.',
     startQuickCreate: 'Start generating',
     exploreProject: 'Chat to Create',
-    exploreProjectDescription: 'Best when ideas, files, or images still need to be organized. Chat with AI to shape a generation outline, then generate.',
+    exploreProjectDescription:
+      'Best when ideas, files, or images still need to be organized. Chat with AI to shape a generation outline, then generate.',
     exploreProjectBadge: 'Plan first',
     explorePointOne: 'Turn conversation into outline, page structure, and style direction.',
     explorePointTwo: 'Upload documents and images as source material.',
@@ -981,18 +1006,22 @@ Business presentations, product introductions, project summaries — formal but 
     historyTitle: 'History',
     historyLoadFailed: 'Failed to load history',
     historyEmptyTitle: 'No history yet',
-    historyEmptyDescription: 'Create a new chat to organize the idea and source material into a generation outline.',
+    historyEmptyDescription:
+      'Create a new chat to organize the idea and source material into a generation outline.',
     emptyWorkspaceTitle: 'Choose a chat to continue',
-    emptyWorkspaceDescription: 'Or start a new chat and shape the topic, source material, and page structure from scratch.',
+    emptyWorkspaceDescription:
+      'Or start a new chat and shape the topic, source material, and page structure from scratch.',
     untitledWorkspace: 'Untitled chat',
     restoredContextTitle: 'Restored Context',
     deleteWorkspace: 'Delete chat',
     deleteWorkspaceTitle: 'Delete this history item?',
-    deleteWorkspaceDescription: 'Delete "{title}"? The related thinking files and source material will be removed permanently.',
+    deleteWorkspaceDescription:
+      'Delete "{title}"? The related thinking files and source material will be removed permanently.',
     deleteWorkspaceDone: 'History item deleted',
     deleteWorkspaceFailed: 'Failed to delete history item',
     homeNoteOne: 'Use quick create for simple, already-defined tasks.',
-    homeNoteTwo: 'Use explore for complex material and confirm the outline, page structure, and style direction before generation.',
+    homeNoteTwo:
+      'Use explore for complex material and confirm the outline, page structure, and style direction before generation.',
     homeNoteThree: 'Both paths eventually use the same generation flow.',
     eyebrow: 'Explore before creating',
     title: 'Chat to Create',
@@ -1001,7 +1030,8 @@ Business presentations, product introductions, project summaries — formal but 
     chatTitle: 'AI Chat',
     thinking: 'Thinking...',
     inputPlaceholder: 'Describe the topic and content you want to present...',
-    welcomeMessage: 'Hi, I can help turn a raw creative idea into a clear content plan.\n\nStart anywhere:\n\n- **Share an idea** and I’ll shape the structure and key points\n- **Upload material** and I’ll pull out what’s useful\n- **Say “generate a creative outline from this”** and I’ll organize the plan before generation\n\nSend over your idea, notes, or direction.',
+    welcomeMessage:
+      'Hi, I can help turn a raw creative idea into a clear content plan.\n\nStart anywhere:\n\n- **Share an idea** and I’ll shape the structure and key points\n- **Upload material** and I’ll pull out what’s useful\n- **Say “generate a creative outline from this”** and I’ll organize the plan before generation\n\nSend over your idea, notes, or direction.',
     sourceCount: '{count} sources',
     pageCardsTitle: 'Page Outline',
     pageCountLabel: '{count} pages',
@@ -1020,10 +1050,14 @@ Business presentations, product introductions, project summaries — formal but 
     styleId: 'Style',
     fontMode: 'Font',
     prepareFailed: 'Failed to prepare generation',
+    sourceUploaded: 'Source uploaded',
     uploadFailed: 'Failed to upload sources',
     removeSource: 'Remove source',
     removeSourceFailed: 'Failed to remove source',
-    uploadTooltip: 'Supports .md, .txt, .csv, .docx documents (up to {documentMaxSize}MB each) and .png, .jpg, .webp images (up to {imageMaxSize}MB each)',
+    uploadTooltip:
+      'Supports .md, .txt, .csv, .docx documents (up to {documentMaxSize}MB each) and .png, .jpg, .webp images (up to {imageMaxSize}MB each)',
+    sourcePreprocessHint:
+      'After you send the message, the app will structure the document first, then pass it to AI for outlining.',
     needMoreWork: 'Complete the outline before generating'
   }
 } satisfies DeepStringShape<typeof zh>

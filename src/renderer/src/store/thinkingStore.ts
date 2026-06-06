@@ -34,6 +34,30 @@ interface ThinkingStore {
 
 let streamListenersReady = false
 
+const readStoredLocale = (): 'zh' | 'en' => {
+  if (typeof window === 'undefined') return 'zh'
+  return window.localStorage.getItem('oh-my-ppt:lang') === 'en' ? 'en' : 'zh'
+}
+
+function formatChatFailureMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error || '')
+  const compactMessage = message.trim().replace(/\s+/g, ' ').slice(0, 500)
+  if (readStoredLocale() === 'en') {
+    return [
+      'LLM reply failed. Please try again.',
+      compactMessage ? `Error: ${compactMessage}` : ''
+    ]
+      .filter(Boolean)
+      .join('\n\n')
+  }
+  return [
+    'LLM 回复失败了，请重试一次。',
+    compactMessage ? `错误：${compactMessage}` : ''
+  ]
+    .filter(Boolean)
+    .join('\n\n')
+}
+
 function hasAssistantReply(messages: ThinkingChatMessage[], reply: string): boolean {
   const normalized = reply.trim()
   if (!normalized) return false
@@ -264,10 +288,23 @@ export const useThinkingStore = create<ThinkingStore>((set, get) => {
       recentMessages,
       ...(attachments && attachments.length > 0 ? { attachments } : {})
     }).catch((err) => {
-      set({
-        error: err instanceof Error ? err.message : 'Chat failed',
-        animatingText: '',
-        loading: false
+      const errorMessage = err instanceof Error ? err.message : 'Chat failed'
+      set((state) => {
+        if (state.thinkingId !== thinkingId) return state
+        return {
+          error: errorMessage,
+          animatingText: '',
+          loading: false,
+          thinkingSteps: [],
+          messages: [
+            ...state.messages,
+            {
+              role: 'assistant',
+              content: formatChatFailureMessage(err),
+              timestamp: Date.now()
+            }
+          ]
+        }
       })
     })
     },

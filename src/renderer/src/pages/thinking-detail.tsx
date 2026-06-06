@@ -37,17 +37,15 @@ const buildWelcomeMessage = (
 const buildThinkingGenerationPrompt = (args: {
   topic: string
   pageCount: number
-  thinkingMd: string
+  referenceDocumentPath: string
 }): string =>
   [
-    `Create a ${args.pageCount}-slide presentation about "${args.topic}" from the finalized thinking document below.`,
-    'Treat each "## Page N: ..." section as the exact intended page structure.',
-    'For each page, honor Role, Objective, Summary, and key points as the page brief.',
+    `Create a ${args.pageCount}-slide presentation about "${args.topic}" from the finalized thinking document.`,
+    `Use the attached source document at ${args.referenceDocumentPath} as the authoritative thinking brief.`,
+    'Follow the prepared page outline exactly. Each page outline is derived from the matching "## Page N: ..." section.',
+    'Before writing a page, inspect only the relevant source range for that page instead of reading the full document.',
     'If the attached reference document includes image source notes, use the listed ./images/... public paths when relevant.',
-    'Determine the presentation content language from the thinking document and source notes; do not infer it from the application UI language.',
-    '',
-    'Final thinking document:',
-    args.thinkingMd
+    'Determine the presentation content language from the thinking document and source notes; do not infer it from the application UI language.'
   ].join('\n')
 
 const stageKeyByStage: Record<ThinkingStage, I18nKey> = {
@@ -279,7 +277,7 @@ export function ThinkingDetailPage(): ReactElement {
           initialPrompt: buildThinkingGenerationPrompt({
             topic: params.topic,
             pageCount: params.pageCount,
-            thinkingMd
+            referenceDocumentPath: params.referenceDocumentPath
           })
         }
       })

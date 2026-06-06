@@ -153,11 +153,13 @@ export const zh = {
     revealReferenceFileTooltip: '在文件夹中定位这个参考文件，不直接打开文件',
     revealReferenceFileFailed: '查看参考文件失败',
     analyzeReference: 'AI 解析并补全',
-    analyzeReferenceTooltip: '调用所选模型分析参考文件，并生成标题、页数和内容简述建议；确认后才会写入表单。',
+    analyzeReferenceTooltip:
+      '调用所选模型分析参考文件，并生成标题、页数和内容简述建议；确认后才会写入表单。',
     analyzingReference: '解析中...',
     referenceAttachHint: '上传只附加素材；点击 AI 解析才会消耗模型并给出表单建议。',
     analysisSuggestionTitle: '建议',
-    analysisSuggestionDescription: '可先修改或删除建议项，再选择应用到创建表单；未勾选的内容不会写入表单。',
+    analysisSuggestionDescription:
+      '可先修改或删除建议项，再选择应用到创建表单；未勾选的内容不会写入表单。',
     currentValue: '当前',
     suggestedValue: '建议',
     emptyValue: '空',
@@ -412,7 +414,8 @@ export const zh = {
   styles: {
     eyebrow: 'Style Lab',
     title: '风格管理',
-    description: '内置 30+ 风格，支持导入 PPTX、HTML、图片等文件自动提取风格，也可从零新建自定义风格。',
+    description:
+      '内置 30+ 风格，支持导入 PPTX、HTML、图片等文件自动提取风格，也可从零新建自定义风格。',
     refresh: '刷新',
     newStyle: '新建风格',
     refreshed: '风格列表已刷新',
@@ -475,11 +478,16 @@ export const zh = {
     promptReferenceTitle: '风格提取提示词参考',
     promptReferenceSubtitle: '（可用于其他地方生成使用）',
     promptRef1: '开头用一段自然语言描述整体视觉气质，如”干净明亮的浅色基调，留白充足，轻松不拥挤”',
-    promptRef2: '## 配色：列出主色、背景色、文字色，附带色值，如”背景纯白 #FFFFFF，文字深灰 #1F2937”',
-    promptRef3: '## 排版：描述字体风格、粗细、字号层级、行高等，如”标题加粗无衬线，正文常规字重，行高 1.6 以上”',
-    promptRef4: '## 布局：说明对齐方式、信息层级、留白和密度，如”模块化分区，居中或左对齐，信息密度适中”',
-    promptRef5: '## 动画：描述入场动画、时长、缓动，如”淡入或轻微上滑，时长 0.4s–0.6s，ease-out 缓动”',
-    promptRef6: '## 适合场景：明确目标受众和使用场景，如”商务汇报、产品介绍、项目总结等正式但不沉闷的场景”',
+    promptRef2:
+      '## 配色：列出主色、背景色、文字色，附带色值，如”背景纯白 #FFFFFF，文字深灰 #1F2937”',
+    promptRef3:
+      '## 排版：描述字体风格、粗细、字号层级、行高等，如”标题加粗无衬线，正文常规字重，行高 1.6 以上”',
+    promptRef4:
+      '## 布局：说明对齐方式、信息层级、留白和密度，如”模块化分区，居中或左对齐，信息密度适中”',
+    promptRef5:
+      '## 动画：描述入场动画、时长、缓动，如”淡入或轻微上滑，时长 0.4s–0.6s，ease-out 缓动”',
+    promptRef6:
+      '## 适合场景：明确目标受众和使用场景，如”商务汇报、产品介绍、项目总结等正式但不沉闷的场景”',
     promptRef7: '## 不要：列举要避免的元素，如”不要使用高饱和刺眼的颜色、不要堆砌渐变和阴影”',
     emptyMarkdown: '_暂无 Markdown 内容_',
     saveStyle: '保存风格',
@@ -594,7 +602,8 @@ export const zh = {
     speechScriptStyleConversational: '轻松对话',
     speechScriptStyleStorytelling: '叙事风格',
     speechScriptStyleCustom: '自定义',
-    speechScriptStyleCustomPlaceholder: '描述你想要的演讲风格，例如：幽默风趣、引人入胜，多用类比和例子...',
+    speechScriptStyleCustomPlaceholder:
+      '描述你想要的演讲风格，例如：幽默风趣、引人入胜，多用类比和例子...',
     speechScriptGenerating: '正在生成第 {current} / {total} 页',
     speechScriptGeneratingSingle: '正在生成第 {pageNumber} 页',
     speechScriptGeneratingInit: '正在准备生成...',
@@ -929,13 +938,15 @@ export const zh = {
     homeTitle: '开始创建演示文稿',
     homeDescription: '已有主题或素材，可以马上生成初稿；还没想清楚，就先用对话创作梳理大纲。',
     quickCreate: '快速创建',
-    quickCreateDescription: '输入主题，上传文档/图片或导入 PPTX，选择风格和页数，快速生成一份可继续编辑的演示初稿。',
+    quickCreateDescription:
+      '输入主题，上传文档/图片或导入 PPTX，选择风格和页数，快速生成一份可继续编辑的演示初稿。',
     quickCreateBadge: '直接出稿',
     quickCreatePointOne: '填写主题、页数、风格，也可以上传素材辅助生成。',
     quickCreatePointTwo: '适合已经有方向，想尽快拿到可编辑初稿的任务。',
     startQuickCreate: '开始生成',
     exploreProject: '对话创作',
-    exploreProjectDescription: '适合还在整理想法、资料或图片的任务，先和 AI 对话梳理出生成大纲，再进入生成。',
+    exploreProjectDescription:
+      '适合还在整理想法、资料或图片的任务，先和 AI 对话梳理出生成大纲，再进入生成。',
     exploreProjectBadge: '先想清楚',
     explorePointOne: '多轮对话沉淀大纲、页结构和风格判断。',
     explorePointTwo: '支持上传文档和图片作为分析素材。',
@@ -954,7 +965,8 @@ export const zh = {
     restoredContextTitle: '已恢复历史上下文',
     deleteWorkspace: '删除对话',
     deleteWorkspaceTitle: '删除这条历史记录？',
-    deleteWorkspaceDescription: '确定删除「{title}」吗？相关 thinking 文件和素材会一起删除，且不可恢复。',
+    deleteWorkspaceDescription:
+      '确定删除「{title}」吗？相关 thinking 文件和素材会一起删除，且不可恢复。',
     deleteWorkspaceDone: '历史记录已删除',
     deleteWorkspaceFailed: '历史记录删除失败',
     homeNoteOne: '简单任务走快速创建，减少前置步骤。',
@@ -967,7 +979,8 @@ export const zh = {
     chatTitle: 'AI 对话',
     thinking: '思考中...',
     inputPlaceholder: '描述你想呈现的主题和内容...',
-    welcomeMessage: '你好，我来帮你把创意整理成清晰的内容方案。\n\n可以这样开始：\n\n- **说一个想法**，我会帮你拆成结构和重点\n- **上传素材后说”按这个生成大纲”**，我会从素材中提炼内容，整理成方案再进入生成\n\n把你的创意、资料或方向发给我就行。',
+    welcomeMessage:
+      '你好，我来帮你把创意整理成清晰的内容方案。\n\n可以这样开始：\n\n- **说一个想法**，我会帮你拆成结构和重点\n- **上传素材后说”按这个生成大纲”**，我会从素材中提炼内容，整理成方案再进入生成\n\n把你的创意、资料或方向发给我就行。',
     sourceCount: '{count} 个素材',
     pageCardsTitle: '页面大纲',
     pageCountLabel: '{count} 页',
@@ -986,10 +999,13 @@ export const zh = {
     styleId: '风格',
     fontMode: '字体方案',
     prepareFailed: '准备生成失败',
+    sourceUploaded: '素材已上传',
     uploadFailed: '素材上传失败',
     removeSource: '移除素材',
     removeSourceFailed: '移除素材失败',
-    uploadTooltip: '支持 .md、.txt、.csv、.docx 文档（单个 ≤ {documentMaxSize}MB）和 .png、.jpg、.webp 图片（单张 ≤ {imageMaxSize}MB）',
+    uploadTooltip:
+      '支持 .md、.txt、.csv、.docx 文档（单个 ≤ {documentMaxSize}MB）和 .png、.jpg、.webp 图片（单张 ≤ {imageMaxSize}MB）',
+    sourcePreprocessHint: '发送消息后会先整理文档结构，再交给 AI 生成大纲。',
     needMoreWork: '请先完成大纲后再生成'
   }
 } as const
