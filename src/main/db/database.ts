@@ -456,16 +456,40 @@ export class PPTDatabase {
   }
 
   async deleteSession(sessionId: string): Promise<void> {
-    await this.db
-      .delete(schema.generationPages)
-      .where(eq(schema.generationPages.sessionId, sessionId))
-      .run()
-    await this.db
-      .delete(schema.generationRuns)
-      .where(eq(schema.generationRuns.sessionId, sessionId))
-      .run()
-    await this.db.delete(schema.projects).where(eq(schema.projects.sessionId, sessionId)).run()
-    await this.db.delete(schema.sessions).where(eq(schema.sessions.id, sessionId)).run()
+    await this.db.transaction(async (tx) => {
+      await tx
+        .delete(schema.sessionOperationPages)
+        .where(eq(schema.sessionOperationPages.sessionId, sessionId))
+        .run()
+      await tx
+        .delete(schema.sessionOperations)
+        .where(eq(schema.sessionOperations.sessionId, sessionId))
+        .run()
+      await tx
+        .delete(schema.sourcePageSkeletons)
+        .where(eq(schema.sourcePageSkeletons.sessionId, sessionId))
+        .run()
+      await tx.delete(schema.sessionPages).where(eq(schema.sessionPages.sessionId, sessionId)).run()
+      await tx
+        .delete(schema.imageGenerationHistories)
+        .where(eq(schema.imageGenerationHistories.sessionId, sessionId))
+        .run()
+      await tx
+        .delete(schema.memorySummaries)
+        .where(eq(schema.memorySummaries.sessionId, sessionId))
+        .run()
+      await tx.delete(schema.messages).where(eq(schema.messages.sessionId, sessionId)).run()
+      await tx
+        .delete(schema.generationPages)
+        .where(eq(schema.generationPages.sessionId, sessionId))
+        .run()
+      await tx
+        .delete(schema.generationRuns)
+        .where(eq(schema.generationRuns.sessionId, sessionId))
+        .run()
+      await tx.delete(schema.projects).where(eq(schema.projects.sessionId, sessionId)).run()
+      await tx.delete(schema.sessions).where(eq(schema.sessions.id, sessionId)).run()
+    })
   }
 
   // ========== Generation Records ==========

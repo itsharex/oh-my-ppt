@@ -221,6 +221,15 @@ export interface CreateSessionPayload {
   sourcePlan?: SourceDocumentPlan
 }
 
+export interface SaveSessionAsNewPayload {
+  sessionId: string
+  title: string
+}
+
+export interface SaveSessionAsNewResult {
+  sessionId: string
+}
+
 export interface ModelConfig {
   id: string
   name: string
@@ -286,6 +295,8 @@ export const ipc = {
   createSession: (payload: CreateSessionPayload) =>
     getIpc().invoke('session:create', payload) as Promise<{ sessionId: string }>,
   listSessions: () => getIpc().invoke('session:list') as Promise<unknown[]>,
+  saveSessionAsNew: (payload: SaveSessionAsNewPayload): Promise<SaveSessionAsNewResult> =>
+    getIpc().invoke('session:saveAsNew', payload) as Promise<SaveSessionAsNewResult>,
   getSession: (sessionId: string) =>
     getIpc().invoke('session:get', sessionId) as Promise<{
       session: unknown

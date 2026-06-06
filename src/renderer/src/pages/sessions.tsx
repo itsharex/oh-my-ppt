@@ -18,49 +18,70 @@ dayjs.extend(duration)
 
 const getSourceTag = (
   session: Session,
-  labels: { pptx: string; sessionFile: string; document: string; ai: string; thinking: string; template: string }
-): { label: string; Icon: LucideIcon; className: string } => {
+  labels: { pptx: string; sessionFile: string; saveAsNew: string; document: string; ai: string; thinking: string; template: string }
+): { label: string; Icon: LucideIcon; className: string; iconClassName: string } => {
   const metadata = parseSessionMetadata(session.metadata)
   const source = typeof metadata.source === 'string' ? metadata.source : ''
+  if (source === 'session-save-as-new') {
+    return {
+      label: labels.saveAsNew,
+      Icon: FileArchive,
+      className:
+        'border-[#6fc2aa]/50 bg-[#e8f8f3] text-[#1f6f5f] shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]',
+      iconClassName: 'text-[#189072]'
+    }
+  }
   if (source === 'template' || source === 'template-direct-edit' || session.model === 'template-direct-edit') {
     return {
       label: labels.template,
       Icon: LayoutTemplate,
-      className: 'border-[#e5bec7]/80 bg-[#fff1f4] text-[#80505c]'
+      className:
+        'border-[#e48aa5]/50 bg-[#fff0f5] text-[#8b3352] shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]',
+      iconClassName: 'text-[#c94672]'
     }
   }
   if (source === 'session-file-import' || session.model === 'session-file-import') {
     return {
       label: labels.sessionFile,
       Icon: FileArchive,
-      className: 'border-[#c7c2df]/80 bg-[#f3f0ff] text-[#5d5684]'
+      className:
+        'border-[#a798ee]/55 bg-[#f3f0ff] text-[#5642a2] shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]',
+      iconClassName: 'text-[#765ee0]'
     }
   }
   if (source === 'pptx-import' || session.provider === 'import' || session.model === 'pptx-import') {
     return {
       label: labels.pptx,
       Icon: FileUp,
-      className: 'border-[#bdd2e6]/80 bg-[#eef6ff] text-[#3e6685]'
+      className:
+        'border-[#74b6e5]/55 bg-[#eef8ff] text-[#286a9a] shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]',
+      iconClassName: 'text-[#2582c3]'
     }
   }
   if (source === 'thinking') {
     return {
       label: labels.thinking,
       Icon: MessagesSquare,
-      className: 'border-[#c7d9b7]/80 bg-[#f0f9e4] text-[#4a6b2e]'
+      className:
+        'border-[#82c86a]/55 bg-[#effbe9] text-[#38702c] shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]',
+      iconClassName: 'text-[#4a9e39]'
     }
   }
   if (session.referenceDocumentPath || session.reference_document_path) {
     return {
       label: labels.document,
       Icon: FileText,
-      className: 'border-[#cbd9b7]/80 bg-[#f3fae9] text-[#526f35]'
+      className:
+        'border-[#d0b157]/55 bg-[#fff8df] text-[#7b5d13] shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]',
+      iconClassName: 'text-[#ad7d10]'
     }
   }
   return {
     label: labels.ai,
     Icon: Sparkles,
-    className: 'border-[#e1d1b7]/80 bg-[#fff7e8] text-[#7c6a4c]'
+    className:
+      'border-[#f0a96b]/55 bg-[#fff3e6] text-[#8a5425] shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]',
+    iconClassName: 'text-[#d87721]'
   }
 }
 
@@ -267,12 +288,15 @@ export function SessionsPage(): React.JSX.Element {
             const sourceTag = getSourceTag(session, {
               pptx: t('sessions.sourcePptx'),
               sessionFile: t('sessions.sourceSessionFile'),
+              saveAsNew: t('sessions.sourceSaveAsNew'),
               document: t('sessions.sourceDocument'),
               ai: t('sessions.sourceAi'),
               thinking: t('sessions.sourceThinking'),
               template: t('sessions.sourceTemplate')
             })
             const SourceIcon = sourceTag.Icon
+            const sourceTagBaseClass =
+              'inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-[11px] font-semibold leading-none'
             const statusClassName = isFullyComplete
               ? 'border-[#bad8b7]/80 bg-[#eef9ec] text-[#4a7a46]'
               : isPartialComplete
@@ -351,8 +375,8 @@ export function SessionsPage(): React.JSX.Element {
                   <span className={`rounded-lg border px-2 py-1 font-semibold ${statusClassName}`}>
                     {statusText}
                   </span>
-                  <span className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 font-semibold ${sourceTag.className}`}>
-                    <SourceIcon className="h-3 w-3" />
+                  <span className={`${sourceTagBaseClass} ${sourceTag.className}`}>
+                    <SourceIcon className={`h-3.5 w-3.5 ${sourceTag.iconClassName}`} />
                     {sourceTag.label}
                   </span>
                   <span className="rounded-lg border border-[#e1d1b7]/80 bg-[#fff7e8]/75 px-2 py-1 text-[#7c6a4c]">

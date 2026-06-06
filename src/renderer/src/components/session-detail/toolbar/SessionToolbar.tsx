@@ -1,6 +1,7 @@
 import {
   Archive,
   ChevronDown,
+  CopyPlus,
   FileDown,
   FileSearch,
   Globe,
@@ -27,6 +28,7 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from '../../ui/Tooltip'
 import { useT } from '@renderer/i18n'
 import { SaveTemplateDialog } from '../../templates/SaveTemplateDialog'
+import { SaveAsNewSessionDialog } from './SaveAsNewSessionDialog'
 import { useSessionToolbarController } from './useSessionToolbarController'
 
 const btnClass =
@@ -53,9 +55,15 @@ export function SessionToolbar({
     sessionTitle,
     saveTemplateOpen,
     savingTemplate,
+    saveAsNewSessionOpen,
+    savingAsNewSession,
+    saveAsNewSessionDisabled,
     defaultTemplateName,
+    defaultSaveAsNewSessionName,
     setSaveTemplateOpen,
+    setSaveAsNewSessionOpen,
     handleSaveTemplate,
+    handleSaveAsNewSession,
     exportActions,
     openHistory
   } = useSessionToolbarController(sessionId)
@@ -263,6 +271,18 @@ export function SessionToolbar({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="min-w-[12rem]">
+              <DropdownMenuItem
+                disabled={saveAsNewSessionDisabled || !!isSavingEdits}
+                onClick={() => setSaveAsNewSessionOpen(true)}
+              >
+                {savingAsNewSession ? (
+                  <Loader2 className={cn(dropIconClass, 'animate-spin')} />
+                ) : (
+                  <CopyPlus className={dropIconClass} />
+                )}
+                {t('sessionDetail.saveAsNewSession')}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => setSaveTemplateOpen(true)}>
                 <LayoutTemplate className={dropIconClass} />
                 {t('sessionDetail.saveTemplate')}
@@ -284,6 +304,13 @@ export function SessionToolbar({
         saving={savingTemplate}
         onOpenChange={setSaveTemplateOpen}
         onSubmit={(payload) => void handleSaveTemplate(payload)}
+      />
+      <SaveAsNewSessionDialog
+        open={saveAsNewSessionOpen}
+        defaultName={defaultSaveAsNewSessionName}
+        saving={savingAsNewSession}
+        onOpenChange={setSaveAsNewSessionOpen}
+        onSubmit={(payload) => void handleSaveAsNewSession(payload)}
       />
     </>
   )

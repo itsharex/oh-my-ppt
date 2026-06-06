@@ -7,6 +7,7 @@ import {
   useTemplateStore,
   useToastStore
 } from '@renderer/store'
+import { ipc } from '@renderer/lib/ipc'
 import { useT } from '@renderer/i18n'
 import { normalizePagesForSelection } from '../shared/pageUtils'
 import { useSessionExportActions } from '../hooks/useSessionExportActions'
@@ -15,6 +16,7 @@ export function useSessionToolbarController(sessionId: string) {
   const t = useT()
   const navigate = useNavigate()
   const currentSession = useSessionStore((state) => state.currentSession)
+  const fetchSessions = useSessionStore((state) => state.fetchSessions)
   const currentPages = useGenerateStore((state) => state.currentPages)
   const isGenerating = useGenerateStore((state) => state.isGenerating)
   const selectedPageId = useSessionDetailUiStore((state) => state.selectedPageId)
@@ -27,6 +29,8 @@ export function useSessionToolbarController(sessionId: string) {
   const exportActions = useSessionExportActions(sessionId)
   const [saveTemplateOpen, setSaveTemplateOpen] = useState(false)
   const [savingTemplate, setSavingTemplate] = useState(false)
+  const [saveAsNewSessionOpen, setSaveAsNewSessionOpen] = useState(false)
+  const [savingAsNewSession, setSavingAsNewSession] = useState(false)
 
   const pages = useMemo(() => normalizePagesForSelection(currentPages), [currentPages])
   const selectedPage = useMemo(
@@ -43,6 +47,7 @@ export function useSessionToolbarController(sessionId: string) {
     isRetryingSinglePage ||
     isManagingPages ||
     sessionStatus === 'active'
+  const saveAsNewSessionDisabled = historyDisabled || savingAsNewSession
 
   const handleSaveTemplate = async (payload: {
     name: string
@@ -72,6 +77,29 @@ export function useSessionToolbarController(sessionId: string) {
     }
   }
 
+  const handleSaveAsNewSession = async (payload: { title: string }): Promise<void> => {
+    const title = payload.title.trim()
+    if (!sessionId || savingAsNewSession || saveAsNewSessionDisabled) return
+    if (!title) {
+      toastError(t('sessionDetail.saveAsNewSessionTitleRequired'))
+      return
+    }
+    setSavingAsNewSession(true)
+    try {
+      await ipc.saveSessionAsNew({ sessionId, title })
+      await fetchSessions()
+      toastSuccess(t('sessionDetail.saveAsNewSessionSuccess'))
+      setSaveAsNewSessionOpen(false)
+      navigate('/sessions')
+    } catch (err) {
+      toastError(t('sessionDetail.saveAsNewSessionFailed'), {
+        description: err instanceof Error ? err.message : t('common.retryLater')
+      })
+    } finally {
+      setSavingAsNewSession(false)
+    }
+  }
+
   return {
     hasPages: pages.length > 0,
     isGenerating,
@@ -81,9 +109,17 @@ export function useSessionToolbarController(sessionId: string) {
     sessionTitle: currentSession?.title || '',
     saveTemplateOpen,
     savingTemplate,
+    saveAsNewSessionOpen,
+    savingAsNewSession,
+    saveAsNewSessionDisabled,
     defaultTemplateName: currentSession?.title || '未命名模板',
+    defaultSaveAsNewSessionName: t('sessionDetail.saveAsNewSessionDefaultName', {
+      title: currentSession?.title || t('sessionDetail.sessionFallback')
+    }),
     setSaveTemplateOpen,
+    setSaveAsNewSessionOpen,
     handleSaveTemplate,
+    handleSaveAsNewSession,
     exportActions,
     openHistory: () => {
       if (!historyDisabled) setHistoryDialogOpen(true)
