@@ -1,8 +1,8 @@
 import { memo } from 'react'
 import { cn } from '@renderer/lib/utils'
-import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/Tooltip'
-import { PreviewIframe } from '../preview/PreviewIframe'
-import type { SessionPreviewPage } from './types'
+import { Tooltip, TooltipContent, TooltipTrigger } from '../../ui/Tooltip'
+import { PreviewIframe } from '../../preview/PreviewIframe'
+import type { SessionPreviewPage } from '../shared/types'
 import { useT } from '@renderer/i18n'
 
 export const PageThumbnail = memo(function PageThumbnail({
@@ -86,23 +86,23 @@ export const PageThumbnail = memo(function PageThumbnail({
             <div className="relative mt-1.5 flex items-center justify-between gap-1 px-0.5">
               <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[#5c6c47]">
                 P{page.pageNumber}
-            </span>
-            {isSelected ? (
-              <span className="rounded-full bg-[#5d6b4d] px-1.5 py-0.5 text-[9px] font-semibold text-white shadow-[0_3px_8px_rgba(62,74,50,0.18)]">
-                {t('sessionDetail.current')}
               </span>
-            ) : null}
-          </div>
-          <div
-            className="relative mt-0.5 block w-full min-w-0 max-w-full overflow-hidden whitespace-normal break-words px-0.5 text-[11px] font-medium leading-4 text-[#4c5d3d]"
-            style={{
-              display: '-webkit-box',
-              WebkitLineClamp: 2,
-              WebkitBoxOrient: 'vertical'
-            }}
-          >
-            {page.title}
-          </div>
+              {isSelected ? (
+                <span className="rounded-full bg-[#5d6b4d] px-1.5 py-0.5 text-[9px] font-semibold text-white shadow-[0_3px_8px_rgba(62,74,50,0.18)]">
+                  {t('sessionDetail.current')}
+                </span>
+              ) : null}
+            </div>
+            <div
+              className="relative mt-0.5 block w-full min-w-0 max-w-full overflow-hidden whitespace-normal break-words px-0.5 text-[11px] font-medium leading-4 text-[#4c5d3d]"
+              style={{
+                display: '-webkit-box',
+                WebkitLineClamp: 2,
+                WebkitBoxOrient: 'vertical'
+              }}
+            >
+              {page.title}
+            </div>
           </div>
         </TooltipTrigger>
         {pageInfoTooltip}

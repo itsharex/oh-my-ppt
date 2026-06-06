@@ -1,6 +1,6 @@
 import { MousePointer2 } from 'lucide-react'
 import { useT } from '@renderer/i18n'
-import { InspectorSection } from '../../session-detail/element-inspector/InspectorSection'
+import { InspectorSection } from '../../element-inspector/InspectorSection'
 import { WorkbenchPanelShell } from './WorkbenchPanelShell'
 
 export function EmptyEditWorkbenchPanel(): React.JSX.Element {

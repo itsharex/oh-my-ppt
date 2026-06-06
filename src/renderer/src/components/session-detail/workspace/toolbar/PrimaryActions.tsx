@@ -1,7 +1,7 @@
 import { Check, Home, Loader2, Redo2, Undo2 } from 'lucide-react'
 import { cn } from '@renderer/lib/utils'
 import { useT } from '@renderer/i18n'
-import { Tooltip, TooltipContent, TooltipTrigger } from '../../ui/Tooltip'
+import { Tooltip, TooltipContent, TooltipTrigger } from '../../../ui/Tooltip'
 
 export function PrimaryActions({
   disabled,

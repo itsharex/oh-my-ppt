@@ -29,8 +29,7 @@ export function MessagePanel({
   onCancelImageGeneration,
   onAddGeneratedImageToCanvas,
   onSetGeneratedImageAsBackground,
-  onRevealImageFile,
-  cleanMessageContent
+  onRevealImageFile
 }: {
   sessionId?: string
   selectedPageExists: boolean
@@ -50,7 +49,6 @@ export function MessagePanel({
   onAddGeneratedImageToCanvas: (asset: GeneratedImageAsset) => void
   onSetGeneratedImageAsBackground: (asset: GeneratedImageAsset) => void
   onRevealImageFile: (filePath: string) => void
-  cleanMessageContent: (content: string) => string
 }): React.JSX.Element {
   const t = useT()
   const aiPanelMode = useSessionDetailUiStore((state) => state.aiPanelMode)
@@ -112,7 +110,6 @@ export function MessagePanel({
           onChooseAssets={onChooseAssets}
           onSend={onSend}
           onCancel={onCancel}
-          cleanMessageContent={cleanMessageContent}
         />
       )}
     </aside>

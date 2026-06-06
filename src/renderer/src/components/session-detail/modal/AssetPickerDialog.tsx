@@ -9,8 +9,8 @@ import {
   DialogHeader,
   DialogTitle,
   DialogDescription
-} from '../ui/Dialog'
-import { Button } from '../ui/Button'
+} from '../../ui/Dialog'
+import { Button } from '../../ui/Button'
 import { useT } from '@renderer/i18n'
 
 interface AssetEntry {
@@ -30,7 +30,13 @@ function CheckIcon({ checked }: { checked: boolean }): React.JSX.Element {
       )}
     >
       <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-        <path d="M2.5 6L5 8.5L9.5 3.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+        <path
+          d="M2.5 6L5 8.5L9.5 3.5"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
       </svg>
     </div>
   )

@@ -1,14 +1,7 @@
 import { AlignCenter, AlignJustify, AlignLeft, AlignRight, Type } from 'lucide-react'
 import { RichTextBox } from '../../ui/RichTextBox'
-import {
-  ToggleGroup,
-  ToggleGroupItem
-} from '../../ui/ToggleGroup'
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger
-} from '../../ui/Tooltip'
+import { ToggleGroup, ToggleGroupItem } from '../../ui/ToggleGroup'
+import { Tooltip, TooltipContent, TooltipTrigger } from '../../ui/Tooltip'
 import { InspectorSection } from './InspectorSection'
 import type { ElementEditorProps } from './types'
 import { useT } from '@renderer/i18n'
@@ -26,10 +19,7 @@ function getPreviewScale(fontSize: string): number | undefined {
   return 1 / 3
 }
 
-export function TextInspector({
-  draft,
-  onDraftChange
-}: ElementEditorProps): React.JSX.Element {
+export function TextInspector({ draft, onDraftChange }: ElementEditorProps): React.JSX.Element {
   const t = useT()
   const textAlign = draft.textAlign || 'left'
   const previewScale = getPreviewScale(draft.fontSize)
@@ -75,10 +65,7 @@ export function TextInspector({
             value={textAlign}
             onValueChange={(value) => {
               if (!value) return
-              onDraftChange(
-                { ...draft, textAlign: value },
-                { commit: true, fields: ['textAlign'] }
-              )
+              onDraftChange({ ...draft, textAlign: value }, { commit: true, fields: ['textAlign'] })
             }}
             aria-label={t('sessionDetail.textAlign')}
             className="inline-flex overflow-hidden rounded-[9px] border border-[#d9cfbd]/72 bg-[#fffaf1]/90 p-0.5 shadow-[inset_0_1px_2px_rgba(77,63,46,0.06)]"

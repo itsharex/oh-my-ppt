@@ -2,17 +2,16 @@ import dayjs from 'dayjs'
 import { Image as ImageIcon, Video } from 'lucide-react'
 import { cn } from '@renderer/lib/utils'
 import type { Message } from '@renderer/store'
-import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/Tooltip'
+import { Tooltip, TooltipContent, TooltipTrigger } from '../../ui/Tooltip'
 import { useT } from '@renderer/i18n'
 
-export function MessageBubble({
-  message,
-  cleanMessageContent
-}: {
-  message: Message
-  cleanMessageContent: (content: string) => string
-}): React.JSX.Element {
+export function MessageBubble({ message }: { message: Message }): React.JSX.Element {
   const t = useT()
+  const cleanMessageContent = (content: string): string =>
+    content.replace(
+      /[（(](?:目标)?选择器[:：]\s*[^）\n]{8,}[）)]/g,
+      t('sessionDetail.selectorLocated')
+    )
   const isUser = message.role === 'user'
   const selectorText =
     typeof message.selector === 'string' && message.selector.trim().length > 0

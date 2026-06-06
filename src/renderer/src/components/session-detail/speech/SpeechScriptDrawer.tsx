@@ -1,52 +1,30 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Check, Copy, FileText, Loader2, X } from 'lucide-react'
 import { cn } from '@renderer/lib/utils'
-import { Button } from '../ui/Button'
-import { useModelAction } from '@renderer/hooks/useModelAction'
-import { ModelSplitButton } from '../model/ModelActionButton'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue
-} from '../ui/Select'
+import { Button } from '../../ui/Button'
+import { ModelSplitButton } from '../../model/ModelActionButton'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../ui/Select'
 import { useT } from '@renderer/i18n'
 import { ipc } from '@renderer/lib/ipc'
-import type {
-  SpeechConfig,
-  SpeechLength,
-  SpeechScope,
-  SpeechStyle
-} from '@shared/speech'
+import type { SpeechConfig, SpeechLength, SpeechScope, SpeechStyle } from '@shared/speech'
+import { useSpeechScriptDrawerController } from './useSpeechScriptDrawerController'
 
 export type { SpeechConfig }
 
-interface SpeechScriptDrawerProps {
-  sessionId: string
-  isGenerating: boolean
-  speechProgress: { current: number; total: number } | null
-  speechConfig: SpeechConfig
-  onConfigChange: (config: SpeechConfig) => void
-  onGenerate: (config: SpeechConfig) => void
-  onClose: () => void
-  currentPageNumber?: number
-  currentPageTitle?: string
-}
-
-export function SpeechScriptDrawer({
-  sessionId,
-  isGenerating,
-  speechProgress,
-  speechConfig,
-  onConfigChange,
-  onGenerate,
-  onClose,
-  currentPageNumber,
-  currentPageTitle
-}: SpeechScriptDrawerProps): React.JSX.Element {
+export function SpeechScriptDrawer({ sessionId }: { sessionId: string }): React.JSX.Element | null {
   const t = useT()
-  const modelAction = useModelAction()
+  const {
+    open,
+    isGenerating,
+    speechProgress,
+    speechConfig,
+    modelAction,
+    currentPageNumber,
+    currentPageTitle,
+    setSpeechConfig,
+    generate,
+    close
+  } = useSpeechScriptDrawerController(sessionId)
   const [script, setScript] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
 
@@ -79,7 +57,10 @@ export function SpeechScriptDrawer({
           .replace(/\s+/g, ' ')
           .trim()
           .toLowerCase()
-        if (pageNumber && new RegExp(`(?:第\\s*${pageNumber}\\s*页|slide\\s*${pageNumber}\\b)`, 'i').test(heading)) {
+        if (
+          pageNumber &&
+          new RegExp(`(?:第\\s*${pageNumber}\\s*页|slide\\s*${pageNumber}\\b)`, 'i').test(heading)
+        ) {
           return true
         }
         return Boolean(title) && heading.includes(title)
@@ -105,7 +86,7 @@ export function SpeechScriptDrawer({
   }, [isGenerating, loadScript])
 
   const handleScopeChange = (scope: SpeechScope): void => {
-    onConfigChange({ ...speechConfig, scope })
+    setSpeechConfig({ ...speechConfig, scope })
   }
 
   const generationLabel =
@@ -151,9 +132,11 @@ export function SpeechScriptDrawer({
 
   const handleGenerate = (modelConfigId: string): void => {
     const nextConfig = { ...speechConfig, modelConfigId }
-    onConfigChange(nextConfig)
-    onGenerate(nextConfig)
+    setSpeechConfig(nextConfig)
+    generate(nextConfig)
   }
+
+  if (!open || !sessionId) return null
 
   return (
     <aside className="mr-3 mb-3 mt-1 flex min-h-0 w-[300px] shrink-0 flex-col overflow-hidden rounded-[2rem] border border-[#ded2bd]/60 bg-[#f3ecdf]/76 shadow-[0_20px_44px_rgba(74,59,42,0.13)] backdrop-blur-xl">
@@ -167,7 +150,7 @@ export function SpeechScriptDrawer({
           <button
             type="button"
             aria-label={t('sessionDetail.closeSpeechDrawer')}
-            onClick={onClose}
+            onClick={close}
             className="rounded-md p-1 text-[#9a8f80] transition-colors hover:bg-[#ebe4d6]/80 hover:text-[#3e4a32]"
           >
             <X className="h-3.5 w-3.5" />
@@ -200,7 +183,7 @@ export function SpeechScriptDrawer({
       <p className="shrink-0 px-3 pt-2.5 text-[11px] text-[#9a8f80]">
         {speechConfig.scope === 'all'
           ? t('sessionDetail.speechScriptScopeAllDesc')
-          : (currentPageTitle || t('sessionDetail.speechScriptScopeSingleDesc'))}
+          : currentPageTitle || t('sessionDetail.speechScriptScopeSingleDesc')}
       </p>
 
       {/* Config card (fixed, no scroll) */}
@@ -212,7 +195,7 @@ export function SpeechScriptDrawer({
           </span>
           <Select
             value={speechConfig.style}
-            onValueChange={(v) => onConfigChange({ ...speechConfig, style: v as SpeechStyle })}
+            onValueChange={(v) => setSpeechConfig({ ...speechConfig, style: v as SpeechStyle })}
           >
             <SelectTrigger className="h-8 flex-1 border-[#d8ccb5]/60 bg-[#fffdf8]/60 text-xs">
               <SelectValue />
@@ -221,15 +204,11 @@ export function SpeechScriptDrawer({
               <SelectItem value="conversational">
                 {t('sessionDetail.speechScriptStyleConversational')}
               </SelectItem>
-              <SelectItem value="formal">
-                {t('sessionDetail.speechScriptStyleFormal')}
-              </SelectItem>
+              <SelectItem value="formal">{t('sessionDetail.speechScriptStyleFormal')}</SelectItem>
               <SelectItem value="storytelling">
                 {t('sessionDetail.speechScriptStyleStorytelling')}
               </SelectItem>
-              <SelectItem value="custom">
-                {t('sessionDetail.speechScriptStyleCustom')}
-              </SelectItem>
+              <SelectItem value="custom">{t('sessionDetail.speechScriptStyleCustom')}</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -242,7 +221,7 @@ export function SpeechScriptDrawer({
               rows={2}
               placeholder={t('sessionDetail.speechScriptStyleCustomPlaceholder')}
               value={speechConfig.customStyle ?? ''}
-              onChange={(e) => onConfigChange({ ...speechConfig, customStyle: e.target.value })}
+              onChange={(e) => setSpeechConfig({ ...speechConfig, customStyle: e.target.value })}
             />
           </div>
         )}
@@ -254,7 +233,7 @@ export function SpeechScriptDrawer({
           </span>
           <Select
             value={speechConfig.length}
-            onValueChange={(v) => onConfigChange({ ...speechConfig, length: v as SpeechLength })}
+            onValueChange={(v) => setSpeechConfig({ ...speechConfig, length: v as SpeechLength })}
           >
             <SelectTrigger className="h-8 flex-1 border-[#d8ccb5]/60 bg-[#fffdf8]/60 text-xs">
               <SelectValue />
@@ -297,9 +276,7 @@ export function SpeechScriptDrawer({
       {isGenerating ? (
         <div className="flex flex-col items-center gap-2 py-8">
           <Loader2 className="h-5 w-5 animate-spin text-[#6f8159]" />
-          <p className="text-center text-xs text-[#7a6b56]">
-            {generationLabel}
-          </p>
+          <p className="text-center text-xs text-[#7a6b56]">{generationLabel}</p>
         </div>
       ) : visibleScript ? (
         <div className="flex min-h-0 flex-1 flex-col gap-2 px-2.5 pb-3">
@@ -316,9 +293,7 @@ export function SpeechScriptDrawer({
               onClick={() => void handleCopy()}
             >
               {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-              {copied
-                ? t('sessionDetail.speechScriptCopied')
-                : t('sessionDetail.speechScriptCopy')}
+              {copied ? t('sessionDetail.speechScriptCopied') : t('sessionDetail.speechScriptCopy')}
             </Button>
             <Button
               variant="outline"

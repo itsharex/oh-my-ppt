@@ -7,8 +7,8 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger
-} from '../../../ui/DropdownMenu'
-import { Popover, PopoverContent, PopoverTrigger } from '../../../ui/Popover'
+} from '../../../../ui/DropdownMenu'
+import { Popover, PopoverContent, PopoverTrigger } from '../../../../ui/Popover'
 import type { InsertAssetType } from '../types'
 import { ToolRowShell } from './ToolRowShell'
 import type { ToolRowProps } from './types'

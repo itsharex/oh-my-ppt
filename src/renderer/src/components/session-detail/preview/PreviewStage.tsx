@@ -1,10 +1,10 @@
 import { useEffect, forwardRef } from 'react'
 import { Loader2, Sparkles } from 'lucide-react'
 import { useSessionDetailUiStore } from '@renderer/store'
-import { PreviewIframe, type PreviewIframeHandle } from '../preview/PreviewIframe'
-import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/Tooltip'
-import type { EditModeMovePayload, EditSelectionPayload } from '../preview/edit-mode-script'
-import type { SessionPreviewPage } from './types'
+import { PreviewIframe, type PreviewIframeHandle } from '../../preview/PreviewIframe'
+import { Tooltip, TooltipContent, TooltipTrigger } from '../../ui/Tooltip'
+import type { EditModeMovePayload, EditSelectionPayload } from '../../preview/edit-mode-script'
+import type { SessionPreviewPage } from '../shared/types'
 import { useT } from '@renderer/i18n'
 
 export const PreviewStage = forwardRef<
@@ -59,7 +59,9 @@ export const PreviewStage = forwardRef<
       const target = event.target
       const isEditableTarget =
         target instanceof Element &&
-        Boolean(target.closest('input, textarea, select, [contenteditable="true"], [contenteditable=""]'))
+        Boolean(
+          target.closest('input, textarea, select, [contenteditable="true"], [contenteditable=""]')
+        )
       if (isEditing && !isEditableTarget && (event.metaKey || event.ctrlKey)) {
         const key = event.key.toLowerCase()
         if (key === 'z') {

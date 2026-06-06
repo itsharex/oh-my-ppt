@@ -1,17 +1,17 @@
 import { X } from 'lucide-react'
-import type { EditSelectionPayload } from '../preview/edit-mode-script'
-import { AppearanceInspector } from './element-inspector/AppearanceInspector'
-import { ArtTextInspector } from './element-inspector/ArtTextInspector'
-import { InspectorActions } from './element-inspector/InspectorActions'
-import { LayerInspector } from './element-inspector/LayerInspector'
-import { LayoutInspector } from './element-inspector/LayoutInspector'
-import { MediaInspector } from './element-inspector/MediaInspector'
-import { TextInspector } from './element-inspector/TextInspector'
-import type { ElementEditDraft } from './element-inspector/types'
-import { getElementKindLabel, hasCapability, isArtTextSelection } from './element-inspector/types'
+import type { EditSelectionPayload } from '../../preview/edit-mode-script'
+import { AppearanceInspector } from './AppearanceInspector'
+import { ArtTextInspector } from './ArtTextInspector'
+import { InspectorActions } from './InspectorActions'
+import { LayerInspector } from './LayerInspector'
+import { LayoutInspector } from './LayoutInspector'
+import { MediaInspector } from './MediaInspector'
+import { TextInspector } from './TextInspector'
+import type { ElementEditDraft } from './types'
+import { getElementKindLabel, hasCapability, isArtTextSelection } from './types'
 import { useT } from '@renderer/i18n'
 
-export type { ElementEditDraft } from './element-inspector/types'
+export type { ElementEditDraft } from './types'
 
 export function ElementInspectorPanel({
   selection,

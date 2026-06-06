@@ -82,7 +82,10 @@ export function MediaInspector({
               value={draft.alt}
               onChange={(event) => onDraftChange({ ...draft, alt: event.target.value })}
               onBlur={(event) =>
-                onDraftChange({ ...draft, alt: event.target.value }, { commit: true, fields: ['alt'] })
+                onDraftChange(
+                  { ...draft, alt: event.target.value },
+                  { commit: true, fields: ['alt'] }
+                )
               }
               className="h-8 rounded-full border border-[#ded2bd]/72 bg-[#fffdf8]/88 px-2.5 text-xs text-[#3f4b35] shadow-[inset_0_1px_2px_rgba(74,59,42,0.05)] focus-visible:border-[#9bb98a] focus-visible:ring-0 focus-visible:ring-offset-0"
             />

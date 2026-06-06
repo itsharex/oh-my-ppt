@@ -47,6 +47,12 @@ interface SessionDetailUiStore {
   assetDragActive: boolean
   isUploadingAssets: boolean
   addPageDialogOpen: boolean
+  blankPageDialogOpen: boolean
+  blankPageSourceId: string
+  historyDialogOpen: boolean
+  pageTitleEditPageId: string | null
+  pageTitleEditDraft: string
+  deleteConfirmPageId: string | null
   isAddingPage: boolean
   isRetryingSinglePage: boolean
   isManagingPages: boolean
@@ -96,6 +102,14 @@ interface SessionDetailUiStore {
   setIsUploadingAssets: (isUploading: boolean) => void
   bumpThumbnailVersion: (pageId: string) => void
   setAddPageDialogOpen: (open: boolean) => void
+  setBlankPageDialogOpen: (open: boolean) => void
+  setBlankPageSourceId: (pageId: string) => void
+  openBlankPageDialog: (sourcePageId: string) => void
+  setHistoryDialogOpen: (open: boolean) => void
+  openPageTitleEdit: (pageId: string, title: string) => void
+  setPageTitleEditDraft: (title: string) => void
+  closePageTitleEdit: () => void
+  setDeleteConfirmPageId: (pageId: string | null) => void
   setIsAddingPage: (adding: boolean) => void
   setIsRetryingSinglePage: (retrying: boolean) => void
   setIsManagingPages: (managing: boolean) => void
@@ -142,6 +156,12 @@ export const useSessionDetailUiStore = create<SessionDetailUiStore>((set) => ({
   assetDragActive: false,
   isUploadingAssets: false,
   addPageDialogOpen: false,
+  blankPageDialogOpen: false,
+  blankPageSourceId: '',
+  historyDialogOpen: false,
+  pageTitleEditPageId: null,
+  pageTitleEditDraft: '',
+  deleteConfirmPageId: null,
   isAddingPage: false,
   isRetryingSinglePage: false,
   isManagingPages: false,
@@ -151,7 +171,11 @@ export const useSessionDetailUiStore = create<SessionDetailUiStore>((set) => ({
   isGeneratingSpeechScript: false,
   speechProgress: null,
   speechScriptDialogOpen: false,
-  speechConfig: { scope: 'all' as const, length: 'medium' as const, style: 'conversational' as const },
+  speechConfig: {
+    scope: 'all' as const,
+    length: 'medium' as const,
+    style: 'conversational' as const
+  },
 
   setInput: (input) => set({ input }),
   setAiPanelMode: (aiPanelMode) => set({ aiPanelMode }),
@@ -190,7 +214,8 @@ export const useSessionDetailUiStore = create<SessionDetailUiStore>((set) => ({
         }
       }
     }),
-  setSelectedImageModelConfigId: (selectedImageModelConfigId) => set({ selectedImageModelConfigId }),
+  setSelectedImageModelConfigId: (selectedImageModelConfigId) =>
+    set({ selectedImageModelConfigId }),
   setImageSize: (imageSize) => set({ imageSize }),
   setImageCount: (imageCount) => set({ imageCount: Math.max(1, Math.min(4, imageCount)) }),
   setIsGeneratingImage: (isGeneratingImage) => set({ isGeneratingImage }),
@@ -245,6 +270,22 @@ export const useSessionDetailUiStore = create<SessionDetailUiStore>((set) => ({
       }
     })),
   setAddPageDialogOpen: (addPageDialogOpen) => set({ addPageDialogOpen }),
+  setBlankPageDialogOpen: (blankPageDialogOpen) => set({ blankPageDialogOpen }),
+  setBlankPageSourceId: (blankPageSourceId) => set({ blankPageSourceId }),
+  openBlankPageDialog: (blankPageSourceId) =>
+    set({
+      blankPageSourceId,
+      blankPageDialogOpen: true
+    }),
+  setHistoryDialogOpen: (historyDialogOpen) => set({ historyDialogOpen }),
+  openPageTitleEdit: (pageTitleEditPageId, pageTitleEditDraft) =>
+    set({
+      pageTitleEditPageId,
+      pageTitleEditDraft
+    }),
+  setPageTitleEditDraft: (pageTitleEditDraft) => set({ pageTitleEditDraft }),
+  closePageTitleEdit: () => set({ pageTitleEditPageId: null, pageTitleEditDraft: '' }),
+  setDeleteConfirmPageId: (deleteConfirmPageId) => set({ deleteConfirmPageId }),
   setIsAddingPage: (isAddingPage) => set({ isAddingPage }),
   setIsRetryingSinglePage: (isRetryingSinglePage) => set({ isRetryingSinglePage }),
   setIsManagingPages: (isManagingPages) => set({ isManagingPages }),
@@ -298,6 +339,12 @@ export const useSessionDetailUiStore = create<SessionDetailUiStore>((set) => ({
       isUploadingAssets: false,
       thumbnailVersions: {},
       addPageDialogOpen: false,
+      blankPageDialogOpen: false,
+      blankPageSourceId: '',
+      historyDialogOpen: false,
+      pageTitleEditPageId: null,
+      pageTitleEditDraft: '',
+      deleteConfirmPageId: null,
       isAddingPage: false,
       isRetryingSinglePage: false,
       isManagingPages: false,
@@ -306,6 +353,10 @@ export const useSessionDetailUiStore = create<SessionDetailUiStore>((set) => ({
       isGeneratingSpeechScript: false,
       speechProgress: null,
       speechScriptDialogOpen: false,
-      speechConfig: { scope: 'all' as const, length: 'medium' as const, style: 'conversational' as const }
+      speechConfig: {
+        scope: 'all' as const,
+        length: 'medium' as const,
+        style: 'conversational' as const
+      }
     })
 }))

@@ -7,10 +7,7 @@ import { useT } from '@renderer/i18n'
 const MIN_Z_INDEX = -999
 const MAX_Z_INDEX = 9999
 
-export function LayerInspector({
-  draft,
-  onDraftChange
-}: ElementEditorProps): React.JSX.Element {
+export function LayerInspector({ draft, onDraftChange }: ElementEditorProps): React.JSX.Element {
   const t = useT()
   return (
     <InspectorSection

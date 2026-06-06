@@ -56,7 +56,9 @@ export function AppearanceInspector({
               />
               <Input
                 value={draft.backgroundColor}
-                onChange={(event) => onDraftChange({ ...draft, backgroundColor: event.target.value })}
+                onChange={(event) =>
+                  onDraftChange({ ...draft, backgroundColor: event.target.value })
+                }
                 onBlur={(event) =>
                   onDraftChange(
                     { ...draft, backgroundColor: event.target.value },

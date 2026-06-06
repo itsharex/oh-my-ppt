@@ -1,21 +1,30 @@
 import { useEffect, useRef } from 'react'
-import { FileText, Image as ImageIcon, Loader2, Plus, Send, StopCircle, Video, X } from 'lucide-react'
+import {
+  FileText,
+  Image as ImageIcon,
+  Loader2,
+  Plus,
+  Send,
+  StopCircle,
+  Video,
+  X
+} from 'lucide-react'
 import { cn } from '@renderer/lib/utils'
 import { useModelAction } from '@renderer/hooks/useModelAction'
 import { useSessionDetailUiStore, useSessionStore } from '@renderer/store'
-import { Button } from '../ui/Button'
-import { ModelSplitButton } from '../model/ModelActionButton'
+import { Button } from '../../ui/Button'
+import { ModelSplitButton } from '../../model/ModelActionButton'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger
-} from '../ui/DropdownMenu'
-import { Textarea } from '../ui/Input'
-import { Progress } from '../ui/Progress'
-import { ScrollArea } from '../ui/ScrollArea'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/Select'
-import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/Tooltip'
+} from '../../ui/DropdownMenu'
+import { Textarea } from '../../ui/Input'
+import { Progress } from '../../ui/Progress'
+import { ScrollArea } from '../../ui/ScrollArea'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../ui/Select'
+import { Tooltip, TooltipContent, TooltipTrigger } from '../../ui/Tooltip'
 import { MessageBubble } from './MessageBubble'
 import { useT } from '@renderer/i18n'
 
@@ -33,8 +42,7 @@ export function ChatPanel({
   onDropFiles,
   onChooseAssets,
   onSend,
-  onCancel,
-  cleanMessageContent
+  onCancel
 }: {
   selectedPageExists: boolean
   selectedPageNumber?: number | null
@@ -45,7 +53,6 @@ export function ChatPanel({
   onChooseAssets: (assetType: 'image' | 'video') => void
   onSend: (modelConfigId: string) => void
   onCancel: () => void
-  cleanMessageContent: (content: string) => string
 }): React.JSX.Element {
   const t = useT()
   const modelAction = useModelAction()
@@ -87,10 +94,7 @@ export function ChatPanel({
     return last
   })()
   const selectorSummary = selectedSelector
-    ? [
-        displayLabel,
-        elementTag ? `<${elementTag}>${elementText ? ` ${elementText}` : ''}` : ''
-      ]
+    ? [displayLabel, elementTag ? `<${elementTag}>${elementText ? ` ${elementText}` : ''}` : '']
         .filter(Boolean)
         .join(' · ')
     : ''
@@ -124,7 +128,9 @@ export function ChatPanel({
       <div className="relative mx-2.5 mt-2.5 overflow-hidden rounded-[1.35rem] border border-[#e1d6c4]/72 bg-[#fffaf1]/78 px-3 pb-2.5 pt-3 shadow-[0_4px_12px_rgba(77,61,43,0.06)]">
         <div className="pointer-events-none absolute -right-8 -top-10 h-28 w-28 rounded-[30%_70%_70%_30%/30%_30%_70%_70%] bg-[#c7d9b4]/12" />
         <div className="relative flex flex-col gap-2">
-          <h3 className="text-sm font-semibold tracking-[0.04em] text-[#34402c]">{t('sessionDetail.messageTitle')}</h3>
+          <h3 className="text-sm font-semibold tracking-[0.04em] text-[#34402c]">
+            {t('sessionDetail.messageTitle')}
+          </h3>
           <div className="flex items-center justify-between gap-2 text-xs text-[#6d604d]">
             <span>{t('sessionDetail.context')}</span>
             <Select
@@ -157,12 +163,14 @@ export function ChatPanel({
         ) : (
           <div className="flex min-h-full flex-col justify-end gap-2.5">
             {messages.map((msg) => (
-              <MessageBubble key={msg.id} message={msg} cleanMessageContent={cleanMessageContent} />
+              <MessageBubble key={msg.id} message={msg} />
             ))}
 
             {isGenerating && progress && (
               <div className="rounded-[1.15rem] border border-[#ded2bd]/72 bg-[#fffaf1]/82 px-3 py-2 shadow-[0_6px_14px_rgba(74,59,42,0.08)]">
-                <p className="mb-2 text-sm text-[#655843]">{progress.label || t('sessionDetail.modelProcessing')}</p>
+                <p className="mb-2 text-sm text-[#655843]">
+                  {progress.label || t('sessionDetail.modelProcessing')}
+                </p>
                 <Progress value={progress.progress} />
               </div>
             )}
