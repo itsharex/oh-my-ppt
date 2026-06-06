@@ -269,7 +269,7 @@ export function TemplatesPage(): React.JSX.Element {
       {templates.length === 0 ? (
         <TemplateEmptyState />
       ) : (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
           {templates.map((template) => (
             <TemplateCard
               key={template.id}

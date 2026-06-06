@@ -31,7 +31,7 @@ export function TemplateCard({
   const t = useT()
 
   return (
-    <Card className="group !rounded-lg border-[#ded2bd]/55 bg-[#fffdf8]/68 shadow-none transition-all duration-200 ease-out hover:-translate-y-0.5 hover:border-[#cfc4b1]/85 hover:bg-[#fffaf1]/82 hover:shadow-[0_10px_22px_rgba(88,75,56,0.10)]">
+    <Card className="group !rounded-lg transition-all duration-200 ease-out hover:-translate-y-0.5 hover:shadow-[0_16px_30px_rgba(88,75,56,0.18)]">
       <CardHeader className="pb-2">
         <CardTitle className="flex items-start justify-between gap-3 text-base">
           <span className="min-w-0 truncate text-[#3e4a32]">{template.name}</span>
