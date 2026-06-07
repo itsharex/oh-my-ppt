@@ -40,7 +40,7 @@ export function registerHistoryHandlers(ctx: IpcContext): void {
           : ''
       if (!sessionId || !versionId) throw new Error('缺少历史版本参数')
       const runState = sessionRunStates.get(sessionId)
-      if (runState?.status === 'running') {
+      if (runState?.status === 'queued' || runState?.status === 'running') {
         throw new Error('当前会话正在生成或编辑，暂时不能回退。')
       }
       const projectDir = await resolveSessionProjectDir(sessionId)

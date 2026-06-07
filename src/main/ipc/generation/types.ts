@@ -2,6 +2,7 @@ import type { PPTDatabase } from '../../db/database'
 import type { AgentManager } from '../../agent'
 import type { ModelTimeoutProfile } from '@shared/model-timeout'
 import type { FontSelection } from '@shared/generation'
+import type { SourceDocumentPlan } from '@shared/generation'
 import type { DesignContract } from '../../tools/types'
 import { loadStyleSkill } from '../../utils/style-skills'
 
@@ -19,6 +20,9 @@ export type FinalizeContext = {
   messageScope: GenerateChatType
   messagePageId?: string
   projectId: string
+  modelConfigId?: string
+  modelConfigName?: string
+  runModel?: string
 }
 
 export type GenerationContext = {
@@ -43,6 +47,9 @@ export type GenerationContext = {
   provider: string
   apiKey: string
   model: string
+  modelConfigId?: string
+  modelConfigName?: string
+  runModel?: string
   maxTokens: number
   modelTimeouts: Record<ModelTimeoutProfile, number>
   providerBaseUrl: string
@@ -52,6 +59,7 @@ export type GenerationContext = {
   imagePaths: string[]
   videoPaths: string[]
   sourceDocumentPaths: string[]
+  sourcePlan: SourceDocumentPlan | null
   topic: string
   deckTitle: string
   appLocale: 'zh' | 'en'
@@ -71,6 +79,7 @@ export type AnyFlowContext =
       runId: string
       messageScope: GenerateChatType
       messagePageId?: string
+      runModel?: string
     }
 
 export type FinalizeGenerationArgs = {

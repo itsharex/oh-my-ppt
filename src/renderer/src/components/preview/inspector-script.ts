@@ -348,6 +348,15 @@ export function buildInspectorInjectScript(options?: { mode?: 'inspect' | 'text-
     return findAtomicHost(origin, "svg");
   };
 
+  const pickArtTextTarget = (origin) => {
+    if (!(origin instanceof Element)) return null;
+    const host = origin.closest("[data-ppt-art-text][data-block-id]");
+    if (host && isInsidePageRoot(host) && !isScaffoldBlock(host) && buildStableSelector(host)) {
+      return host;
+    }
+    return null;
+  };
+
   const pickLooseContentTarget = (origin) => {
     if (!(origin instanceof Element)) return null;
     let candidate = origin;
@@ -361,11 +370,15 @@ export function buildInspectorInjectScript(options?: { mode?: 'inspect' | 'text-
 
   const pickTarget = (origin, clientX, clientY) => {
     if (!(origin instanceof Element)) return null;
+    const artTextTarget = pickArtTextTarget(origin);
+    if (artTextTarget) return artTextTarget;
     const atomicTarget = pickCanvasTarget(origin) || pickFormulaTarget(origin) || pickSvgTarget(origin);
     if (atomicTarget) return atomicTarget;
 
     if (Number.isFinite(clientX) && Number.isFinite(clientY)) {
       const pointTarget = getPointTarget(origin, clientX, clientY);
+      const artTextPointTarget = pickArtTextTarget(pointTarget);
+      if (artTextPointTarget) return artTextPointTarget;
       const atomicPointTarget = pickCanvasTarget(pointTarget) || pickFormulaTarget(pointTarget) || pickSvgTarget(pointTarget);
       if (atomicPointTarget) return atomicPointTarget;
       if (pointTarget) return promoteToWrapper(pointTarget);

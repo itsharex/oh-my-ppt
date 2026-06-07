@@ -23,6 +23,8 @@ export interface ImageGeneratePayload {
   sessionId: string
   pageId: string
   prompt: string
+  imageModelConfigId?: string
+  /** @deprecated Use imageModelConfigId for the image generation model. */
   modelConfigId?: string
   size?: string
   count?: number

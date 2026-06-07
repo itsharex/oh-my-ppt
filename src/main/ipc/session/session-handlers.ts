@@ -6,9 +6,10 @@ import crypto from 'crypto'
 import { normalizeSession, normalizeMessage } from '../utils'
 import { getStyleDetail, hasStyleSkill } from '../../utils/style-skills'
 import type { IpcContext } from '../context'
-import { resolveActiveModelConfig } from '../config/model-config-utils'
+import { resolveModelConfigForTask } from '../config/model-config-utils'
 import { readAppLocale, uiText } from '../config/locale-utils'
 import { normalizeFontSelection } from '@shared/generation'
+import { normalizeSourcePlan } from '../generation/source-plan'
 import { ensureSessionRuntimeCompatible } from './runtime-assets'
 import { GitHistoryService } from '../../history/git-history-service'
 import { allowLocalAssetRoot } from '../io/assets-handlers'
@@ -17,6 +18,17 @@ import { resolveOutlinesForPages } from './page-outline-utils'
 const THINKING_ID_RE = /^[a-zA-Z0-9_-]{6,32}$/
 const THINKING_IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp'])
 const THINKING_REFERENCE_SOURCE_EXTENSIONS = new Set(['.md', '.txt', '.text', '.csv'])
+const THINKING_REFERENCE_THINKING_MD_LINE_OFFSET = 6
+const MAX_PAGE_COUNT = 500
+
+const normalizeRequestedPageCount = (value: unknown): number | undefined => {
+  if (value === null || value === undefined || (typeof value === 'string' && !value.trim())) {
+    return undefined
+  }
+  const numberValue = Number(value)
+  if (!Number.isFinite(numberValue)) return undefined
+  return Math.max(1, Math.min(MAX_PAGE_COUNT, Math.floor(numberValue)))
+}
 
 const isPathInside = (candidate: string, root: string): boolean => {
   const relative = path.relative(root, candidate)
@@ -151,6 +163,25 @@ const copyThinkingWorkspaceToSession = async (thinkingDir: string, projectDir: s
   await rewriteThinkingWorkspaceArchivePaths(targetDir, thinkingDir, targetDir)
 }
 
+const offsetSourcePlanLineRanges = (
+  items: Array<{
+    pageNumber: number
+    title: string
+    role: 'chapter-divider' | 'content'
+    sourceHeading: string
+    headingLevel: number
+    lineStart: number
+    lineEnd: number
+    reason?: string | null
+  }>,
+  offset: number
+): typeof items =>
+  items.map((item) => ({
+    ...item,
+    lineStart: item.lineStart + offset,
+    lineEnd: item.lineEnd + offset
+  }))
+
 const createThinkingReferenceDocument = async (args: {
   thinkingDir: string
   projectDir: string
@@ -243,15 +274,24 @@ export function registerSessionHandlers(ctx: IpcContext): void {
   }
 
   ipcMain.handle('session:create', async (_event, payload) => {
-    const { topic, styleId, pageCount } = payload
-    const fontSelection = normalizeFontSelection(payload?.fontSelection)
+    const record = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {}
+    const { topic, styleId } = record
+    const pageCount = normalizeRequestedPageCount(record.pageCount)
+    const fontSelection = normalizeFontSelection(record.fontSelection)
+    const sourcePlan = normalizeSourcePlan(record.sourcePlan)
     const referenceDocumentPath =
-      typeof payload?.referenceDocumentPath === 'string' ? payload.referenceDocumentPath.trim() : ''
+      typeof record.referenceDocumentPath === 'string' ? record.referenceDocumentPath.trim() : ''
     const locale = await readAppLocale(ctx)
     const storagePath = await resolveStoragePath()
-    const activeModel = await resolveActiveModelConfig(ctx)
+    const modelConfigId =
+      typeof record.modelConfigId === 'string' ? record.modelConfigId.trim() : undefined
+    const activeModel = await resolveModelConfigForTask(ctx, {
+      modelConfigId,
+      purpose: 'session:create'
+    })
     const { provider, model } = activeModel
     const baseUrl = activeModel.baseUrl
+    const normalizedTopic = typeof topic === 'string' && topic.trim() ? topic.trim() : 'Untitled'
     const normalizedStyleId = typeof styleId === 'string' ? styleId.trim() : ''
     if (!normalizedStyleId) {
       throw new Error(
@@ -343,11 +383,28 @@ export function registerSessionHandlers(ctx: IpcContext): void {
       model,
       baseUrl,
       projectDir,
-      topic,
+      topic: normalizedTopic,
       styleId: normalizedStyleId,
       pageCount,
       referenceDocumentPath: sessionReferenceDocumentPath
     })
+    if (sourcePlan && sessionReferenceDocumentPath) {
+      const sourcePlanItems = isThinkingSource
+        ? offsetSourcePlanLineRanges(
+            sourcePlan.pageSkeleton,
+            THINKING_REFERENCE_THINKING_MD_LINE_OFFSET
+          )
+        : sourcePlan.pageSkeleton
+      await db.replaceSourcePageSkeletons({
+        sessionId,
+        sourceDocumentPath: sessionReferenceDocumentPath,
+        sourceDocumentName: isThinkingSource
+          ? path.basename(sessionReferenceDocumentPath)
+          : sourcePlan.sourceDocumentName || path.basename(sessionReferenceDocumentPath),
+        confidence: sourcePlan.confidence,
+        items: sourcePlanItems
+      })
+    }
     await db.updateSessionMetadata(sessionId, {
       fontSelection,
       ...(isThinkingSource ? { source: 'thinking' } : {})
@@ -355,7 +412,7 @@ export function registerSessionHandlers(ctx: IpcContext): void {
 
     await db.createProject({
       session_id: sessionId,
-      title: String(topic || 'Untitled'),
+      title: normalizedTopic,
       output_path: projectDir,
       root_path: projectDir
     })

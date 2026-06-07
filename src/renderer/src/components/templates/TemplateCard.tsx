@@ -1,4 +1,4 @@
-import { ChevronDown, CopyPlus, Eye, LayoutTemplate, PencilLine, Plus, Sparkles, Trash2 } from 'lucide-react'
+import { ChevronDown, Eye, LayoutTemplate, PencilLine, Plus, Sparkles, Trash2 } from 'lucide-react'
 import { Button } from '../ui/Button'
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/Card'
 import {
@@ -13,6 +13,7 @@ import dayjs from 'dayjs'
 
 export function TemplateCard({
   template,
+  directCreating,
   onUseDirect,
   onUseGenerate,
   onEdit,
@@ -20,6 +21,7 @@ export function TemplateCard({
   onPreview
 }: {
   template: TemplateListItem
+  directCreating?: boolean
   onUseDirect: (template: TemplateListItem) => void
   onUseGenerate: (template: TemplateListItem) => void
   onEdit: (template: TemplateListItem) => void
@@ -29,7 +31,7 @@ export function TemplateCard({
   const t = useT()
 
   return (
-    <Card className="group !rounded-lg border-[#ded2bd]/55 bg-[#fffdf8]/68 shadow-none transition-all duration-200 ease-out hover:-translate-y-0.5 hover:border-[#cfc4b1]/85 hover:bg-[#fffaf1]/82 hover:shadow-[0_10px_22px_rgba(88,75,56,0.10)]">
+    <Card className="group !rounded-lg transition-all duration-200 ease-out hover:-translate-y-0.5 hover:shadow-[0_16px_30px_rgba(88,75,56,0.18)]">
       <CardHeader className="pb-2">
         <CardTitle className="flex items-start justify-between gap-3 text-base">
           <span className="min-w-0 truncate text-[#3e4a32]">{template.name}</span>
@@ -95,20 +97,32 @@ export function TemplateCard({
             </div>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button size="sm" className="h-8 rounded-md px-3">
-                  <CopyPlus className="mr-1.5 h-3.5 w-3.5" />
-                  {t('templates.use')}
-                  <ChevronDown className="ml-1 h-3.5 w-3.5" />
+                <Button
+                  size="sm"
+                  className="h-8 rounded-md bg-[#5d6b4d] px-3 text-white shadow-none hover:bg-[#4f613f]"
+                  disabled={directCreating}
+                >
+                  <LayoutTemplate className="mr-1.5 h-3.5 w-3.5" />
+                  {directCreating ? t('templates.creatingEditable') : t('templates.use')}
+                  <ChevronDown className="ml-1.5 h-3.5 w-3.5" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-max min-w-[10rem] max-w-[calc(100vw-2rem)]">
-                <DropdownMenuItem onSelect={() => onUseDirect(template)}>
-                  <PencilLine className="h-3.5 w-3.5 shrink-0 text-[#5f6b50]" />
-                  <span className="whitespace-nowrap">{t('templates.createEditable')}</span>
+              <DropdownMenuContent align="end" className="w-44">
+                <DropdownMenuItem
+                  className="text-xs"
+                  onSelect={() => onUseDirect(template)}
+                  disabled={directCreating}
+                >
+                  <PencilLine className="h-3.5 w-3.5" />
+                  {t('templates.createEditable')}
                 </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => onUseGenerate(template)}>
-                  <Sparkles className="h-3.5 w-3.5 shrink-0 text-[#7c6a4c]" />
-                  <span className="whitespace-nowrap">{t('templates.createAndGenerate')}</span>
+                <DropdownMenuItem
+                  className="text-xs"
+                  onSelect={() => onUseGenerate(template)}
+                  disabled={directCreating}
+                >
+                  <Sparkles className="h-3.5 w-3.5" />
+                  {t('templates.createAndGenerate')}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

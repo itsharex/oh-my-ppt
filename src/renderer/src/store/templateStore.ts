@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { ipc, type TemplateListItem } from '@renderer/lib/ipc'
+import type { SourceDocumentPlan } from '@shared/generation'
 
 interface TemplateStore {
   templates: TemplateListItem[]
@@ -14,16 +15,20 @@ interface TemplateStore {
   createSessionFromTemplate: (payload: {
     templateId: string
     title?: string
+    modelConfigId?: string
     pageCount?: number
     referenceDocumentPath?: string
+    sourcePlan?: SourceDocumentPlan
   }) => Promise<string>
   createEditableSessionFromTemplate: (payload: {
     templateId: string
     title?: string
+    modelConfigId?: string
   }) => Promise<string>
   importPptxAsTemplate: (payload: {
     filePath: string
     name?: string
+    modelConfigId?: string
   }) => Promise<{ id: string; pageCount: number; warnings: string[] }>
   updateTemplateMetadata: (payload: {
     templateId: string

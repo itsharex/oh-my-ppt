@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ipc } from '@renderer/lib/ipc'
 import type {
@@ -8,50 +8,61 @@ import type {
 } from '../components/preview/edit-mode-script'
 import type { PreviewIframeHandle } from '../components/preview/PreviewIframe'
 import { TooltipProvider } from '../components/ui/Tooltip'
-import { Button } from '../components/ui/Button'
-import { Input } from '../components/ui/Input'
+import { PageSidebar } from '../components/session-detail/sidebar'
+import { PreviewStage } from '../components/session-detail/preview'
+import { BrowseView } from '../components/session-detail/browse/BrowseView'
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle
-} from '../components/ui/Dialog'
+  ElementInspectorPanel,
+  type ElementEditDraft
+} from '../components/session-detail/element-inspector'
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogTitle
-} from '../components/ui/AlertDialog'
-import { MessagePanel } from '../components/session-detail/MessagePanel'
-import { PageSidebar } from '../components/session-detail/PageSidebar'
-import { PreviewStage } from '../components/session-detail/PreviewStage'
-import { PreviewToolbar } from '../components/session-detail/PreviewToolbar'
-import { ElementInspectorPanel } from '../components/session-detail/ElementInspectorPanel'
-import { SessionToolbar } from '../components/session-detail/SessionToolbar'
-import { AssetPickerDialog } from '../components/session-detail/AssetPickerDialog'
-import { SpeechScriptDrawer } from '../components/session-detail/SpeechScriptDrawer'
-import { SaveTemplateDialog } from '../components/templates/SaveTemplateDialog'
-import type { ElementEditDraft } from '../components/session-detail/ElementInspectorPanel'
-import type { ChatType, SessionPreviewPage } from '../components/session-detail/types'
-import { useSessionStore, useGenerateStore, useTemplateStore } from '../store'
+  SessionDetailRightPanel,
+  WorkspaceRibbon
+} from '../components/session-detail/workspace'
+import { SessionToolbar } from '../components/session-detail/toolbar'
 import {
+  AddBlankPageDialog,
+  AddPageDialog,
+  AssetPickerDialog,
+  DeleteElementDialog,
+  DeletePageDialog,
+  HistoryDialog,
+  PageProgressOverlay,
+  PageTitleEditDialog
+} from '../components/session-detail/modal'
+import {
+  buildImageMessageCacheKey,
+  imageHistoryToMessages,
+  mergeImageMessages,
+  normalizePagesForSelection,
+  type ChatType
+} from '../components/session-detail/shared'
+import { useWorkspaceRibbonActionsRegistration } from '../components/session-detail/hooks/useWorkspaceRibbonController'
+import {
+  buildSelectedElementFromSnapshot,
+  EMPTY_ELEMENT_DRAFT,
+  fontSizeToNumber,
+  normalizeFontWeight,
+  normalizeTextAlign,
+  opacityToInput,
+  rgbToHex
+} from '../components/session-detail/element-inspector/elementEditUtils'
+import {
+  editTargetMatchesDeletedSelector,
+  useEditHistoryStore,
+  useGenerateStore,
+  useSessionDetailRuntimeStore,
   useSessionDetailUiStore,
-  type ImageGenerationMessage
-} from '../store/sessionDetailStore'
-import { useEditHistoryStore } from '../store/editHistoryStore'
+  useSessionStore,
+  useToastStore,
+  type AddSessionElementHandler,
+  type AddSessionElementOptions
+} from '../store'
 import type { GenerateChunkEvent } from '@shared/generation.js'
-import type { HistoryVersion } from '@shared/history.js'
-import type { GeneratedImageAsset, ImageGenerationHistoryRecord } from '@shared/image-generation.js'
-import type { SpeechConfig } from '@shared/speech'
-import { useToastStore } from '../store'
 import { getEditorGate, parseSessionMetadata } from '../lib/sessionMetadata'
+import { buildArtTextHtmlFragment, type ArtTextTemplateId } from '../lib/artTextTemplates'
 import { escapeHtmlText } from '../lib/utils'
 import { useT } from '../i18n'
-import dayjs from 'dayjs'
 import { nanoid } from 'nanoid'
 
 const PPT_PAGE_WIDTH = 1600
@@ -62,32 +73,9 @@ const ADDED_TEXT_MIN_HEIGHT = 96
 const ADDED_TEXT_BASE_LEFT = 590
 const ADDED_TEXT_BASE_TOP = 360
 const ADDED_TEXT_OFFSET_STEP = 28
+const ADDED_ART_TEXT_WIDTH = 560
+const ADDED_ART_TEXT_MIN_HEIGHT = 130
 const ADDED_MEDIA_OFFSET_STEP = 30
-
-const EMPTY_ELEMENT_DRAFT: ElementEditDraft = {
-  html: '',
-  text: '',
-  color: '#34402c',
-  fontSize: '',
-  fontWeight: '400',
-  textAlign: 'left',
-  layoutX: '',
-  layoutY: '',
-  layoutWidth: '',
-  layoutHeight: '',
-  layoutZIndex: '',
-  opacity: '1',
-  backgroundColor: '#ffffff',
-  objectFit: 'contain',
-  alt: '',
-  poster: '',
-  controls: false,
-  muted: false,
-  loop: false,
-  autoplay: false,
-  playsInline: true,
-  preload: 'metadata'
-}
 
 type ElementPropertyStylePatch = {
   zIndex?: number
@@ -119,96 +107,6 @@ type ElementPropertyPatch = {
   attrs?: ElementPropertyAttrsPatch
 }
 
-function normalizePagesForSelection(
-  pages: Array<{
-    id: string
-    pageNumber: number
-    title: string
-    contentOutline?: string | null
-    html: string
-    htmlPath?: string
-    pageId?: string
-    sourceUrl?: string
-    status?: string
-    error?: string | null
-  }>
-): SessionPreviewPage[] {
-  return [...pages]
-    .sort((a, b) => a.pageNumber - b.pageNumber)
-    .map((page) => {
-      const pageId = page.pageId || `page-${page.pageNumber}`
-      return {
-        ...page,
-        id: page.id || pageId,
-        pageId
-      } as SessionPreviewPage
-    })
-}
-
-function rgbToHex(value: string | undefined): string {
-  const text = String(value || '').trim()
-  if (/^#[0-9a-f]{3}(?:[0-9a-f]{3})?$/i.test(text)) return text
-  const match = text.match(/^rgba?\(\s*(\d{1,3})[\s,]+(\d{1,3})[\s,]+(\d{1,3})/i)
-  if (!match) return '#34402c'
-  const toHex = (part: string): string =>
-    Math.max(0, Math.min(255, Number(part) || 0))
-      .toString(16)
-      .padStart(2, '0')
-  return `#${toHex(match[1])}${toHex(match[2])}${toHex(match[3])}`
-}
-
-function fontSizeToNumber(value: string | undefined): string {
-  const parsed = Number(String(value || '').replace(/px$/i, ''))
-  return Number.isFinite(parsed) && parsed > 0 ? String(Math.round(parsed)) : ''
-}
-
-function normalizeFontWeight(value: string | undefined): string {
-  const parsed = Number(value)
-  if (!Number.isFinite(parsed)) return value === 'bold' ? '700' : '400'
-  return String(Math.max(300, Math.min(800, Math.round(parsed / 100) * 100)))
-}
-
-function buildImageMessageCacheKey(sessionId: string, pageId: string): string {
-  return `${sessionId}:${pageId}`
-}
-
-function mergeImageMessages(...groups: ImageGenerationMessage[][]): ImageGenerationMessage[] {
-  const messagesById = new Map<string, ImageGenerationMessage>()
-  for (const message of groups.flat()) {
-    messagesById.set(message.id, message)
-  }
-  return [...messagesById.values()]
-    .sort((a, b) => {
-      const byTime = a.createdAt - b.createdAt
-      if (byTime !== 0) return byTime
-      if (a.role === b.role) return a.id.localeCompare(b.id)
-      return a.role === 'user' ? -1 : 1
-    })
-    .slice(-48)
-}
-
-function imageHistoryToMessages(
-  histories: ImageGenerationHistoryRecord[]
-): ImageGenerationMessage[] {
-  return [...histories]
-    .sort((a, b) => a.createdAt - b.createdAt)
-    .flatMap((history) => [
-      {
-        id: `${history.id}:user`,
-        role: 'user' as const,
-        content: history.prompt,
-        createdAt: history.createdAt
-      },
-      {
-        id: `${history.id}:assistant`,
-        role: 'assistant' as const,
-        content: '',
-        assets: history.assets,
-        createdAt: history.createdAt
-      }
-    ])
-}
-
 function escapeCssString(value: string): string {
   return value
     .replace(/\\/g, '\\\\')
@@ -216,60 +114,6 @@ function escapeCssString(value: string): string {
     .replace(/\r?\n/g, ' ')
     .replace(/</g, '\\3C ')
     .replace(/>/g, '\\3E ')
-}
-
-// Keep in sync with normalizeTextAlign in src/main/ipc/editor/shared.ts.
-function normalizeTextAlign(value: string | undefined): string {
-  const text = String(value || '').trim()
-  if (text === 'center' || text === 'right' || text === 'justify') return text
-  return 'left'
-}
-
-function opacityToInput(value: string | undefined): string {
-  const parsed = Number(value)
-  return Number.isFinite(parsed) ? String(Math.max(0, Math.min(1, parsed))) : '1'
-}
-
-function buildSelectedElementFromSnapshot(args: {
-  selector: string
-  blockId?: string
-  snapshot: EditableElementSnapshot
-}): EditSelectionPayload {
-  const { selector, blockId, snapshot } = args
-  const rawZIndex = snapshot.computed.zIndex || ''
-  const zIndex = rawZIndex && rawZIndex !== 'auto' ? parseInt(rawZIndex, 10) : undefined
-  return {
-    selector,
-    blockId,
-    label: snapshot.label,
-    elementTag: snapshot.elementTag,
-    elementText: snapshot.elementText,
-    kind: snapshot.kind,
-    capabilities: snapshot.capabilities,
-    snapshot: {
-      ...snapshot,
-      selector,
-      blockId
-    },
-    isText: Boolean(snapshot.text?.editable),
-    text: snapshot.text?.value || '',
-    html: snapshot.text?.html || '',
-    style: {
-      color: snapshot.computed.color || '',
-      fontSize: snapshot.computed.fontSize || '',
-      fontWeight: snapshot.computed.fontWeight || '',
-      textAlign: normalizeTextAlign(snapshot.computed.textAlign),
-      lineHeight: snapshot.computed.lineHeight || '',
-      backgroundColor: snapshot.computed.backgroundColor || ''
-    },
-    bounds: snapshot.metrics.viewport,
-    viewportBounds: snapshot.metrics.viewport,
-    pageBounds: snapshot.metrics.page,
-    translateX: snapshot.metrics.translateX,
-    translateY: snapshot.metrics.translateY,
-    zIndex: Number.isFinite(zIndex) ? zIndex : undefined,
-    editability: { x: true, y: true, width: true, height: true }
-  }
 }
 
 export function SessionDetailPage(): React.JSX.Element {
@@ -283,62 +127,46 @@ export function SessionDetailPage(): React.JSX.Element {
     loadSession,
     loadMessages,
     setMessages,
-    addMessage
+    addMessage,
+    resetRuntimeState
   } = useSessionStore()
-  const { createTemplateFromSession } = useTemplateStore()
-  const { isGenerating, updateProgress, cancelGeneration, progress, currentPages, error } =
-    useGenerateStore()
+  const { isGenerating, updateProgress, progress, currentPages } = useGenerateStore()
   const chatType = useSessionDetailUiStore((state) => state.chatType)
   const selectedPageId = useSessionDetailUiStore((state) => state.selectedPageId)
-  const interactionMode = useSessionDetailUiStore((state) => state.interactionMode)
   const setChatType = useSessionDetailUiStore((state) => state.setChatType)
   const resetForPageChange = useSessionDetailUiStore((state) => state.resetForPageChange)
   const resetForSessionChange = useSessionDetailUiStore((state) => state.resetForSessionChange)
-  const addPageDialogOpen = useSessionDetailUiStore((state) => state.addPageDialogOpen)
-  const isAddingPage = useSessionDetailUiStore((state) => state.isAddingPage)
-  const isRetryingSinglePage = useSessionDetailUiStore((state) => state.isRetryingSinglePage)
-  const isManagingPages = useSessionDetailUiStore((state) => state.isManagingPages)
-  const sidebarCollapsed = useSessionDetailUiStore((state) => state.sidebarCollapsed)
-  const toggleSidebarCollapsed = useSessionDetailUiStore((state) => state.toggleSidebarCollapsed)
+  const clearEditSelectedElement = useSessionDetailUiStore(
+    (state) => state.clearEditSelectedElement
+  )
   const assetPickerOpen = useSessionDetailUiStore((state) => state.assetPickerOpen)
   const assetPickerType = useSessionDetailUiStore((state) => state.assetPickerType)
   const setAssetPickerOpen = useSessionDetailUiStore((state) => state.setAssetPickerOpen)
-  const speechScriptDialogOpen = useSessionDetailUiStore((state) => state.speechScriptDialogOpen)
-  const setSpeechScriptDialogOpen = useSessionDetailUiStore((state) => state.setSpeechScriptDialogOpen)
-  const speechConfig = useSessionDetailUiStore((state) => state.speechConfig)
-  const setSpeechConfig = useSessionDetailUiStore((state) => state.setSpeechConfig)
-  const isGeneratingSpeechScript = useSessionDetailUiStore((state) => state.isGeneratingSpeechScript)
-  const speechProgress = useSessionDetailUiStore((state) => state.speechProgress)
-  const setAddPageDialogOpen = useSessionDetailUiStore((state) => state.setAddPageDialogOpen)
-  const setIsAddingPage = useSessionDetailUiStore((state) => state.setIsAddingPage)
+  const workspaceTab = useSessionDetailUiStore((state) => state.workspaceTab)
   const activeChatRef = useRef<{ chatType: ChatType; pageId?: string }>({ chatType: 'page' })
   const editHistory = useEditHistoryStore()
   const [isSavingEdits, setIsSavingEdits] = useState(false)
-  const [textSelection, setTextSelection] = useState<EditSelectionPayload | null>(null)
-  const [textDraft, setTextDraft] = useState<ElementEditDraft>(EMPTY_ELEMENT_DRAFT)
+  const [elementSelection, setElementSelection] = useState<EditSelectionPayload | null>(null)
+  const [elementDraft, setElementDraft] = useState<ElementEditDraft>(EMPTY_ELEMENT_DRAFT)
   const [previewRefreshKey, setPreviewRefreshKey] = useState(0)
-  const [historyOpen, setHistoryOpen] = useState(false)
-  const [historyVersions, setHistoryVersions] = useState<HistoryVersion[]>([])
-  const [historyLoading, setHistoryLoading] = useState(false)
-  const [historyRollbackId, setHistoryRollbackId] = useState<string | null>(null)
-  const [rollbackConfirmVersion, setRollbackConfirmVersion] = useState<HistoryVersion | null>(null)
-  const [deleteConfirmPage, setDeleteConfirmPage] = useState<SessionPreviewPage | null>(null)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [pendingDeleteSelector, setPendingDeleteSelector] = useState<string | null>(null)
-  const [saveTemplateOpen, setSaveTemplateOpen] = useState(false)
-  const [savingTemplate, setSavingTemplate] = useState(false)
   const previewIframeRef = useRef<PreviewIframeHandle | null>(null)
-  const sendingMessageRef = useRef(false)
-  const [addPageInput, setAddPageInput] = useState('')
-  const [blankPageDialogOpen, setBlankPageDialogOpen] = useState(false)
-  const [blankPageSourceId, setBlankPageSourceId] = useState<string>('')
-  const [titleEditPage, setTitleEditPage] = useState<SessionPreviewPage | null>(null)
-  const [titleEditDraft, setTitleEditDraft] = useState('')
+  const addElementHandlerRef = useRef<AddSessionElementHandler | null>(null)
+  const setAddElementHandler = useSessionDetailRuntimeStore(
+    (state) => state.setAddElementHandler
+  )
+  const invokeAddElement = useCallback<AddSessionElementHandler>(
+    async (relativePath, fileName, options) => {
+      const handler = addElementHandlerRef.current
+      return handler ? handler(relativePath, fileName, options) : false
+    },
+    []
+  )
   const {
     success: toastSuccess,
     error: toastError,
-    info: toastInfo,
-    warning: toastWarning
+    info: toastInfo
   } = useToastStore()
 
   const orderedPages = useMemo(
@@ -361,87 +189,34 @@ export function SessionDetailPage(): React.JSX.Element {
 
   useEffect(() => {
     resetForPageChange()
-    window.setTimeout(() => {
-      useEditHistoryStore.getState().clear()
-      setTextSelection(null)
-      setTextDraft(EMPTY_ELEMENT_DRAFT)
-    }, 0)
-  }, [resetForPageChange, selectedPage?.pageId])
+    setElementSelection(null)
+    setElementDraft(EMPTY_ELEMENT_DRAFT)
+    clearEditSelectedElement()
+  }, [clearEditSelectedElement, resetForPageChange, selectedPage?.pageId])
 
   const canEditInSessionDetail = useMemo(() => {
     if (!currentSession) return false
     return getEditorGate(currentSession).canEdit
   }, [currentSession])
-  const sessionStatus =
-    currentSession && typeof (currentSession as { status?: unknown }).status === 'string'
-      ? String((currentSession as { status?: unknown }).status)
-      : ''
-  const historyDisabled =
-    isGenerating ||
-    isAddingPage ||
-    isRetryingSinglePage ||
-    historyRollbackId !== null ||
-    sessionStatus === 'active'
-
-  const formatHistoryTime = (value: number): string => {
-    const timestamp = value > 1e12 ? value : value * 1000
-    const parsed = dayjs(timestamp)
-    if (!parsed.isValid()) return ''
-    return parsed.format('YYYY/MM/DD HH:mm')
-  }
-
-  const loadHistoryVersions = async (): Promise<void> => {
-    if (!id) return
-    setHistoryLoading(true)
-    try {
-      const versions = await ipc.listHistoryVersions({ sessionId: id, limit: 10 })
-      setHistoryVersions(versions)
-    } catch (err) {
-      toastError(err instanceof Error ? err.message : t('sessionDetail.historyLoadFailed'))
-    } finally {
-      setHistoryLoading(false)
-    }
-  }
-
-  const handleOpenHistory = async (): Promise<void> => {
-    if (!id || historyDisabled) return
-    setHistoryOpen(true)
-    await loadHistoryVersions()
-  }
-
-  const handleRollbackHistory = async (version: HistoryVersion): Promise<void> => {
-    if (!id || version.isCurrent || historyDisabled) return
-    setHistoryRollbackId(version.id)
-    setRollbackConfirmVersion(null)
-    try {
-      await ipc.rollbackToHistoryVersion({ sessionId: id, versionId: version.id })
-      await loadSession(id)
-      useGenerateStore.getState().setPages(useSessionStore.getState().currentGeneratedPages)
-      useSessionDetailUiStore.getState().bumpPreviewKey()
-      setPreviewRefreshKey((key) => key + 1)
-      await loadHistoryVersions()
-      toastSuccess(t('sessionDetail.historyRollbackSuccess'))
-      setHistoryOpen(false)
-    } catch (err) {
-      toastError(err instanceof Error ? err.message : t('sessionDetail.historyRollbackFailed'))
-    } finally {
-      setHistoryRollbackId(null)
-    }
-  }
-
-  const requestRollbackHistory = (version: HistoryVersion): void => {
-    if (version.isCurrent || historyDisabled || historyRollbackId) return
-    setRollbackConfirmVersion(version)
-  }
-
   useEffect(() => {
     if (!id) return
+    let cancelled = false
     setMessages([])
     useGenerateStore.getState().setPages([])
     resetForSessionChange()
-    void loadSession(id)
+    void (async () => {
+      try {
+        await ipc.migratePageOutlinesToSourceSkeletons({ sessionId: id })
+      } catch (err) {
+        console.warn('[session] migrate page outlines failed', err)
+      }
+      if (!cancelled) {
+        await loadSession(id)
+      }
+    })()
     // Cleanup on unmount (leaving session-detail)
     return () => {
+      cancelled = true
       useGenerateStore.getState().reset()
       useSessionDetailUiStore.getState().resetForSessionChange()
       useEditHistoryStore.getState().clear()
@@ -701,703 +476,39 @@ export function SessionDetailPage(): React.JSX.Element {
     if (!id) return
     const unsubscribe = ipc.onSpeechProgress((payload) => {
       if (payload.sessionId !== id) return
-      useSessionDetailUiStore.getState().setSpeechProgress({ current: payload.current, total: payload.total })
+      useSessionDetailUiStore
+        .getState()
+        .setSpeechProgress({ current: payload.current, total: payload.total })
     })
     return () => unsubscribe()
   }, [id])
-
-  const isSupportedImageFile = (file: File): boolean => {
-    if (file.type.startsWith('image/')) return true
-    return /\.(png|jpe?g|webp|gif|svg)$/i.test(file.name)
-  }
-  const isSupportedVideoFile = (file: File): boolean => {
-    if (/^video\/(mp4|webm|ogg)$/i.test(file.type)) return true
-    return /\.(mp4|webm|ogg)$/i.test(file.name)
-  }
-  const isSupportedMediaFile = (file: File): boolean => {
-    return isSupportedImageFile(file) || isSupportedVideoFile(file)
-  }
-
-  const uploadFiles = async (files: File[]): Promise<void> => {
-    if (!id || files.length === 0) return
-    const mediaFiles = files.filter((file) => isSupportedMediaFile(file)).slice(0, 10)
-    if (mediaFiles.length === 0) {
-      toastWarning(t('sessionDetail.mediaOnly'))
-      return
-    }
-    const payloadFiles = mediaFiles
-      .map((file) => ({
-        path: window.electron?.getPathForFile?.(file) || '',
-        name: file.name
-      }))
-      .filter((file) => file.path)
-    if (payloadFiles.length === 0) {
-      toastError(t('sessionDetail.mediaPathFailed'))
-      return
-    }
-    useSessionDetailUiStore.getState().setIsUploadingAssets(true)
-    try {
-      const result = await ipc.uploadAssets({ sessionId: id, files: payloadFiles })
-      if (result.assets.length > 0) {
-        useSessionDetailUiStore.getState().addPendingAssets(result.assets)
-        toastSuccess(t('sessionDetail.assetsAdded', { count: result.assets.length }))
-      }
-    } catch (error) {
-      toastError(error instanceof Error ? error.message : t('sessionDetail.assetUploadFailed'))
-    } finally {
-      useSessionDetailUiStore.getState().setIsUploadingAssets(false)
-      useSessionDetailUiStore.getState().setAssetDragActive(false)
-    }
-  }
-
-  const handleChooseAssets = async (assetType: 'image' | 'video'): Promise<void> => {
-    if (!id || useSessionDetailUiStore.getState().isUploadingAssets) return
-    useSessionDetailUiStore.getState().setIsUploadingAssets(true)
-    try {
-      const result = await ipc.chooseAndUploadAssets(id, assetType)
-      if (result.cancelled) return
-      if (result.assets.length > 0) {
-        useSessionDetailUiStore.getState().addPendingAssets(result.assets)
-        toastSuccess(t('sessionDetail.assetsAdded', { count: result.assets.length }))
-      }
-    } catch (error) {
-      toastError(error instanceof Error ? error.message : t('sessionDetail.assetUploadFailed'))
-    } finally {
-      useSessionDetailUiStore.getState().setIsUploadingAssets(false)
-    }
-  }
-
-  const handleSend = async (): Promise<void> => {
-    if (!id) return
-    if (sendingMessageRef.current || isGenerating) return
-    const detailState = useSessionDetailUiStore.getState()
-    if (!detailState.input.trim() && detailState.pendingAssets.length === 0) return
-    const content = detailState.input.trim() || t('sessionDetail.useUploadedAssets')
-    const assetsForMessage = detailState.pendingAssets
-    const imagePaths = assetsForMessage
-      .map((asset) => asset.relativePath)
-      .filter((item) => item.startsWith('./images/'))
-    const videoPaths = assetsForMessage
-      .map((asset) => asset.relativePath)
-      .filter((item) => item.startsWith('./videos/'))
-    const hasSelector = Boolean(detailState.selectedSelector?.trim())
-    const selectorForMessage = hasSelector ? detailState.selectedSelector!.trim() : null
-    const effectiveChatType: 'main' | 'page' = hasSelector ? 'page' : detailState.chatType
-    const effectivePage = selectedPage ?? normalizedOrderedPages[0] ?? null
-    const targetPageId = effectiveChatType === 'page' ? effectivePage?.id : undefined
-    const targetPagePath =
-      effectiveChatType === 'page'
-        ? effectivePage?.htmlPath || normalizedOrderedPages[0]?.htmlPath
-        : undefined
-    if (effectiveChatType === 'page' && !targetPageId) {
-      toastError(t('sessionDetail.selectPageFirst'))
-      return
-    }
-    if (hasSelector && detailState.chatType !== 'page') {
-      detailState.setChatType('page')
-    }
-    sendingMessageRef.current = true
-    try {
-      useGenerateStore.setState({ isGenerating: true, error: null, status: 'running' })
-      addMessage({
-        id: crypto.randomUUID(),
-        session_id: id,
-        chat_scope: effectiveChatType,
-        page_id: effectiveChatType === 'page' ? (targetPageId as string) : null,
-        selector: effectiveChatType === 'page' ? selectorForMessage : null,
-        image_paths: imagePaths,
-        video_paths: videoPaths,
-        role: 'user',
-        content,
-        type: 'text',
-        tool_name: null,
-        tool_call_id: null,
-        token_count: null,
-        created_at: Math.floor(Date.now() / 1000)
-      })
-      detailState.setInput('')
-      detailState.clearPendingAssets()
-      detailState.clearSelectedElement()
-      const hasExistingPages = normalizedOrderedPages.length > 0
-      await ipc.startGenerate({
-        sessionId: id,
-        userMessage: content,
-        type: hasExistingPages ? 'page' : 'deck',
-        chatType: effectiveChatType,
-        chatPageId: effectiveChatType === 'page' ? targetPageId : undefined,
-        selectedPageId: hasExistingPages && effectiveChatType === 'page' ? targetPageId : undefined,
-        htmlPath: hasExistingPages && effectiveChatType === 'page' ? targetPagePath : undefined,
-        selector: selectorForMessage || undefined,
-        elementTag: hasSelector ? detailState.elementTag || undefined : undefined,
-        elementText: hasSelector ? detailState.elementText || undefined : undefined,
-        imagePaths,
-        videoPaths
-      })
-    } catch (error) {
-      const message = error instanceof Error ? error.message : t('generating.failed')
-      useGenerateStore.getState().setError(message)
-      toastError(message)
-    } finally {
-      sendingMessageRef.current = false
-    }
-  }
-
-  const handleGenerateImage = async (): Promise<void> => {
-    if (!id || !selectedPage?.id) {
-      toastError(t('sessionDetail.selectPageFirst'))
-      return
-    }
-    const detailState = useSessionDetailUiStore.getState()
-    const prompt = detailState.imagePrompt.trim()
-    if (!prompt) {
-      toastWarning(t('sessionDetail.imagePromptRequired'))
-      return
-    }
-    if (detailState.isGeneratingImage) return
-
-    const pageId = selectedPage.id
-    const selectedPageKey = selectedPage.id
-    const cacheKey = buildImageMessageCacheKey(id, pageId)
-    const pendingUserMessage: ImageGenerationMessage = {
-      id: `pending-image:${nanoid(8)}`,
-      role: 'user',
-      content: prompt,
-      createdAt: Math.floor(Date.now() / 1000)
-    }
-    detailState.setIsGeneratingImage(true)
-    detailState.setImageProgress({ progress: 8, label: t('sessionDetail.imageGenerating') })
-    detailState.setImagePrompt('')
-    detailState.addImageMessage(pendingUserMessage)
-    detailState.addCachedImageMessage(cacheKey, pendingUserMessage)
-    try {
-      const result = await ipc.generateImage({
-        sessionId: id,
-        pageId,
-        prompt,
-        modelConfigId: detailState.selectedImageModelConfigId || undefined,
-        size: detailState.imageSize,
-        count: 1
-      })
-      const latestState = useSessionDetailUiStore.getState()
-      const persistedMessages = imageHistoryToMessages([result.history])
-      const visibleMessages = latestState.selectedPageId === selectedPageKey ? latestState.imageMessages : []
-      const cachedWithoutPending = mergeImageMessages(
-        latestState.imageMessageCache[cacheKey] || [],
-        visibleMessages
-      ).filter((message) => message.id !== pendingUserMessage.id)
-      const nextMessages = mergeImageMessages(cachedWithoutPending, persistedMessages)
-      latestState.cacheImageMessages(cacheKey, nextMessages)
-      if (useSessionDetailUiStore.getState().selectedPageId === selectedPageKey) {
-        latestState.setImageMessages(nextMessages)
-      }
-      detailState.setImageProgress({ progress: 100, label: t('sessionDetail.imageGenerated') })
-      toastSuccess(t('sessionDetail.imageGenerated'), {
-        description: t('sessionDetail.imageGeneratedDescription', {
-          count: result.history.assets.length
-        })
-      })
-    } catch (err) {
-      const message = err instanceof Error ? err.message : t('sessionDetail.imageGenerateFailed')
-      toastError(t('sessionDetail.imageGenerateFailed'), { description: message })
-    } finally {
-      useSessionDetailUiStore.getState().setIsGeneratingImage(false)
-    }
-  }
-
-  const handleCancelImageGeneration = async (): Promise<void> => {
-    if (!id) return
-    try {
-      await ipc.cancelImageGeneration(id)
-    } finally {
-      useSessionDetailUiStore.getState().setIsGeneratingImage(false)
-      useSessionDetailUiStore.getState().setImageProgress(null)
-    }
-  }
-
-  const handleRevealImageFile = async (filePath: string): Promise<void> => {
-    if (!id || !filePath) return
-    try {
-      await ipc.revealFile(filePath, id)
-    } catch (err) {
-      toastError(err instanceof Error ? err.message : t('common.retryLater'))
-    }
-  }
-
-  const handleCancel = async (): Promise<void> => {
-    await ipc.cancelGenerate(id!)
-    cancelGeneration()
-  }
-
-  const handleOpenAddPageDialog = (): void => {
-    setAddPageInput('')
-    setAddPageDialogOpen(true)
-  }
-
-  const handleOpenBlankPageDialog = (): void => {
-    setBlankPageSourceId(selectedPage?.id || normalizedOrderedPages[0]?.id || '')
-    setBlankPageDialogOpen(true)
-  }
-
-  const handleRetryFailedPage = async (page: SessionPreviewPage): Promise<void> => {
-    if (!id || !page.id) return
-    useSessionDetailUiStore.getState().setIsRetryingSinglePage(true)
-    useGenerateStore.setState({ isGenerating: true, error: null, status: 'running' })
-    try {
-      await ipc.retrySinglePage({ sessionId: id, pageId: page.id })
-      await loadSession(id)
-      useGenerateStore.getState().setPages(useSessionStore.getState().currentGeneratedPages)
-    } catch (err) {
-      const message = err instanceof Error ? err.message : t('sessionDetail.retryPageFailed')
-      toastError(message)
-    } finally {
-      useGenerateStore.getState().finishGeneration()
-      useSessionDetailUiStore.getState().setIsRetryingSinglePage(false)
-    }
-  }
-
-  const handleAddPage = async (): Promise<void> => {
-    if (!id || !addPageInput.trim()) return
-    const description = addPageInput.trim()
-    const beforePageIds = new Set(normalizedOrderedPages.map((page) => page.pageId))
-    const beforePageCount = normalizedOrderedPages.length
-    setAddPageDialogOpen(false)
-    setAddPageInput('')
-    setIsAddingPage(true)
-    const insertAfter = selectedPage?.pageNumber ?? normalizedOrderedPages.length
-    useGenerateStore.setState({ isGenerating: true, error: null, status: 'running' })
-    let targetSelection: string | null | undefined = undefined
-
-    try {
-      await ipc.addPage({
-        sessionId: id,
-        userMessage: description,
-        insertAfterPageNumber: insertAfter
-      })
-      // addPage 返回后，新增页可能尚未写回 session，短轮询确保拿到新页再选中。
-      let latestGeneratedPages = useSessionStore.getState().currentGeneratedPages
-      let latestPages = normalizePagesForSelection(latestGeneratedPages)
-      let addedPage = latestPages.find((page) => !beforePageIds.has(page.pageId))
-
-      for (let attempt = 0; attempt < 20; attempt += 1) {
-        await loadSession(id)
-        latestGeneratedPages = useSessionStore.getState().currentGeneratedPages
-        latestPages = normalizePagesForSelection(latestGeneratedPages)
-        addedPage = latestPages.find((page) => !beforePageIds.has(page.pageId))
-        if (addedPage || latestPages.length > beforePageCount) break
-        await new Promise<void>((resolve) => window.setTimeout(resolve, 300))
-      }
-
-      useGenerateStore.getState().setPages(latestGeneratedPages)
-      const fallbackPage =
-        latestPages[Math.min(insertAfter, Math.max(latestPages.length - 1, 0))] ||
-        latestPages[latestPages.length - 1]
-      targetSelection = (addedPage || fallbackPage)?.id ?? null
-      // Only clear script on success — a new page invalidates the existing script
-      if (id) void ipc.clearSpeechScript(id).catch((err) => console.warn('[speech] clearSpeechScript failed', err))
-    } catch (err) {
-      const message = err instanceof Error ? err.message : t('sessionDetail.addPageFailed')
-      toastError(message)
-    } finally {
-      useSessionDetailUiStore.getState().finishAddPage(targetSelection)
-      useGenerateStore.getState().finishGeneration()
-    }
-  }
-
-  const handleCreateBlankPage = async (): Promise<void> => {
-    if (!id || !blankPageSourceId) return
-    const sourcePage = normalizedOrderedPages.find((page) => page.id === blankPageSourceId)
-    if (!sourcePage) return
-    setBlankPageDialogOpen(false)
-    setIsAddingPage(true)
-    useGenerateStore.setState({ isGenerating: true, error: null, status: 'running' })
-    let targetSelection: string | null | undefined = undefined
-
-    try {
-      const result = await ipc.createBlankSessionPage({
-        sessionId: id,
-        sourcePageId: sourcePage.id
-      })
-      useGenerateStore.getState().setPages(result.generatedPages)
-      await loadSession(id)
-      useGenerateStore.getState().setPages(useSessionStore.getState().currentGeneratedPages)
-      targetSelection = result.selectedPageId || null
-      useSessionDetailUiStore.getState().bumpPreviewKey()
-      void ipc.clearSpeechScript(id).catch((err) => console.warn('[speech] clearSpeechScript failed', err))
-    } catch (err) {
-      const message = err instanceof Error ? err.message : t('sessionDetail.addBlankPageFailed')
-      toastError(message)
-    } finally {
-      useSessionDetailUiStore.getState().finishAddPage(targetSelection)
-      useGenerateStore.getState().finishGeneration()
-    }
-  }
-
-  const handleReorderPages = async (
-    orderedPageIds: string[],
-    selectedForKeep?: string
-  ): Promise<void> => {
-    if (!id) return
-    useSessionDetailUiStore.getState().setIsManagingPages(true)
-    try {
-      const result = await ipc.reorderSessionPages({
-        sessionId: id,
-        orderedPageIds,
-        selectedPageId: selectedForKeep
-      })
-      useGenerateStore.getState().setPages(result.generatedPages)
-      useSessionDetailUiStore.getState().setSelectedPageId(result.selectedPageId)
-      useSessionDetailUiStore.getState().bumpPreviewKey()
-      void ipc.clearSpeechScript(id).catch((err) => console.warn('[speech] clearSpeechScript failed', err))
-    } catch (error) {
-      toastError(error instanceof Error ? error.message : t('pageManagement.reorderFailed'))
-    } finally {
-      useSessionDetailUiStore.getState().setIsManagingPages(false)
-    }
-  }
-
-  const handleDeletePage = async (page: SessionPreviewPage): Promise<void> => {
-    setDeleteConfirmPage(page)
-  }
-
-  const handleOpenTitleEditDialog = (page: SessionPreviewPage): void => {
-    setTitleEditPage(page)
-    setTitleEditDraft(page.title || '')
-  }
-
-  const handleSavePageTitle = async (): Promise<void> => {
-    if (!id || !titleEditPage) return
-    const title = titleEditDraft.replace(/\s+/g, ' ').trim()
-    if (!title) {
-      toastError(t('pageManagement.pageTitleRequired'))
-      return
-    }
-    if (title === titleEditPage.title) {
-      setTitleEditPage(null)
-      return
-    }
-    useSessionDetailUiStore.getState().setIsManagingPages(true)
-    try {
-      const result = await ipc.updateSessionPageTitle({
-        sessionId: id,
-        pageId: titleEditPage.id,
-        title
-      })
-      useGenerateStore.getState().setPages(result.generatedPages)
-      useSessionDetailUiStore.getState().setSelectedPageId(result.selectedPageId || titleEditPage.id)
-      useSessionDetailUiStore.getState().bumpPreviewKey()
-      setTitleEditPage(null)
-    } catch (error) {
-      toastError(error instanceof Error ? error.message : t('pageManagement.updateTitleFailed'))
-    } finally {
-      useSessionDetailUiStore.getState().setIsManagingPages(false)
-    }
-  }
-
-  const handleUpdatePageOutline = async (
-    page: SessionPreviewPage,
-    contentOutline: string
-  ): Promise<void> => {
-    if (!id) return
-    const normalizedOutline = contentOutline.replace(/\s+/g, ' ').trim()
-    if (normalizedOutline === (page.contentOutline || '').trim()) return
-    useSessionDetailUiStore.getState().setIsManagingPages(true)
-    try {
-      const result = await ipc.updateSessionPageOutline({
-        sessionId: id,
-        pageId: page.id,
-        contentOutline: normalizedOutline
-      })
-      useGenerateStore.getState().setPages(result.generatedPages)
-      useSessionDetailUiStore.getState().setSelectedPageId(result.selectedPageId || page.id)
-      void ipc.clearSpeechScript(id).catch((err) => console.warn('[speech] clearSpeechScript failed', err))
-    } catch (error) {
-      toastError(error instanceof Error ? error.message : t('pageManagement.updateOutlineFailed'))
-      throw error
-    } finally {
-      useSessionDetailUiStore.getState().setIsManagingPages(false)
-    }
-  }
-
-  const handleConfirmDeletePage = async (): Promise<void> => {
-    if (!id) return
-    if (!deleteConfirmPage) return
-    useSessionDetailUiStore.getState().setIsManagingPages(true)
-    try {
-      const result = await ipc.deleteSessionPages({
-        sessionId: id,
-        pageIds: [deleteConfirmPage.id],
-        selectedPageId: selectedPageId || undefined
-      })
-      useGenerateStore.getState().setPages(result.generatedPages)
-      useSessionDetailUiStore.getState().setSelectedPageId(result.selectedPageId)
-      useSessionDetailUiStore.getState().bumpPreviewKey()
-      setDeleteConfirmPage(null)
-      void ipc.clearSpeechScript(id).catch((err) => console.warn('[speech] clearSpeechScript failed', err))
-    } catch (error) {
-      toastError(error instanceof Error ? error.message : t('pageManagement.deleteFailed'))
-    } finally {
-      useSessionDetailUiStore.getState().setIsManagingPages(false)
-    }
-  }
-
-  const cleanMessageContent = (content: string): string =>
-    content.replace(
-      /[（(](?:目标)?选择器[:：]\s*[^）\n]{8,}[）)]/g,
-      t('sessionDetail.selectorLocated')
-    )
-
-  const getPptxExportNotice = (warnings?: string[]): string | null => {
-    const items = (warnings || []).filter(Boolean)
-    if (items.length === 0) return null
-
-    const hasPageLoadDelay = items.some((item) => item.includes('未收到打印就绪信号'))
-    if (hasPageLoadDelay) {
-      return t('sessionDetail.pageLoadNotice')
-    }
-
-    const hasNoEditableText = items.some((item) => item.includes('未提取到可编辑文本'))
-    if (hasNoEditableText) {
-      return t('sessionDetail.noEditableTextNotice')
-    }
-
-    const hasOnlyCapabilityNote = items.every(
-      (item) =>
-        item.includes('自研') ||
-        item.includes('pptxgenjs') ||
-        item.includes('HTML 解析器') ||
-        item.includes('文本层')
-    )
-    if (hasOnlyCapabilityNote) return null
-
-    return t('sessionDetail.exportCheckNotice')
-  }
-
-  const openProjectPreview = async (): Promise<void> => {
-    const basePath = selectedPage?.htmlPath || normalizedOrderedPages[0]?.htmlPath
-    if (!basePath) return
-    const indexPath = basePath.replace(/[^/\\]+\.html$/i, 'index.html')
-    const pageHash = selectedPage?.id || normalizedOrderedPages[0]?.id
-    await ipc.openInBrowser(indexPath, pageHash ? `#${pageHash}` : undefined, id || undefined)
-  }
-
-  const handleOpenSpeechDialog = (): void => {
-    useSessionDetailUiStore.getState().setSpeechScriptDialogOpen(true)
-  }
-
-  const handleDoGenerateSpeechScript = async (config: SpeechConfig): Promise<void> => {
-    const detailState = useSessionDetailUiStore.getState()
-    if (!id || detailState.isGeneratingSpeechScript) return
-    detailState.setIsGeneratingSpeechScript(true)
-    detailState.setSpeechProgress(null)
-    const currentPageId = selectedPage?.id
-    try {
-      const result = await ipc.generateSpeechScript(id, {
-        ...config,
-        currentPageId: config.scope === 'single' ? currentPageId : undefined
-      })
-      if (!result.success) {
-        toastError(t('sessionDetail.speechScriptError'))
-      }
-    } catch (error) {
-      toastError(error instanceof Error ? error.message : t('sessionDetail.speechScriptError'))
-    } finally {
-      const s = useSessionDetailUiStore.getState()
-      s.setIsGeneratingSpeechScript(false)
-      s.setSpeechProgress(null)
-    }
-  }
-
-  const handleExportPdf = async (): Promise<void> => {
-    const detailState = useSessionDetailUiStore.getState()
-    if (!id || detailState.isExportingPdf) return
-    detailState.setIsExportingPdf(true)
-    toastInfo(t('sessionDetail.exportPdfStart'), {
-      description: t('sessionDetail.exportPdfDescription'),
-      duration: 4000
-    })
-    try {
-      const result = await ipc.exportPdf(id)
-      if (result.cancelled) {
-        toastInfo(t('sessionDetail.exportCancelled'))
-        return
-      }
-      if (!result.success || !result.path) {
-        toastError(t('sessionDetail.exportFailed'))
-        return
-      }
-      if (Array.isArray(result.warnings) && result.warnings.length > 0) {
-        toastWarning(t('sessionDetail.exportDonePages', { count: result.pageCount || 0 }), {
-          description: result.warnings[0]
-        })
-        return
-      }
-      toastSuccess(t('sessionDetail.exportSuccessPages', { count: result.pageCount || 0 }))
-    } catch (error) {
-      toastError(error instanceof Error ? error.message : t('sessionDetail.exportFailed'))
-    } finally {
-      useSessionDetailUiStore.getState().setIsExportingPdf(false)
-    }
-  }
-
-  const handleExportPng = async (): Promise<void> => {
-    const detailState = useSessionDetailUiStore.getState()
-    if (!id || detailState.isExportingPng) return
-    detailState.setIsExportingPng(true)
-    toastInfo(t('sessionDetail.exportPngStart'), {
-      description: t('sessionDetail.exportPngDescription'),
-      duration: 4000
-    })
-    try {
-      const result = await ipc.exportPng(id)
-      if (result.cancelled) {
-        toastInfo(t('sessionDetail.exportCancelled'))
-        return
-      }
-      if (!result.success || !result.path) {
-        toastError(t('sessionDetail.exportFailed'))
-        return
-      }
-      if (Array.isArray(result.warnings) && result.warnings.length > 0) {
-        toastWarning(t('sessionDetail.pngExported', { count: result.pageCount || 0 }), {
-          description: t('sessionDetail.pageLoadNotice')
-        })
-        return
-      }
-      toastSuccess(t('sessionDetail.pngExported', { count: result.pageCount || 0 }))
-    } catch (error) {
-      toastError(error instanceof Error ? error.message : t('sessionDetail.exportFailed'))
-    } finally {
-      useSessionDetailUiStore.getState().setIsExportingPng(false)
-    }
-  }
-
-  const handleExportPptx = async (
-    options?: { imageOnly?: boolean; embedFonts?: boolean | 'auto' | 'always' | 'never' }
-  ): Promise<void> => {
-    const detailState = useSessionDetailUiStore.getState()
-    if (!id || detailState.isExportingPptx) return
-    const imageOnly = options?.imageOnly === true
-    detailState.setIsExportingPptx(true)
-    toastInfo(
-      t(imageOnly ? 'sessionDetail.pptxPreparingImage' : 'sessionDetail.pptxPreparingEditable'),
-      {
-        description: t(
-          imageOnly
-            ? 'sessionDetail.pptxPreparingImageDescription'
-            : 'sessionDetail.pptxPreparingEditableDescription'
-        ),
-        duration: 4000
-      }
-    )
-    try {
-      const result = await ipc.exportPptx(id, options)
-      if (result.cancelled) {
-        toastInfo(t('sessionDetail.exportCancelled'))
-        return
-      }
-      if (!result.success || !result.path) {
-        toastError(t('sessionDetail.exportFailed'))
-        return
-      }
-      const exportNotice = getPptxExportNotice(result.warnings)
-      if (exportNotice) {
-        toastWarning(t('sessionDetail.pptxExported', { count: result.pageCount || 0 }), {
-          description: exportNotice
-        })
-        return
-      }
-      toastSuccess(t('sessionDetail.pptxExported', { count: result.pageCount || 0 }), {
-        description: t(
-          imageOnly ? 'sessionDetail.pptxImageDescription' : 'sessionDetail.pptxEditableDescription'
-        )
-      })
-    } catch (error) {
-      toastError(error instanceof Error ? error.message : t('sessionDetail.exportFailed'))
-    } finally {
-      useSessionDetailUiStore.getState().setIsExportingPptx(false)
-    }
-  }
-
-  const handleExportSlidePack = async (): Promise<void> => {
-    const detailState = useSessionDetailUiStore.getState()
-    if (!id || detailState.isExportingSlidePack) return
-    detailState.setIsExportingSlidePack(true)
-    toastInfo(t('sessionDetail.slidePackPreparing'), {
-      description: t('sessionDetail.slidePackPreparingDescription'),
-      duration: 4000
-    })
-    try {
-      const result = await ipc.exportSlidePack(id)
-      if (result.cancelled) {
-        toastInfo(t('sessionDetail.exportCancelled'))
-        return
-      }
-      if (!result.success || !result.path) {
-        toastError(t('sessionDetail.exportFailed'))
-        return
-      }
-      toastSuccess(t('sessionDetail.slidePackExported'), {
-        description: t('sessionDetail.slidePackExportedDescription')
-      })
-    } catch (error) {
-      toastError(error instanceof Error ? error.message : t('sessionDetail.exportFailed'))
-    } finally {
-      useSessionDetailUiStore.getState().setIsExportingSlidePack(false)
-    }
-  }
-
-  const handleExportSessionZip = async (): Promise<void> => {
-    const detailState = useSessionDetailUiStore.getState()
-    if (!id || detailState.isExportingSessionZip) return
-    detailState.setIsExportingSessionZip(true)
-    toastInfo(t('sessionDetail.sessionZipPreparing'), {
-      description: t('sessionDetail.sessionZipPreparingDescription'),
-      duration: 4000
-    })
-    try {
-      const result = await ipc.exportSessionZip(id)
-      if (result.cancelled) {
-        toastInfo(t('sessionDetail.exportCancelled'))
-        return
-      }
-      if (!result.success || !result.path) {
-        toastError(t('sessionDetail.exportFailed'))
-        return
-      }
-      toastSuccess(t('sessionDetail.sessionZipExported'), {
-        description: t('sessionDetail.sessionZipExportedDescription')
-      })
-    } catch (error) {
-      toastError(error instanceof Error ? error.message : t('sessionDetail.exportFailed'))
-    } finally {
-      useSessionDetailUiStore.getState().setIsExportingSessionZip(false)
-    }
-  }
 
   const handleElementMoved = (payload: EditModeMovePayload): void => {
     if (!id || !selectedPage?.htmlPath || !selectedPage.pageId) return
 
     // Sync inspector panel layout fields when the selected element is dragged
     // payload.x/y are translate offsets (--ppt-drag-x/y), convert to visual position for display
-    if (textSelection && payload.selector === textSelection.selector) {
+    if (elementSelection && payload.selector === elementSelection.selector) {
       const visualX =
         payload.visualX ??
-        ((textSelection.pageBounds?.x ?? textSelection.bounds?.x ?? 0) +
-          (payload.layoutMode === 'translate' ? payload.x : payload.deltaX))
+        (elementSelection.pageBounds?.x ?? elementSelection.bounds?.x ?? 0) +
+          (payload.layoutMode === 'translate' ? payload.x : payload.deltaX)
       const visualY =
         payload.visualY ??
-        ((textSelection.pageBounds?.y ?? textSelection.bounds?.y ?? 0) +
-          (payload.layoutMode === 'translate' ? payload.y : payload.deltaY))
-      setTextDraft((prev) => ({
+        (elementSelection.pageBounds?.y ?? elementSelection.bounds?.y ?? 0) +
+          (payload.layoutMode === 'translate' ? payload.y : payload.deltaY)
+      setElementDraft((prev) => ({
         ...prev,
         layoutX: String(Math.round(visualX)),
         layoutY: String(Math.round(visualY)),
         ...(payload.width !== undefined ? { layoutWidth: String(Math.round(payload.width)) } : {}),
-        ...(payload.height !== undefined ? { layoutHeight: String(Math.round(payload.height)) } : {})
+        ...(payload.height !== undefined
+          ? { layoutHeight: String(Math.round(payload.height)) }
+          : {})
       }))
     }
 
-    const draftZIndex = parseInt(textDraft.layoutZIndex, 10)
+    const draftZIndex = parseInt(elementDraft.layoutZIndex, 10)
     const nextEdit = {
       pageId: selectedPage.pageId,
       htmlPath: selectedPage.htmlPath,
@@ -1426,10 +537,10 @@ export function SessionDetailPage(): React.JSX.Element {
       snapshot.addElements.length > 0
     if (!hasEdits) {
       previewIframeRef.current?.clearEditModeSelection()
-      setTextSelection(null)
-      setTextDraft(EMPTY_ELEMENT_DRAFT)
+      setElementSelection(null)
+      setElementDraft(EMPTY_ELEMENT_DRAFT)
+      clearEditSelectedElement()
       setPreviewRefreshKey((key) => key + 1)
-      useSessionDetailUiStore.getState().setInteractionMode('preview')
       return
     }
     setIsSavingEdits(true)
@@ -1450,11 +561,16 @@ export function SessionDetailPage(): React.JSX.Element {
           }
         })
       )
-      // Filter out drag/text edits for elements that are also pending deletion
-      const deletedSelectors = new Set(snapshot.deletes.map((d) => d.selector))
-      const safeDragEdits = snapshot.dragEdits.filter((e) => !deletedSelectors.has(e.selector))
-      const safeTextEdits = snapshot.textEdits.filter((e) => !deletedSelectors.has(e.selector))
-      const safePropertyEdits = snapshot.propertyEdits.filter((e) => !deletedSelectors.has(e.selector))
+      // Filter out edits for elements that are also pending deletion.
+      const isDeletedTarget = (selector: string, blockId?: string): boolean =>
+        snapshot.deletes.some((d) =>
+          editTargetMatchesDeletedSelector(selector, d.selector, blockId)
+        )
+      const safeDragEdits = snapshot.dragEdits.filter((e) => !isDeletedTarget(e.selector))
+      const safeTextEdits = snapshot.textEdits.filter((e) => !isDeletedTarget(e.selector))
+      const safePropertyEdits = snapshot.propertyEdits.filter(
+        (e) => !isDeletedTarget(e.selector, e.blockId)
+      )
       // Build descriptive prompt for history
       const parts: string[] = []
       const ac = snapshot.addElements.length
@@ -1480,13 +596,13 @@ export function SessionDetailPage(): React.JSX.Element {
         prompt
       })
       if (!result.success) throw new Error(t('sessionDetail.layoutSaveFailed'))
-      editHistory.clearPage(selectedPage.pageId)
+      editHistory.markPageSaved(selectedPage.pageId)
       previewIframeRef.current?.clearEditModeSelection()
-      setTextSelection(null)
-      setTextDraft(EMPTY_ELEMENT_DRAFT)
+      setElementSelection(null)
+      setElementDraft(EMPTY_ELEMENT_DRAFT)
+      clearEditSelectedElement()
       useSessionDetailUiStore.getState().bumpThumbnailVersion(selectedPage.pageId)
       setPreviewRefreshKey((key) => key + 1)
-      useSessionDetailUiStore.getState().setInteractionMode('preview')
       const totalCount =
         result.dragCount +
         result.textCount +
@@ -1512,18 +628,16 @@ export function SessionDetailPage(): React.JSX.Element {
       snapshot.addElements.length > 0
     editHistory.clearPage(selectedPage.pageId)
     previewIframeRef.current?.clearEditModeSelection()
-    setTextSelection(null)
-    setTextDraft(EMPTY_ELEMENT_DRAFT)
-    useSessionDetailUiStore.getState().setInteractionMode('preview')
-    if (hadPending) {
-      setPreviewRefreshKey((key) => key + 1)
-    }
+    setElementSelection(null)
+    setElementDraft(EMPTY_ELEMENT_DRAFT)
+    clearEditSelectedElement()
+    if (hadPending) setPreviewRefreshKey((k) => k + 1)
     if (hadPending) toastInfo(t('sessionDetail.discardedAdjustments'))
   }
 
   const handleDeleteElement = (): void => {
-    if (!selectedPage?.htmlPath || !selectedPage.pageId || !textSelection) return
-    const selector = textSelection.selector
+    if (!selectedPage?.htmlPath || !selectedPage.pageId || !elementSelection) return
+    const selector = elementSelection.selector
     editHistory.addDelete({
       pageId: selectedPage.pageId,
       htmlPath: selectedPage.htmlPath,
@@ -1531,14 +645,15 @@ export function SessionDetailPage(): React.JSX.Element {
     })
     previewIframeRef.current?.hideElement(selector)
     previewIframeRef.current?.clearEditModeSelection()
-    setTextSelection(null)
-    setTextDraft(EMPTY_ELEMENT_DRAFT)
+    setElementSelection(null)
+    setElementDraft(EMPTY_ELEMENT_DRAFT)
+    clearEditSelectedElement()
   }
 
   const handleDeleteBySelector = (selector: string): void => {
     if (!selectedPage?.htmlPath || !selectedPage.pageId || !selector) return
     // Commit any pending inspector edit for the element being deleted.
-    if (textSelection && textSelection.selector === selector) {
+    if (elementSelection && elementSelection.selector === selector) {
       commitCurrentElementEdit()
     }
     editHistory.addDelete({
@@ -1548,25 +663,30 @@ export function SessionDetailPage(): React.JSX.Element {
     })
     previewIframeRef.current?.hideElement(selector)
     previewIframeRef.current?.clearEditModeSelection()
-    setTextSelection(null)
-    setTextDraft(EMPTY_ELEMENT_DRAFT)
+    setElementSelection(null)
+    setElementDraft(EMPTY_ELEMENT_DRAFT)
+    clearEditSelectedElement()
   }
 
   const handleElementSelected = (payload: EditSelectionPayload): void => {
     // Commit previous edit before switching to new element.
     commitCurrentElementEdit()
     if (!payload.snapshot) {
-      setTextSelection(null)
-      setTextDraft(EMPTY_ELEMENT_DRAFT)
+      setElementSelection(null)
+      setElementDraft(EMPTY_ELEMENT_DRAFT)
+      clearEditSelectedElement()
       return
     }
-    setTextSelection(payload)
+    setElementSelection(payload)
+    useSessionDetailUiStore
+      .getState()
+      .setEditSelectedElement(payload.selector)
     const zValue = payload.zIndex !== undefined ? String(payload.zIndex) : '10'
     const bounds = payload.snapshot.metrics.page
     const computed = payload.snapshot.computed
     const attrs = payload.snapshot.attrs
     if (payload.isText) {
-      setTextDraft({
+      setElementDraft({
         text: payload.textTarget?.text ?? payload.text,
         html: payload.html || payload.snapshot.text?.html || '',
         color: rgbToHex(computed.color),
@@ -1588,10 +708,11 @@ export function SessionDetailPage(): React.JSX.Element {
         loop: Boolean(attrs.loop),
         autoplay: Boolean(attrs.autoplay),
         playsInline: attrs.playsInline !== false,
-        preload: attrs.preload || 'metadata'
+        preload: attrs.preload || 'metadata',
+        artTextTemplateId: attrs.artTextTemplate || ''
       })
     } else {
-      setTextDraft({
+      setElementDraft({
         ...EMPTY_ELEMENT_DRAFT,
         layoutX: String(Math.round(bounds.x)),
         layoutY: String(Math.round(bounds.y)),
@@ -1608,7 +729,8 @@ export function SessionDetailPage(): React.JSX.Element {
         loop: Boolean(attrs.loop),
         autoplay: Boolean(attrs.autoplay),
         playsInline: attrs.playsInline !== false,
-        preload: attrs.preload || 'metadata'
+        preload: attrs.preload || 'metadata',
+        artTextTemplateId: attrs.artTextTemplate || ''
       })
     }
   }
@@ -1649,11 +771,11 @@ export function SessionDetailPage(): React.JSX.Element {
     draft: ElementEditDraft,
     fields?: Array<keyof ElementEditDraft>
   ): ElementPropertyPatch | null => {
-    if (!textSelection?.snapshot) return null
+    if (!elementSelection?.snapshot) return null
 
     const commitFields =
-      fields && fields.length > 0 ? new Set(fields) : getCommitFieldsForSelection(textSelection)
-    const initial = textSelection.snapshot
+      fields && fields.length > 0 ? new Set(fields) : getCommitFieldsForSelection(elementSelection)
+    const initial = elementSelection.snapshot
     const style: ElementPropertyStylePatch = {}
     const attrs: ElementPropertyAttrsPatch = {}
     let text: string | undefined
@@ -1661,7 +783,7 @@ export function SessionDetailPage(): React.JSX.Element {
 
     if (commitFields.has('layoutZIndex')) {
       const value = parseInt(draft.layoutZIndex, 10)
-      const initialValue = textSelection.zIndex ?? 10
+      const initialValue = elementSelection.zIndex ?? 10
       if (Number.isFinite(value) && value !== initialValue) style.zIndex = value
     }
     if (commitFields.has('opacity')) {
@@ -1675,21 +797,32 @@ export function SessionDetailPage(): React.JSX.Element {
     ) {
       style.backgroundColor = draft.backgroundColor
     }
-    if (commitFields.has('objectFit') && draft.objectFit !== (initial.computed.objectFit || 'contain')) {
+    if (
+      commitFields.has('objectFit') &&
+      draft.objectFit !== (initial.computed.objectFit || 'contain')
+    ) {
       style.objectFit = draft.objectFit
     }
     const initialHtml = initial.text?.html || ''
     if (commitFields.has('html') && draft.html.trim() && draft.html.trim() !== initialHtml.trim()) {
       html = draft.html.trim()
     }
-    const initialText = textSelection.textTarget?.text ?? initial.text?.value ?? ''
-    if (!html && commitFields.has('text') && draft.text.trim() && draft.text.trim() !== initialText) {
+    const initialText = elementSelection.textTarget?.text ?? initial.text?.value ?? ''
+    if (
+      !html &&
+      commitFields.has('text') &&
+      draft.text.trim() &&
+      draft.text.trim() !== initialText
+    ) {
       text = draft.text.trim()
     }
     if (commitFields.has('color') && draft.color !== rgbToHex(initial.computed.color)) {
       style.color = draft.color
     }
-    if (commitFields.has('fontSize') && draft.fontSize !== fontSizeToNumber(initial.computed.fontSize)) {
+    if (
+      commitFields.has('fontSize') &&
+      draft.fontSize !== fontSizeToNumber(initial.computed.fontSize)
+    ) {
       style.fontSize = draft.fontSize ? `${draft.fontSize}px` : undefined
     }
     if (
@@ -1720,7 +853,10 @@ export function SessionDetailPage(): React.JSX.Element {
     if (commitFields.has('autoplay') && draft.autoplay !== Boolean(initial.attrs.autoplay)) {
       attrs.autoplay = draft.autoplay
     }
-    if (commitFields.has('playsInline') && draft.playsInline !== (initial.attrs.playsInline !== false)) {
+    if (
+      commitFields.has('playsInline') &&
+      draft.playsInline !== (initial.attrs.playsInline !== false)
+    ) {
       attrs.playsInline = draft.playsInline
     }
     if (commitFields.has('preload') && draft.preload !== (initial.attrs.preload || 'metadata')) {
@@ -1738,7 +874,7 @@ export function SessionDetailPage(): React.JSX.Element {
     return {
       html,
       text,
-      textTarget: text !== undefined ? textSelection.textTarget : undefined,
+      textTarget: text !== undefined ? elementSelection.textTarget : undefined,
       style: Object.keys(style).length > 0 ? style : undefined,
       attrs: Object.keys(attrs).length > 0 ? attrs : undefined
     }
@@ -1748,20 +884,20 @@ export function SessionDetailPage(): React.JSX.Element {
     draft: ElementEditDraft,
     fields?: Array<keyof ElementEditDraft>
   ): boolean => {
-    if (!textSelection || !selectedPage?.pageId || !selectedPage.htmlPath) return false
+    if (!elementSelection || !selectedPage?.pageId || !selectedPage.htmlPath) return false
     const patch = buildElementPropertyPatch(draft, fields)
     if (!patch) return false
     editHistory.upsertPropertyEdit({
       pageId: selectedPage.pageId,
       htmlPath: selectedPage.htmlPath,
-      selector: textSelection.selector,
-      blockId: textSelection.blockId,
+      selector: elementSelection.selector,
+      blockId: elementSelection.blockId,
       patch
     })
     return true
   }
 
-  const commitCurrentElementEdit = (): boolean => commitElementDraft(textDraft)
+  const commitCurrentElementEdit = (): boolean => commitElementDraft(elementDraft)
 
   const handleTextDraftChange = (
     draft: ElementEditDraft,
@@ -1785,52 +921,57 @@ export function SessionDetailPage(): React.JSX.Element {
       preload?: string
     } = {}
 
-    if (textSelection && selectedPage?.htmlPath && selectedPage?.pageId && draft.layoutZIndex !== textDraft.layoutZIndex) {
+    if (
+      elementSelection &&
+      selectedPage?.htmlPath &&
+      selectedPage?.pageId &&
+      draft.layoutZIndex !== elementDraft.layoutZIndex
+    ) {
       const zNum = parseInt(draft.layoutZIndex, 10)
       if (Number.isFinite(zNum)) liveStyle.zIndex = zNum
     }
-    if (draft.opacity !== textDraft.opacity) {
+    if (draft.opacity !== elementDraft.opacity) {
       const opacity = Number(draft.opacity)
       if (Number.isFinite(opacity)) liveStyle.opacity = opacity
     }
-    if (draft.backgroundColor !== textDraft.backgroundColor) {
+    if (draft.backgroundColor !== elementDraft.backgroundColor) {
       liveStyle.backgroundColor = draft.backgroundColor
     }
-    if (draft.objectFit !== textDraft.objectFit) {
+    if (draft.objectFit !== elementDraft.objectFit) {
       liveStyle.objectFit = draft.objectFit
     }
-    if (draft.textAlign !== textDraft.textAlign) {
+    if (draft.textAlign !== elementDraft.textAlign) {
       liveStyle.textAlign = draft.textAlign
     }
-    if (draft.alt !== textDraft.alt) liveAttrs.alt = draft.alt
-    if (draft.poster !== textDraft.poster) liveAttrs.poster = draft.poster
-    if (draft.controls !== textDraft.controls) liveAttrs.controls = draft.controls
-    if (draft.muted !== textDraft.muted) liveAttrs.muted = draft.muted
-    if (draft.loop !== textDraft.loop) liveAttrs.loop = draft.loop
-    if (draft.autoplay !== textDraft.autoplay) liveAttrs.autoplay = draft.autoplay
-    if (draft.playsInline !== textDraft.playsInline) liveAttrs.playsInline = draft.playsInline
-    if (draft.preload !== textDraft.preload) liveAttrs.preload = draft.preload
+    if (draft.alt !== elementDraft.alt) liveAttrs.alt = draft.alt
+    if (draft.poster !== elementDraft.poster) liveAttrs.poster = draft.poster
+    if (draft.controls !== elementDraft.controls) liveAttrs.controls = draft.controls
+    if (draft.muted !== elementDraft.muted) liveAttrs.muted = draft.muted
+    if (draft.loop !== elementDraft.loop) liveAttrs.loop = draft.loop
+    if (draft.autoplay !== elementDraft.autoplay) liveAttrs.autoplay = draft.autoplay
+    if (draft.playsInline !== elementDraft.playsInline) liveAttrs.playsInline = draft.playsInline
+    if (draft.preload !== elementDraft.preload) liveAttrs.preload = draft.preload
 
-    setTextDraft(draft)
+    setElementDraft(draft)
     // Live preview in iframe
-    if (textSelection && selectedPage?.pageId) {
+    if (elementSelection && selectedPage?.pageId) {
       // Z-index: use dedicated function to avoid clearing element content
       const zNum = parseInt(draft.layoutZIndex, 10)
-      if (Number.isFinite(zNum) && draft.layoutZIndex !== textDraft.layoutZIndex) {
-        previewIframeRef.current?.applyZIndex(textSelection.selector, zNum)
+      if (Number.isFinite(zNum) && draft.layoutZIndex !== elementDraft.layoutZIndex) {
+        previewIframeRef.current?.applyZIndex(elementSelection.selector, zNum)
       }
       if (Object.keys(liveStyle).length > 0 || Object.keys(liveAttrs).length > 0) {
-        previewIframeRef.current?.applyElementProperties(textSelection.selector, {
+        previewIframeRef.current?.applyElementProperties(elementSelection.selector, {
           style: liveStyle,
           attrs: liveAttrs
         })
       }
       // Text & style: only for text elements
-      if (textSelection.isText) {
-        previewIframeRef.current?.liveUpdateElement(textSelection.selector, {
+      if (elementSelection.isText) {
+        previewIframeRef.current?.liveUpdateElement(elementSelection.selector, {
           html: draft.html,
           text: draft.text,
-          textTarget: textSelection.textTarget,
+          textTarget: elementSelection.textTarget,
           style: {
             color: draft.color,
             fontSize: draft.fontSize ? `${draft.fontSize}px` : undefined,
@@ -1905,50 +1046,66 @@ export function SessionDetailPage(): React.JSX.Element {
   }
 
   const handleUndo = (): void => {
-    if (!editHistory.undo()) return
+    if (!selectedPage?.pageId) return
+    commitCurrentElementEdit()
+    if (!editHistory.undo(selectedPage.pageId)) return
     previewIframeRef.current?.clearEditModeSelection()
-    setTextSelection(null)
-    setTextDraft(EMPTY_ELEMENT_DRAFT)
+    setElementSelection(null)
+    setElementDraft(EMPTY_ELEMENT_DRAFT)
+    clearEditSelectedElement()
     setPreviewRefreshKey((key) => key + 1)
   }
 
   const handleRedo = (): void => {
-    if (!editHistory.redo()) return
+    if (!selectedPage?.pageId) return
+    if (!editHistory.redo(selectedPage.pageId)) return
     previewIframeRef.current?.clearEditModeSelection()
-    setTextSelection(null)
-    setTextDraft(EMPTY_ELEMENT_DRAFT)
+    setElementSelection(null)
+    setElementDraft(EMPTY_ELEMENT_DRAFT)
+    clearEditSelectedElement()
     setPreviewRefreshKey((key) => key + 1)
   }
 
-  const handleCancelTextEdit = (): void => {
+  const handleCancelElementEdit = (): void => {
     // Commit current inspector edit before closing panel.
     commitCurrentElementEdit()
     previewIframeRef.current?.clearEditModeSelection()
-    setTextSelection(null)
-    setTextDraft(EMPTY_ELEMENT_DRAFT)
+    setElementSelection(null)
+    setElementDraft(EMPTY_ELEMENT_DRAFT)
+    clearEditSelectedElement()
   }
 
-  const handleCopyElement = (): void => {
-    if (!textSelection || !selectedPage?.pageId || !selectedPage.htmlPath) return
+  const handleCopyElement = async (): Promise<void> => {
+    if (!elementSelection || !selectedPage?.pageId || !selectedPage.htmlPath) return
     const blockId = 'select-arcsin1-' + nanoid(8)
-    const newSelector = previewIframeRef.current?.copyElement(textSelection.selector, blockId)
-    if (!newSelector) return
-    const bounds = textSelection.pageBounds || textSelection.bounds
-    const zValue = textSelection.zIndex !== undefined ? String(textSelection.zIndex + 1) : '10'
-    const nextSnapshot = textSelection.snapshot
+    let copyResult: { selector: string; htmlFragment: string } | null | undefined
+    try {
+      copyResult = await previewIframeRef.current?.copyElement(elementSelection.selector, blockId)
+    } catch (error) {
+      toastError(error instanceof Error ? error.message : t('sessionDetail.copyElementFailed'))
+      return
+    }
+    if (!copyResult) {
+      toastError(t('sessionDetail.copyElementFailed'))
+      return
+    }
+    const newSelector = copyResult.selector
+    const bounds = elementSelection.pageBounds || elementSelection.bounds
+    const zValue = elementSelection.zIndex !== undefined ? String(elementSelection.zIndex + 1) : '10'
+    const nextSnapshot = elementSelection.snapshot
       ? {
-          ...textSelection.snapshot,
+          ...elementSelection.snapshot,
           selector: newSelector,
           blockId,
           label: newSelector,
           metrics: {
-            ...textSelection.snapshot.metrics,
+            ...elementSelection.snapshot.metrics,
             page: bounds
               ? { x: bounds.x + 20, y: bounds.y + 20, width: bounds.width, height: bounds.height }
-              : textSelection.snapshot.metrics.page,
+              : elementSelection.snapshot.metrics.page,
             viewport: bounds
               ? { x: bounds.x + 20, y: bounds.y + 20, width: bounds.width, height: bounds.height }
-              : textSelection.snapshot.metrics.viewport,
+              : elementSelection.snapshot.metrics.viewport,
             translateX: 0,
             translateY: 0
           }
@@ -1958,7 +1115,7 @@ export function SessionDetailPage(): React.JSX.Element {
       pageId: selectedPage.pageId,
       htmlPath: selectedPage.htmlPath,
       parentSelector: `body[data-page-id="${selectedPage.pageId}"] [data-ppt-guard-root="1"]`,
-      htmlFragment: '',
+      htmlFragment: copyResult.htmlFragment,
       assignedBlockId: blockId,
       insertIndex: -1
     })
@@ -1966,16 +1123,20 @@ export function SessionDetailPage(): React.JSX.Element {
       selector: newSelector,
       blockId,
       label: newSelector,
-      elementTag: textSelection.elementTag,
+      elementTag: elementSelection.elementTag,
       elementText: '',
-      kind: textSelection.kind,
-      capabilities: textSelection.capabilities,
+      kind: elementSelection.kind,
+      capabilities: elementSelection.capabilities,
       snapshot: nextSnapshot,
       isText: false,
       text: '',
       style: {},
-      bounds: bounds ? { x: bounds.x + 20, y: bounds.y + 20, width: bounds.width, height: bounds.height } : undefined,
-      pageBounds: bounds ? { x: bounds.x + 20, y: bounds.y + 20, width: bounds.width, height: bounds.height } : undefined,
+      bounds: bounds
+        ? { x: bounds.x + 20, y: bounds.y + 20, width: bounds.width, height: bounds.height }
+        : undefined,
+      pageBounds: bounds
+        ? { x: bounds.x + 20, y: bounds.y + 20, width: bounds.width, height: bounds.height }
+        : undefined,
       translateX: 0,
       translateY: 0,
       zIndex: parseInt(zValue, 10),
@@ -2060,10 +1221,62 @@ export function SessionDetailPage(): React.JSX.Element {
     )
   }
 
+  const handleAddArtTextElement = async (templateId: ArtTextTemplateId): Promise<void> => {
+    if (!id || !selectedPage?.pageId || !selectedPage.htmlPath) return
+    const blockId = 'select-arcsin1-' + nanoid(8)
+    const parentSelector = `body[data-page-id="${selectedPage.pageId}"] [data-ppt-guard-root="1"]`
+    const existingCount = editHistory.addElements.filter(
+      (e) => e.pageId === selectedPage.pageId
+    ).length
+    const offset = existingCount * ADDED_TEXT_OFFSET_STEP
+    const w = ADDED_ART_TEXT_WIDTH
+    const h = ADDED_ART_TEXT_MIN_HEIGHT
+    const left = Math.min(
+      ADDED_TEXT_BASE_LEFT + offset,
+      PPT_PAGE_WIDTH - w - ADDED_ELEMENT_EDGE_PADDING
+    )
+    const top = Math.min(
+      ADDED_TEXT_BASE_TOP + offset,
+      PPT_PAGE_HEIGHT - h - ADDED_ELEMENT_EDGE_PADDING
+    )
+    const zIdx = 10 + existingCount
+    const htmlFragment = buildArtTextHtmlFragment(templateId, {
+      blockId,
+      left,
+      top,
+      width: w,
+      minHeight: h,
+      zIndex: zIdx
+    })
+
+    commitCurrentElementEdit()
+    editHistory.addElement({
+      pageId: selectedPage.pageId,
+      htmlPath: selectedPage.htmlPath,
+      parentSelector,
+      htmlFragment,
+      assignedBlockId: blockId,
+      insertIndex: -1
+    })
+    previewIframeRef.current?.injectElement(parentSelector, htmlFragment)
+
+    const selector = `body[data-page-id="${selectedPage.pageId}"] [data-block-id="${blockId}"]`
+    if (useSessionDetailUiStore.getState().selectedPageId !== selectedPage.id) return
+    const snapshot = await readElementSnapshotWithRetry(selector)
+    if (!snapshot) return
+    handleElementSelected(
+      buildSelectedElementFromSnapshot({
+        selector,
+        blockId,
+        snapshot
+      })
+    )
+  }
+
   const handleAddElement = async (
     relativePath: string,
     _fileName: string,
-    options: { persistImmediately?: boolean; prompt?: string; asBackground?: boolean } = {}
+    options: AddSessionElementOptions = {}
   ): Promise<boolean> => {
     if (!id || !selectedPage?.pageId || !selectedPage.htmlPath) return false
     const selectedHtmlPath = selectedPage.htmlPath
@@ -2071,6 +1284,7 @@ export function SessionDetailPage(): React.JSX.Element {
     const parentSelector = `body[data-page-id="${selectedPage.pageId}"] [data-ppt-guard-root="1"]`
     const isVideo = /^\.\/videos\//i.test(relativePath)
     const isBackground = Boolean(options.asBackground && !isVideo)
+    if (isBackground) previewIframeRef.current?.clearEditModeSelection()
     const safeRelativePath = escapeHtmlText(relativePath)
     // Offset each added element so they don't overlap
     const existingCount = editHistory.addElements.filter(
@@ -2128,15 +1342,15 @@ export function SessionDetailPage(): React.JSX.Element {
       useSessionDetailUiStore.getState().bumpThumbnailVersion(selectedPage.pageId)
     } else {
       if (isBackground) {
-        backgroundSelectors.forEach((selector) => {
-          editHistory.addDelete({
-            pageId: selectedPage.pageId,
-            htmlPath: selectedHtmlPath,
-            selector
-          })
-        })
+        const deletes = backgroundSelectors.map((selector) => ({
+          pageId: selectedPage.pageId,
+          htmlPath: selectedHtmlPath,
+          selector
+        }))
+        editHistory.addElementWithDeletes(addElementItem, deletes)
+      } else {
+        editHistory.addElement(addElementItem)
       }
-      editHistory.addElement(addElementItem)
     }
     if (isBackground) {
       backgroundSelectors.forEach((selector) => previewIframeRef.current?.hideElement(selector))
@@ -2157,49 +1371,27 @@ export function SessionDetailPage(): React.JSX.Element {
     return true
   }
 
-  const handleAddGeneratedImageToCanvas = async (asset: GeneratedImageAsset): Promise<void> => {
-    if (!selectedPage?.pageId) {
-      toastError(t('sessionDetail.selectPageFirst'))
-      return
-    }
-    useSessionDetailUiStore.getState().setInteractionMode('edit')
-    try {
-      const added = await handleAddElement(asset.relativePath, asset.fileName, {
-        persistImmediately: true,
-        prompt: '从生图结果添加图片到画布'
-      })
-      if (added) {
-        toastSuccess(t('sessionDetail.imageAddedToCanvas'))
-      }
-    } catch (err) {
-      toastError(err instanceof Error ? err.message : t('sessionDetail.layoutSaveFailed'))
-    }
+  useEffect(() => {
+    addElementHandlerRef.current = handleAddElement
+  }, [handleAddElement])
+
+  useEffect(() => {
+    setAddElementHandler(invokeAddElement)
+    return () => setAddElementHandler(null)
+  }, [invokeAddElement, setAddElementHandler])
+
+  const handleBackToSessions = (): void => {
+    useGenerateStore.getState().reset()
+    useSessionDetailUiStore.getState().resetForSessionChange()
+    resetRuntimeState()
+    navigate('/sessions')
   }
 
-  const handleSetGeneratedImageAsBackground = async (
-    asset: GeneratedImageAsset
-  ): Promise<void> => {
-    if (!selectedPage?.pageId) {
-      toastError(t('sessionDetail.selectPageFirst'))
-      return
-    }
-    useSessionDetailUiStore.getState().setInteractionMode('edit')
-    previewIframeRef.current?.clearEditModeSelection()
-    try {
-      const added = await handleAddElement(asset.relativePath, asset.fileName, {
-        persistImmediately: true,
-        asBackground: true,
-        prompt: '从生图结果设置页面背景'
-      })
-      if (added) {
-        toastSuccess(t('sessionDetail.imageSetAsBackground'))
-      }
-    } catch (err) {
-      toastError(err instanceof Error ? err.message : t('sessionDetail.layoutSaveFailed'))
-    }
+  const handleAddFromLibrary = (assetType: 'image' | 'video'): void => {
+    setAssetPickerOpen(true, assetType)
   }
 
-  const handleUploadAndAdd = async (assetType: 'image' | 'video'): Promise<void> => {
+  const handleAddFromLocal = async (assetType: 'image' | 'video'): Promise<void> => {
     if (!id) return
     const result = await ipc.chooseAndUploadAssets(id, assetType)
     if (result.cancelled || !result.assets?.length) return
@@ -2207,590 +1399,115 @@ export function SessionDetailPage(): React.JSX.Element {
     await handleAddElement(asset.relativePath, asset.originalName || asset.fileName)
   }
 
-  const handleSaveTemplate = async (payload: {
-    name: string
-    description: string
-    tags: string[]
-  }): Promise<void> => {
-    if (!id || savingTemplate) return
-    setSavingTemplate(true)
-    try {
-      await createTemplateFromSession({
-        sessionId: id,
-        ...payload
-      })
-      toastSuccess('已保存为模板', {
-        action: {
-          label: '查看模板',
-          onClick: () => navigate('/templates')
-        }
-      })
-      setSaveTemplateOpen(false)
-    } catch (err) {
-      toastError('保存模板失败', {
-        description: err instanceof Error ? err.message : t('common.retryLater')
-      })
-    } finally {
-      setSavingTemplate(false)
-    }
+  useWorkspaceRibbonActionsRegistration({
+    onUndo: handleUndo,
+    onRedo: handleRedo,
+    onSaveCurrentPage: () => void handleSaveAllEdits(),
+    onDiscardAllEdits: handleDiscardAllEdits,
+    onBackToSessions: handleBackToSessions,
+    onAddFromLibrary: handleAddFromLibrary,
+    onAddFromLocal: (type) => void handleAddFromLocal(type),
+    onAddText: () => void handleAddTextElement(),
+    onAddArtText: (templateId) => void handleAddArtTextElement(templateId)
+  })
+
+  if (!id) {
+    return <div className="h-full bg-[#f5f1e8]" />
   }
 
   return (
     <TooltipProvider delayDuration={180}>
-      <div
-        className="flex h-full min-h-0 flex-col bg-[#f5f1e8] text-foreground outline-none"
-      >
+      <div className="flex h-full min-h-0 flex-col bg-[#f5f1e8] text-foreground outline-none">
         <header className="app-drag-region app-titlebar relative shrink-0 bg-[#f5f1e8]/95 shadow-[0_10px_26px_rgba(93,107,77,0.055)] backdrop-blur-xl">
-          <div className="absolute left-0 top-0 h-full w-[220px] bg-[#f5f1e8]" />
           <div
-            className={`relative flex h-full items-center justify-end pl-[244px] ${
-              isMac ? 'px-3' : 'pr-[calc(var(--app-titlebar-control-safe-area)+16px)]'
+            className={`relative flex h-full items-center ${
+              isMac ? '' : 'pr-[calc(var(--app-titlebar-control-safe-area)+16px)]'
             }`}
           >
-            <div className="app-no-drag flex items-center gap-1.5">
-              <SessionToolbar
-                hasPages={normalizedOrderedPages.length > 0}
-                historyDisabled={historyDisabled}
-                canPreview={Boolean(selectedPage?.htmlPath || normalizedOrderedPages[0]?.htmlPath)}
-                canRevealFile={Boolean(selectedPage?.htmlPath)}
-                onExportPdf={() => void handleExportPdf()}
-                onExportPng={() => void handleExportPng()}
-                onExportPptx={(options) => void handleExportPptx(options)}
-                onExportSessionZip={() => void handleExportSessionZip()}
-                onExportSlidePack={() => void handleExportSlidePack()}
-                onOpenHistory={() => void handleOpenHistory()}
-                onOpenPreview={() => void openProjectPreview()}
-                onRevealFile={() => {
-                  if (selectedPage?.htmlPath) {
-                    void ipc.revealFile(selectedPage.htmlPath, id || undefined)
-                  }
-                }}
-                onSaveTemplate={() => setSaveTemplateOpen(true)}
-                onPresent={() => {
-                  const idx = normalizedOrderedPages.findIndex((p) => p.id === selectedPageId)
-                  void ipc.openPresentation({
-                    sessionId: id || '',
-                    startIndex: idx >= 0 ? idx : 0
-                  })
-                }}
-              />
+            <div className="app-no-drag flex-1">
+              <SessionToolbar sessionId={id} isSavingEdits={isSavingEdits} />
             </div>
           </div>
         </header>
 
-        <div className="flex min-h-0 flex-1 bg-[#f5f1e8]">
-          <PageSidebar
-            pages={normalizedOrderedPages}
-            disabled={interactionMode === 'ai-inspect' && isGenerating}
-            onAddBlankPage={handleOpenBlankPageDialog}
-            onAddPage={handleOpenAddPageDialog}
-            onRetryFailedPage={handleRetryFailedPage}
-            onReorderPages={handleReorderPages}
-            onDeletePage={handleDeletePage}
-            onRenamePage={handleOpenTitleEditDialog}
-            onUpdatePageOutline={handleUpdatePageOutline}
-            pageManagementDisabled={isGenerating || isAddingPage || isRetryingSinglePage || isManagingPages}
-            collapsed={sidebarCollapsed}
-            onToggleCollapsed={toggleSidebarCollapsed}
-          />
+        <div className="flex min-h-0 flex-1 flex-col bg-[#f5f1e8]">
+          <WorkspaceRibbon isSavingEdits={isSavingEdits} />
 
-          <div className="flex min-h-0 flex-1 flex-col">
-            <PreviewToolbar
-              selectedPage={selectedPage}
-              isGenerating={isGenerating}
-              isSavingEdits={isSavingEdits}
-              canUndo={editHistory.canUndo()}
-              canRedo={editHistory.canRedo()}
-              hasPendingEdits={
-                selectedPage
-                  ? (() => {
-                      const s = editHistory.getSnapshotForPage(selectedPage.pageId)
-                      return (
-                        s.dragEdits.length > 0 ||
-                        s.textEdits.length > 0 ||
-                        s.propertyEdits.length > 0 ||
-                        s.deletes.length > 0 ||
-                        s.addElements.length > 0
-                      )
-                    })()
-                  : false
-              }
-              onUndo={handleUndo}
-              onRedo={handleRedo}
-              onSaveAllEdits={() => void handleSaveAllEdits()}
-              onDiscardAllEdits={handleDiscardAllEdits}
-              onAddText={() => void handleAddTextElement()}
-              onAddFromLibrary={(type) => setAssetPickerOpen(true, type)}
-              onAddFromLocal={(type) => void handleUploadAndAdd(type)}
-              onOpenSpeechScript={handleOpenSpeechDialog}
-            />
+          {workspaceTab === 'browse' ? (
+            <BrowseView sessionId={id} />
+          ) : (
             <div className="flex min-h-0 flex-1">
-              <PreviewStage
-                ref={previewIframeRef}
-                selectedPage={selectedPage}
-                sessionTitle={currentSession?.title}
-                isGenerating={isGenerating}
-                progressLabel={progress?.label}
-                previewRefreshKey={previewRefreshKey}
-                onElementMoved={handleElementMoved}
-                onElementSelected={handleElementSelected}
-                onCancelTextEdit={handleCancelTextEdit}
-                onDiscardAllEdits={handleDiscardAllEdits}
-                onReplayPendingEdits={replayPendingEdits}
-                onDeleteRequest={(selector) => {
-                  setPendingDeleteSelector(selector)
-                  setDeleteConfirmOpen(true)
-                }}
-              />
-              {speechScriptDialogOpen && id && (
-                <SpeechScriptDrawer
-                  sessionId={id}
-                  isGenerating={isGeneratingSpeechScript}
-                  speechProgress={speechProgress}
-                  speechConfig={speechConfig}
-                  onConfigChange={setSpeechConfig}
-                  onGenerate={(config) => void handleDoGenerateSpeechScript(config)}
-                  onClose={() => setSpeechScriptDialogOpen(false)}
-                  currentPageNumber={selectedPage?.pageNumber}
-                  currentPageTitle={selectedPage?.title || undefined}
-                />
-              )}
-              {interactionMode === 'edit' && textSelection && (
-                <ElementInspectorPanel
-                  selection={textSelection}
-                  draft={textDraft}
-                  onDraftChange={handleTextDraftChange}
-                  onClose={handleCancelTextEdit}
-                  onCopy={handleCopyElement}
-                  onDelete={handleDeleteElement}
-                />
-              )}
-              {interactionMode === 'ai-inspect' && (
-                <MessagePanel
-                  sessionId={id}
-                  selectedPageExists={Boolean(selectedPage?.pageId)}
-                  selectedPageHtmlPath={selectedPage?.htmlPath}
-                  selectedPageNumber={selectedPage?.pageNumber}
-                  selectedPageTitle={selectedPage?.title}
-                  selectedPageOutline={selectedPage?.contentOutline}
-                  isGenerating={isGenerating}
-                  progress={progress}
-                  error={error}
-                  onDropFiles={(files) => void uploadFiles(files)}
-                  onChooseAssets={(assetType) => void handleChooseAssets(assetType)}
-                  onSend={() => void handleSend()}
-                  onCancel={() => void handleCancel()}
-                  onGenerateImage={() => void handleGenerateImage()}
-                  onCancelImageGeneration={() => void handleCancelImageGeneration()}
-                  onAddGeneratedImageToCanvas={(asset) => void handleAddGeneratedImageToCanvas(asset)}
-                  onSetGeneratedImageAsBackground={(asset) =>
-                    void handleSetGeneratedImageAsBackground(asset)
-                  }
-                  onRevealImageFile={(filePath) => void handleRevealImageFile(filePath)}
-                  cleanMessageContent={cleanMessageContent}
-                />
-              )}
-            </div>
-          </div>
+              <PageSidebar sessionId={id} />
 
+              <div className="flex min-h-0 flex-1">
+                <PreviewStage
+                  ref={previewIframeRef}
+                  selectedPage={selectedPage}
+                  sessionTitle={currentSession?.title}
+                  isGenerating={isGenerating}
+                  progressLabel={progress?.label}
+                  previewRefreshKey={previewRefreshKey}
+                  onElementMoved={handleElementMoved}
+                  onElementSelected={handleElementSelected}
+                  onCancelElementEdit={handleCancelElementEdit}
+                  onDiscardAllEdits={handleDiscardAllEdits}
+                  onUndo={handleUndo}
+                  onRedo={handleRedo}
+                  onReplayPendingEdits={replayPendingEdits}
+                  onDeleteRequest={(selector) => {
+                    setPendingDeleteSelector(selector)
+                    setDeleteConfirmOpen(true)
+                  }}
+                />
+                <SessionDetailRightPanel
+                  sessionId={id}
+                  elementInspector={
+                    elementSelection ? (
+                      <ElementInspectorPanel
+                        selection={elementSelection}
+                        draft={elementDraft}
+                        onDraftChange={handleTextDraftChange}
+                        onClose={handleCancelElementEdit}
+                        onCopy={handleCopyElement}
+                        onDelete={handleDeleteElement}
+                      />
+                    ) : undefined
+                  }
+                />
+              </div>
+            </div>
+          )}
         </div>
 
-        {historyOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-            <div className="flex max-h-[78vh] w-[560px] flex-col rounded-2xl bg-white shadow-2xl">
-              <div className="flex items-center justify-between border-b border-[#e8e0d0] px-5 py-4">
-                <div>
-                  <h3 className="text-base font-semibold text-[#2f3a2a]">
-                    {t('sessionDetail.historyTitle')}
-                  </h3>
-                  <p className="mt-1 text-xs text-[#8a9a7b]">{t('sessionDetail.historyRecent')}</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setHistoryOpen(false)}
-                  className="rounded-lg px-2 py-1 text-sm text-[#6f7d62] hover:bg-[#f2efe7]"
-                  disabled={Boolean(historyRollbackId)}
-                >
-                  {t('common.cancel')}
-                </button>
-              </div>
-              <div className="min-h-[220px] overflow-y-auto px-5 py-4">
-                {historyLoading ? (
-                  <div className="flex h-40 items-center justify-center text-sm text-[#8a9a7b]">
-                    {t('sessionDetail.historyLoading')}
-                  </div>
-                ) : historyVersions.length === 0 ? (
-                  <div className="flex h-40 flex-col items-center justify-center text-center">
-                    <p className="text-sm font-medium text-[#3e4a32]">
-                      {t('sessionDetail.historyEmptyTitle')}
-                    </p>
-                    <p className="mt-2 text-xs text-[#8a9a7b]">
-                      {t('sessionDetail.historyEmptyDescription')}
-                    </p>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {historyVersions.map((version) => {
-                      const rollbackDisabled =
-                        version.isCurrent ||
-                        !version.isRestorable ||
-                        historyDisabled ||
-                        Boolean(historyRollbackId)
-                      return (
-                        <div
-                          key={version.id}
-                          className="rounded-xl border border-[#e8e0d0] bg-[#faf8f2] px-4 py-3"
-                        >
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <p className="truncate text-sm font-semibold text-[#2f3a2a]">
-                                  {version.title}
-                                </p>
-                                {version.isCurrent && (
-                                  <span className="rounded-full bg-[#d4e4c1] px-2 py-0.5 text-[10px] font-medium text-[#3e4a32]">
-                                    {t('sessionDetail.historyCurrent')}
-                                  </span>
-                                )}
-                              </div>
-                              <p className="mt-1 text-xs text-[#8a9a7b]">
-                                {formatHistoryTime(version.createdAt)}
-                              </p>
-                              <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-[#5d6b4d]">
-                                {version.description}
-                              </p>
-                              {version.changedPages.length > 0 && (
-                                <p className="mt-2 text-[11px] text-[#7b6d55]">
-                                  {t('sessionDetail.historyChangedPages', {
-                                    pages: version.changedPages.join('、')
-                                  })}
-                                </p>
-                              )}
-                            </div>
-                            {!version.isCurrent && (
-                              <button
-                                type="button"
-                                disabled={rollbackDisabled}
-                                onClick={() => requestRollbackHistory(version)}
-                                className="shrink-0 rounded-lg bg-[#3e4a32] px-3 py-1.5 text-xs font-medium text-white shadow-sm hover:bg-[#2f3a2a] disabled:cursor-not-allowed disabled:bg-[#c8c0b3]"
-                              >
-                                {historyRollbackId === version.id
-                                  ? t('sessionDetail.historyRollingBack')
-                                  : t('sessionDetail.historyRollback')}
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Add Blank Page Dialog */}
-        {blankPageDialogOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-            <div className="w-[520px] rounded-2xl bg-white p-6 shadow-2xl">
-              <h3 className="mb-2 text-base font-semibold text-[#2f3a2a]">
-                {t('sessionDetail.addBlankPage')}
-              </h3>
-              <p className="mb-4 text-xs leading-5 text-[#8a9a7b]">
-                {t('sessionDetail.addBlankPageHint')}
-              </p>
-              <div className="mb-4 max-h-[320px] space-y-2 overflow-y-auto pr-1">
-                {normalizedOrderedPages.map((page) => (
-                  <button
-                    key={page.id}
-                    type="button"
-                    onClick={() => setBlankPageSourceId(page.id)}
-                    className={`flex w-full items-center gap-3 rounded-xl border px-3 py-2 text-left transition-colors ${
-                      blankPageSourceId === page.id
-                        ? 'border-[#8eaa70] bg-[#eef6e7] text-[#2f3a2a]'
-                        : 'border-[#d4e4c1]/60 bg-[#f8f6f0] text-[#5d6b4d] hover:bg-[#f0ece3]'
-                    }`}
-                  >
-                    <span className="shrink-0 rounded-md bg-[#d4e4c1]/70 px-2 py-1 text-[11px] font-semibold text-[#3e4a32]">
-                      P{page.pageNumber}
-                    </span>
-                    <span className="min-w-0 flex-1 truncate text-sm font-medium">
-                      {page.title || t('sessionDetail.untitledPage')}
-                    </span>
-                  </button>
-                ))}
-              </div>
-              <div className="flex items-center justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setBlankPageDialogOpen(false)}
-                  className="rounded-xl px-4 py-2 text-sm font-medium text-[#5d6b4d] transition-colors hover:bg-[#f0ece3] cursor-pointer"
-                >
-                  {t('sessionDetail.addPageCancel')}
-                </button>
-                <button
-                  type="button"
-                  disabled={!blankPageSourceId}
-                  onClick={() => void handleCreateBlankPage()}
-                  className="rounded-xl bg-[#5d6b4d] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#3e4a32] disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer"
-                >
-                  {t('sessionDetail.addBlankPageCreate')}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Add Page Dialog */}
-        {addPageDialogOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-            <div className="w-[520px] rounded-2xl bg-white p-6 shadow-2xl">
-              <h3 className="mb-3 text-base font-semibold text-[#2f3a2a]">
-                {t('sessionDetail.addPage')}
-              </h3>
-              <p className="mb-3 text-xs text-[#8a9a7b]">{t('sessionDetail.addPageHint')}</p>
-              <textarea
-                value={addPageInput}
-                onChange={(e) => setAddPageInput(e.target.value)}
-                placeholder={t('sessionDetail.addPageDescription')}
-                className="mb-4 h-40 w-full resize-none rounded-xl border border-[#d4e4c1]/60 bg-[#f8f6f0] px-4 py-3 text-sm leading-relaxed text-[#2f3a2a] placeholder:text-[#8a9a7b] focus:border-[#5d6b4d] focus:outline-none"
-                autoFocus
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey && addPageInput.trim()) {
-                    e.preventDefault()
-                    void handleAddPage()
-                  }
-                  if (e.key === 'Escape') {
-                    setAddPageDialogOpen(false)
-                  }
-                }}
-              />
-              <div className="flex items-center justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setAddPageDialogOpen(false)}
-                  className="rounded-xl px-4 py-2 text-sm font-medium text-[#5d6b4d] transition-colors hover:bg-[#f0ece3] cursor-pointer"
-                >
-                  {t('sessionDetail.addPageCancel')}
-                </button>
-                <button
-                  type="button"
-                  disabled={!addPageInput.trim()}
-                  onClick={() => void handleAddPage()}
-                  className="rounded-xl bg-[#5d6b4d] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#3e4a32] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-                >
-                  {t('sessionDetail.addPageGenerate')}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Add Page Progress Overlay */}
-        {isAddingPage && (
-          <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/30 backdrop-blur-sm">
-            <div className="flex w-[360px] flex-col items-center gap-4 rounded-2xl bg-white/95 px-8 py-6 shadow-2xl">
-              <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#d4e4c1] border-t-[#5d6b4d]" />
-              <div className="flex w-full flex-col items-center gap-2">
-                <p className="text-sm font-medium text-[#3e4a32]">
-                  {progress?.label || t('sessionDetail.addPageGenerating')}
-                </p>
-                <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#e8e0d0]">
-                  <div
-                    className="h-full rounded-full bg-[#5d6b4d] transition-all duration-300 ease-out"
-                    style={{ width: `${Math.min(100, Math.max(0, progress?.progress ?? 0))}%` }}
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Retry Single Page Progress Overlay */}
-        {isRetryingSinglePage && (
-          <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/30 backdrop-blur-sm">
-            <div className="flex w-[360px] flex-col items-center gap-4 rounded-2xl bg-white/95 px-8 py-6 shadow-2xl">
-              <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#f3e4df] border-t-[#93564f]" />
-              <div className="flex w-full flex-col items-center gap-2">
-                <p className="text-sm font-medium text-[#93564f]">
-                  {progress?.label || t('sessionDetail.retryPageGenerating')}
-                </p>
-                <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#e8e0d0]">
-                  <div
-                    className="h-full rounded-full bg-[#93564f] transition-all duration-300 ease-out"
-                    style={{ width: `${Math.min(100, Math.max(0, progress?.progress ?? 0))}%` }}
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-        <Dialog
-          open={Boolean(titleEditPage)}
-          onOpenChange={(open) => {
-            if (!open && !isManagingPages) setTitleEditPage(null)
-          }}
-        >
-          <DialogContent showClose={!isManagingPages}>
-            <DialogHeader>
-              <DialogTitle>{t('pageManagement.editPageTitle')}</DialogTitle>
-              <DialogDescription>{t('pageManagement.editPageTitleDescription')}</DialogDescription>
-            </DialogHeader>
-            <div className="space-y-2">
-              <label className="text-xs font-medium text-[#5d6b4d]" htmlFor="page-title-input">
-                {t('pageManagement.pageTitleLabel')}
-              </label>
-              <Input
-                id="page-title-input"
-                value={titleEditDraft}
-                onChange={(event) => setTitleEditDraft(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') {
-                    event.preventDefault()
-                    void handleSavePageTitle()
-                  }
-                }}
-                placeholder={t('pageManagement.pageTitlePlaceholder')}
-                disabled={isManagingPages}
-                autoFocus
-              />
-            </div>
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => setTitleEditPage(null)}
-                disabled={isManagingPages}
-              >
-                {t('common.cancel')}
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                onClick={() => void handleSavePageTitle()}
-                disabled={isManagingPages || !titleEditDraft.trim()}
-              >
-                {t('pageManagement.savePageTitle')}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-        <Dialog
-          open={Boolean(deleteConfirmPage)}
-          onOpenChange={(open) => {
-            if (!open && !isManagingPages) setDeleteConfirmPage(null)
-          }}
-        >
-          <DialogContent showClose={false}>
-            <DialogHeader>
-              <DialogTitle>{t('pageManagement.deleteConfirmTitle')}</DialogTitle>
-              <DialogDescription>{t('pageManagement.deleteConfirmDescription')}</DialogDescription>
-            </DialogHeader>
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => setDeleteConfirmPage(null)}
-                disabled={isManagingPages}
-              >
-                {t('common.cancel')}
-              </Button>
-              <Button
-                type="button"
-                variant="destructive"
-                size="sm"
-                onClick={() => void handleConfirmDeletePage()}
-                disabled={isManagingPages}
-              >
-                {t('pageManagement.deleteConfirmAction')}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-        <Dialog
-          open={Boolean(rollbackConfirmVersion)}
-          onOpenChange={(open) => {
-            if (!open && !historyRollbackId) setRollbackConfirmVersion(null)
-          }}
-        >
-          <DialogContent showClose={false}>
-            <DialogHeader>
-              <DialogTitle>{t('sessionDetail.historyRollback')}</DialogTitle>
-              <DialogDescription>{t('sessionDetail.historyRollbackConfirm')}</DialogDescription>
-            </DialogHeader>
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => setRollbackConfirmVersion(null)}
-                disabled={Boolean(historyRollbackId)}
-              >
-                {t('common.cancel')}
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                onClick={() =>
-                  rollbackConfirmVersion && void handleRollbackHistory(rollbackConfirmVersion)
-                }
-                disabled={Boolean(historyRollbackId)}
-              >
-                {historyRollbackId
-                  ? t('sessionDetail.historyRollingBack')
-                  : t('sessionDetail.historyRollback')}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        <HistoryDialog sessionId={id} />
+        <AddBlankPageDialog sessionId={id} />
+        <AddPageDialog sessionId={id} />
+        <PageProgressOverlay />
+        <PageTitleEditDialog sessionId={id} />
+        <DeletePageDialog sessionId={id} />
         <AssetPickerDialog
-          sessionId={id || ''}
+          sessionId={id}
           assetType={assetPickerType}
           open={assetPickerOpen}
           onClose={() => setAssetPickerOpen(false)}
           onConfirm={handleAddElement}
         />
-        <SaveTemplateDialog
-          open={saveTemplateOpen}
-          defaultName={currentSession?.title || '未命名模板'}
-          saving={savingTemplate}
-          onOpenChange={setSaveTemplateOpen}
-          onSubmit={(payload) => void handleSaveTemplate(payload)}
-        />
-        <AlertDialog
+        <DeleteElementDialog
           open={deleteConfirmOpen}
           onOpenChange={(open) => {
             setDeleteConfirmOpen(open)
             if (!open) setPendingDeleteSelector(null)
           }}
-        >
-          <AlertDialogContent>
-            <AlertDialogTitle>{t('sessionDetail.deleteElement')}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {t('sessionDetail.deleteElementConfirm')}
-            </AlertDialogDescription>
-            <div className="flex justify-end gap-2">
-              <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-              <AlertDialogAction
-                className="bg-[#c0392b] text-white hover:bg-[#a93226]"
-                onClick={() => {
-                  if (pendingDeleteSelector) {
-                    handleDeleteBySelector(pendingDeleteSelector)
-                  } else {
-                    handleDeleteElement()
-                  }
-                  setPendingDeleteSelector(null)
-                  setDeleteConfirmOpen(false)
-                }}
-              >
-                {t('common.delete')}
-              </AlertDialogAction>
-            </div>
-          </AlertDialogContent>
-        </AlertDialog>
+          onConfirm={() => {
+            if (pendingDeleteSelector) {
+              handleDeleteBySelector(pendingDeleteSelector)
+            } else {
+              handleDeleteElement()
+            }
+            setPendingDeleteSelector(null)
+            setDeleteConfirmOpen(false)
+          }}
+        />
       </div>
     </TooltipProvider>
   )

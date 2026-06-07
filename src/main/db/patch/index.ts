@@ -7,6 +7,7 @@ import * as schema from '../schema'
 import type { GenerationPageStatus, GenerationRunStatus } from '../schema'
 import { defaultModelTimeoutMs } from '@shared/model-timeout'
 import { patchModelConfigMaxTokens } from './add-model-max-tokens'
+import { patchModelConfigDisableTemperature } from './add-model-disable-temperature'
 import { patchStylesColumns } from './add-styles-columns'
 import { patchDesignContractFonts } from './backfill-design-contract-fonts'
 
@@ -36,6 +37,7 @@ CREATE TABLE IF NOT EXISTS messages (
   tool_name TEXT,
   tool_call_id TEXT,
   token_count INTEGER,
+  run_model TEXT,
   created_at INTEGER NOT NULL
 );
 
@@ -88,6 +90,7 @@ CREATE TABLE IF NOT EXISTS model_configs (
   api_key TEXT NOT NULL DEFAULT '',
   base_url TEXT NOT NULL DEFAULT '',
   max_tokens INTEGER NOT NULL DEFAULT 4096,
+  disable_temperature INTEGER NOT NULL DEFAULT 0,
   active INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
@@ -144,10 +147,25 @@ CREATE TABLE IF NOT EXISTS generation_runs (
   total_pages INTEGER NOT NULL DEFAULT 0,
   error TEXT,
   metadata TEXT,
+  model_config_id TEXT,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_generation_runs_session ON generation_runs(session_id, created_at);
+
+CREATE TABLE IF NOT EXISTS generation_jobs (
+  id TEXT PRIMARY KEY REFERENCES generation_runs(id) ON DELETE CASCADE,
+  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,
+  status TEXT NOT NULL,
+  abort_reason TEXT,
+  created_at INTEGER NOT NULL,
+  activated_at INTEGER,
+  updated_at INTEGER NOT NULL,
+  finished_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_generation_jobs_session_status ON generation_jobs(session_id, status, updated_at);
+CREATE INDEX IF NOT EXISTS idx_generation_jobs_status ON generation_jobs(status, updated_at);
 
 CREATE TABLE IF NOT EXISTS generation_pages (
   id TEXT PRIMARY KEY,
@@ -183,6 +201,25 @@ CREATE TABLE IF NOT EXISTS session_pages (
   deleted_at INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_session_pages_session_number ON session_pages(session_id, page_number);
+
+CREATE TABLE IF NOT EXISTS source_page_skeletons (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  page_number INTEGER NOT NULL,
+  title TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'content',
+  source_document_path TEXT NOT NULL,
+  source_document_name TEXT,
+  source_heading TEXT NOT NULL,
+  heading_level INTEGER NOT NULL,
+  line_start INTEGER NOT NULL,
+  line_end INTEGER NOT NULL,
+  reason TEXT,
+  confidence TEXT NOT NULL DEFAULT 'high',
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_source_page_skeletons_session ON source_page_skeletons(session_id, page_number);
 
 CREATE TABLE IF NOT EXISTS user_preferences (
   key TEXT PRIMARY KEY,
@@ -307,6 +344,8 @@ const getTableColumns = async (
     | 'messages'
     | 'sessions'
     | 'projects'
+    | 'generation_runs'
+    | 'generation_jobs'
     | 'generation_pages'
     | 'session_pages'
     | 'model_configs'
@@ -602,6 +641,9 @@ const enforceMessagesSchema = async (client: LibSqlClient): Promise<void> => {
   if (!columns.has('token_count')) {
     await client.execute('ALTER TABLE messages ADD COLUMN token_count INTEGER')
   }
+  if (!columns.has('run_model')) {
+    await client.execute('ALTER TABLE messages ADD COLUMN run_model TEXT')
+  }
   await client.execute(
     'CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, created_at)'
   )
@@ -614,6 +656,33 @@ const enforceMessagesSchema = async (client: LibSqlClient): Promise<void> => {
 }
 
 const enforceGenerationSchema = async (client: LibSqlClient): Promise<void> => {
+  await client.execute(`
+    CREATE TABLE IF NOT EXISTS generation_jobs (
+      id TEXT PRIMARY KEY REFERENCES generation_runs(id) ON DELETE CASCADE,
+      session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL,
+      status TEXT NOT NULL,
+      abort_reason TEXT,
+      created_at INTEGER NOT NULL,
+      activated_at INTEGER,
+      updated_at INTEGER NOT NULL,
+      finished_at INTEGER
+    )
+  `)
+  const runColumns = await getTableColumns(client, 'generation_runs')
+  if (!runColumns.has('model_config_id')) {
+    await client.execute('ALTER TABLE generation_runs ADD COLUMN model_config_id TEXT')
+  }
+  const jobColumns = await getTableColumns(client, 'generation_jobs')
+  if (!jobColumns.has('abort_reason')) {
+    await client.execute('ALTER TABLE generation_jobs ADD COLUMN abort_reason TEXT')
+  }
+  if (!jobColumns.has('activated_at')) {
+    await client.execute('ALTER TABLE generation_jobs ADD COLUMN activated_at INTEGER')
+  }
+  if (!jobColumns.has('finished_at')) {
+    await client.execute('ALTER TABLE generation_jobs ADD COLUMN finished_at INTEGER')
+  }
   const columns = await getTableColumns(client, 'generation_pages')
   if (!columns.has('content_outline')) {
     await client.execute('ALTER TABLE generation_pages ADD COLUMN content_outline TEXT')
@@ -623,6 +692,15 @@ const enforceGenerationSchema = async (client: LibSqlClient): Promise<void> => {
   }
   await client.execute(
     'CREATE INDEX IF NOT EXISTS idx_generation_runs_session ON generation_runs(session_id, created_at)'
+  )
+  await client.execute(
+    'CREATE INDEX IF NOT EXISTS idx_generation_runs_model_config ON generation_runs(model_config_id)'
+  )
+  await client.execute(
+    'CREATE INDEX IF NOT EXISTS idx_generation_jobs_session_status ON generation_jobs(session_id, status, updated_at)'
+  )
+  await client.execute(
+    'CREATE INDEX IF NOT EXISTS idx_generation_jobs_status ON generation_jobs(status, updated_at)'
   )
   await client.execute(
     'CREATE INDEX IF NOT EXISTS idx_generation_pages_run ON generation_pages(run_id, page_number)'
@@ -1180,4 +1258,5 @@ export const runDatabasePatches = async (args: {
   await patchSessionPagesFromLegacy({ client, db, resolveStoragePath })
   await patchSessionPagesFromGenerationPages({ client, db, resolveStoragePath })
   await patchModelConfigMaxTokens(client)
+  await patchModelConfigDisableTemperature(client)
 }

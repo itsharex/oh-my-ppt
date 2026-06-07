@@ -3,7 +3,7 @@ import path from 'path'
 import fs from 'fs'
 import log from 'electron-log/main.js'
 import type { IpcContext } from '../context'
-import { resolveActiveModelConfig, resolveGlobalModelTimeouts } from '../config/model-config-utils'
+import { resolveGlobalModelTimeouts, resolveModelConfigForTask } from '../config/model-config-utils'
 import {
   createWorkspace,
   deleteWorkspace,
@@ -11,12 +11,23 @@ import {
   scanLatestWorkspace,
   scanWorkspaceList,
   resolveThinkingDir,
+  replaceThinkingPageOutline,
+  writeThinkingMd,
   writeMessagesList
 } from '../../thinking/workspace'
-import { extractPendingImageTextSources, prepareMultipleSources } from '../../thinking/source-prepare'
+import {
+  extractPendingImageTextSources,
+  prepareMultipleSources
+} from '../../thinking/source-prepare'
 import { invalidateRuntime, runThinkingChat } from '../../thinking/thinking-agent'
+import { buildThinkingSourceBrief } from '../../thinking/source-brief'
+import { buildThinkingSourcePlan } from '../../thinking/source-plan'
 import { normalizeFontSelection } from '@shared/generation'
-import type { ThinkingChatMessage, ThinkingPrepareGenerationResult } from '@shared/thinking'
+import type {
+  ThinkingChatMessage,
+  ThinkingPageOutlineUpdate,
+  ThinkingPrepareGenerationResult
+} from '@shared/thinking'
 
 async function updateSourcesManifest(
   thinkingDir: string,
@@ -45,7 +56,10 @@ async function updateSourcesManifest(
   )
 }
 
-async function removeSourceFromManifest(thinkingDir: string, sourceId: string): Promise<{
+async function removeSourceFromManifest(
+  thinkingDir: string,
+  sourceId: string
+): Promise<{
   removed: boolean
   fileName?: string
 }> {
@@ -65,7 +79,11 @@ async function removeSourceFromManifest(thinkingDir: string, sourceId: string): 
   if (!target) return { removed: false }
   await fs.promises.writeFile(
     manifestPath,
-    JSON.stringify(existing.filter((item) => item.id !== sourceId), null, 2),
+    JSON.stringify(
+      existing.filter((item) => item.id !== sourceId),
+      null,
+      2
+    ),
     'utf-8'
   )
   return { removed: true, fileName: target.fileName }
@@ -114,7 +132,9 @@ function readMarkdownSectionBlock(markdown: string, heading: string): string {
   const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   const inline = markdown.match(new RegExp(`^##\\s*${escaped}\\s*:\\s*(.+)`, 'm'))
   if (inline) return inline[1].trim()
-  const block = markdown.match(new RegExp(`^##\\s*${escaped}\\s*\\n([\\s\\S]*?)(?=^##\\s+|(?![\\s\\S]))`, 'm'))
+  const block = markdown.match(
+    new RegExp(`^##\\s*${escaped}\\s*\\n([\\s\\S]*?)(?=^##\\s+|(?![\\s\\S]))`, 'm')
+  )
   return block?.[1]?.trim() || ''
 }
 
@@ -172,6 +192,30 @@ export function registerThinkingHandlers(ctx: IpcContext): void {
     if (result) throw new Error(result)
     return { success: true }
   })
+
+  ipcMain.handle(
+    'thinking:updatePageOutline',
+    async (_event, payload: { thinkingId: string; page: ThinkingPageOutlineUpdate }) => {
+      const thinkingId = String(payload?.thinkingId || '').trim()
+      if (!thinkingId || !payload?.page) {
+        throw new Error('Invalid page outline update')
+      }
+
+      const storagePath = await resolveStoragePath()
+      const workspace = await readWorkspace(storagePath, thinkingId)
+      const dir = resolveThinkingDir(storagePath, thinkingId)
+      const thinkingMd = replaceThinkingPageOutline(workspace.thinkingMd, payload.page)
+      await writeThinkingMd(dir, thinkingMd)
+      invalidateRuntime(thinkingId)
+
+      log.info('[thinking] page outline updated', {
+        thinkingId,
+        pageNumber: payload.page.pageNumber
+      })
+
+      return { success: true, thinkingMd }
+    }
+  )
 
   ipcMain.handle(
     'thinking:uploadSources',
@@ -253,6 +297,7 @@ export function registerThinkingHandlers(ctx: IpcContext): void {
       _event,
       payload: {
         thinkingId: string
+        modelConfigId?: string
         userMessage: string
         recentMessages?: ThinkingChatMessage[]
         attachments?: ThinkingChatMessage['attachments']
@@ -263,7 +308,10 @@ export function registerThinkingHandlers(ctx: IpcContext): void {
       const dir = resolveThinkingDir(storagePath, thinkingId)
 
       const workspace = await readWorkspace(storagePath, thinkingId)
-      const activeModel = await resolveActiveModelConfig(ctx)
+      const activeModel = await resolveModelConfigForTask(ctx, {
+        modelConfigId: payload.modelConfigId,
+        purpose: 'thinking:chat'
+      })
       const modelTimeouts = await resolveGlobalModelTimeouts(ctx)
       await extractPendingImageTextSources(dir, {
         provider: activeModel.provider,
@@ -274,15 +322,35 @@ export function registerThinkingHandlers(ctx: IpcContext): void {
         modelTimeoutMs: modelTimeouts.document
       })
 
-      const emitThinkingEvent = (event: { type: string; toolName: string; summary: string }): void => {
+      const emitThinkingEvent = (event: {
+        type: string
+        toolName: string
+        summary: string
+      }): void => {
         const windows = BrowserWindow.getAllWindows()
         for (const win of windows) {
           if (win.isDestroyed() || win.webContents.isDestroyed()) continue
           try {
             win.webContents.send('thinking:stream:thinking', { thinkingId, ...event })
-          } catch { /* window may have closed */ }
+          } catch {
+            /* window may have closed */
+          }
         }
       }
+
+      const documentAttachments = Array.isArray(attachments)
+        ? attachments.filter((attachment) => attachment.kind !== 'image')
+        : []
+      const sourceBrief =
+        documentAttachments.length > 0
+          ? await buildThinkingSourceBrief({
+              thinkingDir: dir,
+              attachments: documentAttachments
+            })
+          : ''
+      const thinkingUserMessage = [userMessage, sourceBrief]
+        .filter((part) => part.trim().length > 0)
+        .join('\n\n')
 
       const result = await runThinkingChat({
         thinkingId,
@@ -291,7 +359,7 @@ export function registerThinkingHandlers(ctx: IpcContext): void {
         thinkingMd: workspace.thinkingMd,
         contextMd: workspace.contextMd,
         sourcesDir: `${dir}/sources`,
-        userMessage,
+        userMessage: thinkingUserMessage,
         recentMessages: Array.isArray(recentMessages)
           ? recentMessages.slice(-8)
           : workspace.messages.slice(-8),
@@ -304,13 +372,12 @@ export function registerThinkingHandlers(ctx: IpcContext): void {
         onThinkingEvent: emitThinkingEvent
       })
 
-      const now = Date.now()
       await writeMessagesList(dir, [
         ...workspace.messages,
         {
           role: 'user',
           content: userMessage,
-          timestamp: now,
+          timestamp: Date.now(),
           ...(Array.isArray(attachments) && attachments.length > 0 ? { attachments } : {})
         },
         {
@@ -332,7 +399,9 @@ export function registerThinkingHandlers(ctx: IpcContext): void {
             contextMd: result.contextMd,
             stage: result.stage
           })
-        } catch { /* window may have closed */ }
+        } catch {
+          /* window may have closed */
+        }
       }
 
       log.info('[thinking] chat result', {
@@ -345,50 +414,52 @@ export function registerThinkingHandlers(ctx: IpcContext): void {
     }
   )
 
-  ipcMain.handle(
-    'thinking:prepareGeneration',
-    async (_event, payload: { thinkingId: string }) => {
-      const { thinkingId } = payload
-      const storagePath = await resolveStoragePath()
-      const dir = resolveThinkingDir(storagePath, thinkingId)
+  ipcMain.handle('thinking:prepareGeneration', async (_event, payload: { thinkingId: string }) => {
+    const { thinkingId } = payload
+    const storagePath = await resolveStoragePath()
+    const dir = resolveThinkingDir(storagePath, thinkingId)
 
-      const workspace = await readWorkspace(storagePath, thinkingId)
+    const workspace = await readWorkspace(storagePath, thinkingId)
 
-      const topic = parseTopicFromThinkingMd(workspace.thinkingMd)
-      const pageCount = parsePageCountFromThinkingMd(workspace.thinkingMd)
-      const styleText = readMarkdownSectionBlock(workspace.thinkingMd, 'Style')
-      const rawFont = parseFontFromThinkingMd(workspace.thinkingMd)
-      const fontSelection = normalizeFontSelection(rawFont)
+    const topic = parseTopicFromThinkingMd(workspace.thinkingMd)
+    const pageCount = parsePageCountFromThinkingMd(workspace.thinkingMd)
+    const styleText = readMarkdownSectionBlock(workspace.thinkingMd, 'Style')
+    const rawFont = parseFontFromThinkingMd(workspace.thinkingMd)
+    const fontSelection = normalizeFontSelection(rawFont)
 
-      if (!topic) {
-        throw new Error('thinking.md is missing ## Topic. Please complete the thinking brief first.')
-      }
-      if (pageCount < 1) {
-        throw new Error('thinking.md has no pages. Please create a page-by-page thinking brief first.')
-      }
-
-      const thinkingDocumentPath = path.join(dir, 'thinking.md')
-
-      const result: ThinkingPrepareGenerationResult = {
-        thinkingDocumentPath,
-        topic,
-        pageCount: Math.max(1, Math.min(40, pageCount)),
-        styleId: '',
-        styleText,
-        fontSelection
-      }
-
-      log.info('[thinking] prepareGeneration', {
-        thinkingId,
-        topic: result.topic,
-        pageCount: result.pageCount,
-        styleId: result.styleId,
-        fontMode: result.fontSelection.mode
-      })
-
-      return result
+    if (!topic) {
+      throw new Error('thinking.md is missing ## Topic. Please complete the thinking brief first.')
     }
-  )
+    if (pageCount < 1) {
+      throw new Error(
+        'thinking.md has no pages. Please create a page-by-page thinking brief first.'
+      )
+    }
+
+    const thinkingDocumentPath = path.join(dir, 'thinking.md')
+    const sourcePlan = buildThinkingSourcePlan(workspace.thinkingMd, thinkingDocumentPath)
+
+    const result: ThinkingPrepareGenerationResult = {
+      thinkingDocumentPath,
+      topic,
+      pageCount: Math.max(1, Math.min(500, pageCount)),
+      styleId: '',
+      styleText,
+      fontSelection,
+      ...(sourcePlan ? { sourcePlan } : {})
+    }
+
+    log.info('[thinking] prepareGeneration', {
+      thinkingId,
+      topic: result.topic,
+      pageCount: result.pageCount,
+      styleId: result.styleId,
+      fontMode: result.fontSelection.mode,
+      sourcePlanPages: result.sourcePlan?.pageSkeleton.length ?? 0
+    })
+
+    return result
+  })
 
   log.info('[thinking] handlers registered')
 }

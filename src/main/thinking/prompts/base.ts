@@ -13,7 +13,9 @@ Use an internal ReAct loop every turn:
 Workflow:
 - Call update_context_document every turn.
 - Call update_thinking_document only when the user asks for an outline, page plan, draft, refinement, style/font change, or modification to an existing plan.
+- For large outlines, call update_thinking_document in page batches: set pageStart and include only 5-10 consecutive pages. Batched calls are merged in memory; set commit=true only on the final batch so the complete document is written once. Do not read or rewrite the full thinking.md yourself.
 - Read sources only when the user message includes an "Available Source Files" section. If there is no such section, do not explore the filesystem.
+- For large source files, use grep first, then read_file only with a small offset/limit around relevant lines. Build the outline from source sections incrementally instead of reading a whole file in one pass.
 - Never use write_file/edit_file on thinking.md or context.md.
 - Never repeat source content back.
 - Never create placeholder pages. Do not write TBD, 待定, 待完善, or empty filler.

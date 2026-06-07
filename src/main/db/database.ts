@@ -16,8 +16,12 @@ type ChatScope = 'main' | 'page'
 type StyleSource = 'builtin' | 'custom' | 'override'
 type GenerationRunMode = 'generate' | 'retry' | 'edit' | 'import' | 'addPage' | 'retrySinglePage'
 type GenerationRunStatus = 'running' | 'completed' | 'failed' | 'partial'
+export type GenerationJobKind = 'standard' | 'template' | 'retry'
+export type GenerationJobStatus = 'pending' | 'active' | 'finished' | 'aborted'
 type GenerationPageStatus = 'pending' | 'running' | 'completed' | 'failed'
 type SessionPageStatus = schema.SessionPageStatus
+type SourcePageSkeletonRole = 'chapter-divider' | 'content'
+type SourcePageSkeletonConfidence = 'high' | 'medium' | 'low'
 type SessionOperationType =
   | 'generate'
   | 'edit'
@@ -63,6 +67,7 @@ export interface Message {
   tool_name: string | null
   tool_call_id: string | null
   token_count: number | null
+  run_model: string | null
   created_at: number
 }
 
@@ -107,8 +112,21 @@ export interface GenerationRunRecord {
   total_pages: number
   error: string | null
   metadata: string | null
+  model_config_id: string | null
   created_at: number
   updated_at: number
+}
+
+export interface GenerationJobRecord {
+  id: string
+  session_id: string
+  kind: GenerationJobKind
+  status: GenerationJobStatus
+  abort_reason: string | null
+  created_at: number
+  activated_at: number | null
+  updated_at: number
+  finished_at: number | null
 }
 
 export interface GenerationPageRecord {
@@ -141,6 +159,24 @@ export interface SessionPageRecord {
   created_at: number
   updated_at: number
   deleted_at: number | null
+}
+
+export interface SourcePageSkeletonRecord {
+  id: string
+  session_id: string
+  page_number: number
+  title: string
+  role: SourcePageSkeletonRole
+  source_document_path: string
+  source_document_name: string | null
+  source_heading: string
+  heading_level: number
+  line_start: number
+  line_end: number
+  reason: string | null
+  confidence: SourcePageSkeletonConfidence
+  created_at: number
+  updated_at: number
 }
 
 export interface SessionPageInput {
@@ -191,6 +227,7 @@ export interface ModelConfigRow {
   apiKey: string
   baseUrl: string
   maxTokens: number
+  disableTemperature: number
   active: number
   createdAt: number
   updatedAt: number
@@ -434,16 +471,40 @@ export class PPTDatabase {
   }
 
   async deleteSession(sessionId: string): Promise<void> {
-    await this.db
-      .delete(schema.generationPages)
-      .where(eq(schema.generationPages.sessionId, sessionId))
-      .run()
-    await this.db
-      .delete(schema.generationRuns)
-      .where(eq(schema.generationRuns.sessionId, sessionId))
-      .run()
-    await this.db.delete(schema.projects).where(eq(schema.projects.sessionId, sessionId)).run()
-    await this.db.delete(schema.sessions).where(eq(schema.sessions.id, sessionId)).run()
+    await this.db.transaction(async (tx) => {
+      await tx
+        .delete(schema.sessionOperationPages)
+        .where(eq(schema.sessionOperationPages.sessionId, sessionId))
+        .run()
+      await tx
+        .delete(schema.sessionOperations)
+        .where(eq(schema.sessionOperations.sessionId, sessionId))
+        .run()
+      await tx
+        .delete(schema.sourcePageSkeletons)
+        .where(eq(schema.sourcePageSkeletons.sessionId, sessionId))
+        .run()
+      await tx.delete(schema.sessionPages).where(eq(schema.sessionPages.sessionId, sessionId)).run()
+      await tx
+        .delete(schema.imageGenerationHistories)
+        .where(eq(schema.imageGenerationHistories.sessionId, sessionId))
+        .run()
+      await tx
+        .delete(schema.memorySummaries)
+        .where(eq(schema.memorySummaries.sessionId, sessionId))
+        .run()
+      await tx.delete(schema.messages).where(eq(schema.messages.sessionId, sessionId)).run()
+      await tx
+        .delete(schema.generationPages)
+        .where(eq(schema.generationPages.sessionId, sessionId))
+        .run()
+      await tx
+        .delete(schema.generationRuns)
+        .where(eq(schema.generationRuns.sessionId, sessionId))
+        .run()
+      await tx.delete(schema.projects).where(eq(schema.projects.sessionId, sessionId)).run()
+      await tx.delete(schema.sessions).where(eq(schema.sessions.id, sessionId)).run()
+    })
   }
 
   // ========== Generation Records ==========
@@ -457,8 +518,39 @@ export class PPTDatabase {
       total_pages: Number(row.totalPages ?? row.total_pages ?? 0) || 0,
       error: typeof row.error === 'string' ? String(row.error) : null,
       metadata: typeof row.metadata === 'string' ? String(row.metadata) : null,
+      model_config_id:
+        typeof (row.modelConfigId ?? row.model_config_id) === 'string'
+          ? String(row.modelConfigId ?? row.model_config_id)
+          : null,
       created_at: Number(row.createdAt ?? row.created_at ?? 0) || 0,
       updated_at: Number(row.updatedAt ?? row.updated_at ?? 0) || 0
+    }
+  }
+
+  private normalizeGenerationJobRow(row: Record<string, unknown>): GenerationJobRecord {
+    const status = String(row.status || 'pending')
+    const kind = String(row.kind || 'standard')
+    return {
+      id: String(row.id || ''),
+      session_id: String(row.sessionId ?? row.session_id ?? ''),
+      kind: (kind === 'template' || kind === 'retry' ? kind : 'standard') as GenerationJobKind,
+      status: (
+        status === 'active' || status === 'finished' || status === 'aborted' ? status : 'pending'
+      ) as GenerationJobStatus,
+      abort_reason:
+        typeof (row.abortReason ?? row.abort_reason) === 'string'
+          ? String(row.abortReason ?? row.abort_reason)
+          : null,
+      created_at: Number(row.createdAt ?? row.created_at ?? 0) || 0,
+      activated_at:
+        typeof (row.activatedAt ?? row.activated_at) === 'number'
+          ? Number(row.activatedAt ?? row.activated_at)
+          : null,
+      updated_at: Number(row.updatedAt ?? row.updated_at ?? 0) || 0,
+      finished_at:
+        typeof (row.finishedAt ?? row.finished_at) === 'number'
+          ? Number(row.finishedAt ?? row.finished_at)
+          : null
     }
   }
 
@@ -513,12 +605,37 @@ export class PPTDatabase {
     }
   }
 
+  private normalizeSourcePageSkeletonRow(row: Record<string, unknown>): SourcePageSkeletonRecord {
+    return {
+      id: String(row.id || ''),
+      session_id: String(row.sessionId ?? row.session_id ?? ''),
+      page_number: Number(row.pageNumber ?? row.page_number ?? 0) || 0,
+      title: String(row.title || ''),
+      role: String(row.role || 'content') === 'chapter-divider' ? 'chapter-divider' : 'content',
+      source_document_path: String(row.sourceDocumentPath ?? row.source_document_path ?? ''),
+      source_document_name:
+        typeof (row.sourceDocumentName ?? row.source_document_name) === 'string'
+          ? String(row.sourceDocumentName ?? row.source_document_name)
+          : null,
+      source_heading: String(row.sourceHeading ?? row.source_heading ?? ''),
+      heading_level: Number(row.headingLevel ?? row.heading_level ?? 0) || 1,
+      line_start: Number(row.lineStart ?? row.line_start ?? 0) || 1,
+      line_end: Number(row.lineEnd ?? row.line_end ?? 0) || 1,
+      reason:
+        typeof row.reason === 'string' && row.reason.trim().length > 0 ? String(row.reason) : null,
+      confidence: row.confidence === 'medium' || row.confidence === 'low' ? row.confidence : 'high',
+      created_at: Number(row.createdAt ?? row.created_at ?? 0) || 0,
+      updated_at: Number(row.updatedAt ?? row.updated_at ?? 0) || 0
+    }
+  }
+
   async createGenerationRun(data: {
     id?: string
     sessionId: string
     mode: GenerationRunMode
     totalPages: number
     metadata?: unknown
+    modelConfigId?: string | null
   }): Promise<string> {
     const id = data.id || crypto.randomUUID()
     const now = Math.floor(Date.now() / 1000)
@@ -532,11 +649,126 @@ export class PPTDatabase {
         totalPages: Math.max(0, Math.floor(data.totalPages || 0)),
         error: null,
         metadata: data.metadata ? JSON.stringify(data.metadata) : null,
+        modelConfigId:
+          typeof data.modelConfigId === 'string' && data.modelConfigId.trim().length > 0
+            ? data.modelConfigId.trim()
+            : null,
         createdAt: now,
         updatedAt: now
       })
+      .onConflictDoUpdate({
+        target: schema.generationRuns.id,
+        set: {
+          sessionId: data.sessionId,
+          mode: data.mode,
+          status: 'running',
+          totalPages: Math.max(0, Math.floor(data.totalPages || 0)),
+          error: null,
+          metadata: data.metadata ? JSON.stringify(data.metadata) : null,
+          modelConfigId:
+            typeof data.modelConfigId === 'string' && data.modelConfigId.trim().length > 0
+              ? data.modelConfigId.trim()
+              : null,
+          updatedAt: now
+        }
+      })
       .run()
     return id
+  }
+
+  async createGenerationJob(data: {
+    id: string
+    sessionId: string
+    kind: GenerationJobKind
+    status: Extract<GenerationJobStatus, 'pending' | 'active'>
+  }): Promise<void> {
+    const now = Math.floor(Date.now() / 1000)
+    await this.db
+      .insert(schema.generationJobs)
+      .values({
+        id: data.id,
+        sessionId: data.sessionId,
+        kind: data.kind,
+        status: data.status,
+        abortReason: null,
+        createdAt: now,
+        activatedAt: data.status === 'active' ? now : null,
+        updatedAt: now,
+        finishedAt: null
+      })
+      .onConflictDoUpdate({
+        target: schema.generationJobs.id,
+        set: {
+          sessionId: data.sessionId,
+          kind: data.kind,
+          status: data.status,
+          abortReason: null,
+          activatedAt: data.status === 'active' ? now : null,
+          updatedAt: now,
+          finishedAt: null
+        }
+      })
+      .run()
+  }
+
+  async updateGenerationJobStatus(
+    jobId: string,
+    status: GenerationJobStatus,
+    options?: { abortReason?: string | null }
+  ): Promise<void> {
+    const now = Math.floor(Date.now() / 1000)
+    const set: Record<string, unknown> = {
+      status,
+      updatedAt: now
+    }
+    if (status === 'active') {
+      set.activatedAt = now
+      set.finishedAt = null
+      set.abortReason = null
+    }
+    if (status === 'finished') {
+      set.finishedAt = now
+      set.abortReason = null
+    }
+    if (status === 'aborted') {
+      set.finishedAt = now
+      set.abortReason = options?.abortReason || null
+    }
+    await this.db
+      .update(schema.generationJobs)
+      .set(set)
+      .where(eq(schema.generationJobs.id, jobId))
+      .run()
+  }
+
+  async getGenerationJob(jobId: string): Promise<GenerationJobRecord | undefined> {
+    const row = await this.db
+      .select()
+      .from(schema.generationJobs)
+      .where(eq(schema.generationJobs.id, jobId))
+      .get()
+    return row ? this.normalizeGenerationJobRow(row as Record<string, unknown>) : undefined
+  }
+
+  async getLatestGenerationJob(sessionId: string): Promise<GenerationJobRecord | undefined> {
+    const row = await this.db
+      .select()
+      .from(schema.generationJobs)
+      .where(eq(schema.generationJobs.sessionId, sessionId))
+      .orderBy(desc(schema.generationJobs.updatedAt), desc(schema.generationJobs.createdAt))
+      .limit(1)
+      .get()
+    return row ? this.normalizeGenerationJobRow(row as Record<string, unknown>) : undefined
+  }
+
+  async listActiveGenerationJobs(): Promise<GenerationJobRecord[]> {
+    const rows = await this.db
+      .select()
+      .from(schema.generationJobs)
+      .where(inArray(schema.generationJobs.status, ['pending', 'active']))
+      .orderBy(asc(schema.generationJobs.createdAt))
+      .all()
+    return rows.map((row) => this.normalizeGenerationJobRow(row as Record<string, unknown>))
   }
 
   async updateGenerationRunStatus(
@@ -675,6 +907,135 @@ export class PPTDatabase {
     return rows.map((row) => this.normalizeSessionPageRow(row as Record<string, unknown>))
   }
 
+  async replaceSourcePageSkeletons(args: {
+    sessionId: string
+    sourceDocumentPath: string
+    sourceDocumentName?: string | null
+    confidence?: SourcePageSkeletonConfidence
+    items: Array<{
+      pageNumber: number
+      title: string
+      role: SourcePageSkeletonRole
+      sourceHeading: string
+      headingLevel: number
+      lineStart: number
+      lineEnd: number
+      reason?: string | null
+    }>
+  }): Promise<void> {
+    const now = Math.floor(Date.now() / 1000)
+    await this.db
+      .delete(schema.sourcePageSkeletons)
+      .where(eq(schema.sourcePageSkeletons.sessionId, args.sessionId))
+      .run()
+    const values = args.items
+      .filter((item) => item.sourceHeading.trim().length > 0)
+      .map((item) => {
+        const pageNumber = Math.max(1, Math.floor(item.pageNumber))
+        const lineStart = Math.max(1, Math.floor(item.lineStart || 1))
+        const lineEnd = Math.max(lineStart, Math.floor(item.lineEnd || lineStart))
+        return {
+          id: `${args.sessionId}:${pageNumber}`,
+          sessionId: args.sessionId,
+          pageNumber,
+          title: item.title.trim() || `Slide ${pageNumber}`,
+          role: item.role === 'chapter-divider' ? 'chapter-divider' : 'content',
+          sourceDocumentPath: args.sourceDocumentPath,
+          sourceDocumentName: args.sourceDocumentName || null,
+          sourceHeading: item.sourceHeading,
+          headingLevel: Math.max(1, Math.floor(item.headingLevel || 1)),
+          lineStart,
+          lineEnd,
+          reason: item.reason || null,
+          confidence: args.confidence || 'high',
+          createdAt: now,
+          updatedAt: now
+        }
+      })
+    if (values.length === 0) return
+    await this.db.insert(schema.sourcePageSkeletons).values(values).run()
+  }
+
+  async upsertSourcePageSkeleton(args: {
+    sessionId: string
+    pageNumber: number
+    title: string
+    role?: SourcePageSkeletonRole
+    sourceDocumentPath: string
+    sourceDocumentName?: string | null
+    sourceHeading: string
+    headingLevel?: number
+    lineStart?: number
+    lineEnd?: number
+    reason?: string | null
+    confidence?: SourcePageSkeletonConfidence
+  }): Promise<void> {
+    const now = Math.floor(Date.now() / 1000)
+    const pageNumber = Math.max(1, Math.floor(args.pageNumber))
+    const lineStart = Math.max(1, Math.floor(args.lineStart || pageNumber))
+    const lineEnd = Math.max(lineStart, Math.floor(args.lineEnd || lineStart))
+    const value = {
+      id: `${args.sessionId}:${pageNumber}`,
+      sessionId: args.sessionId,
+      pageNumber,
+      title: args.title.trim() || `Slide ${pageNumber}`,
+      role: args.role === 'chapter-divider' ? 'chapter-divider' : 'content',
+      sourceDocumentPath: args.sourceDocumentPath,
+      sourceDocumentName: args.sourceDocumentName || null,
+      sourceHeading: args.sourceHeading.trim(),
+      headingLevel: Math.max(1, Math.floor(args.headingLevel || 1)),
+      lineStart,
+      lineEnd,
+      reason: args.reason || null,
+      confidence: args.confidence || 'medium',
+      createdAt: now,
+      updatedAt: now
+    }
+    if (!value.sourceHeading) return
+    await this.db
+      .insert(schema.sourcePageSkeletons)
+      .values(value)
+      .onConflictDoUpdate({
+        target: schema.sourcePageSkeletons.id,
+        set: {
+          title: value.title,
+          role: value.role,
+          sourceDocumentPath: value.sourceDocumentPath,
+          sourceDocumentName: value.sourceDocumentName,
+          sourceHeading: value.sourceHeading,
+          headingLevel: value.headingLevel,
+          lineStart: value.lineStart,
+          lineEnd: value.lineEnd,
+          reason: value.reason,
+          confidence: value.confidence,
+          updatedAt: now
+        }
+      })
+      .run()
+  }
+
+  async deleteSourcePageSkeleton(sessionId: string, pageNumber: number): Promise<void> {
+    await this.db
+      .delete(schema.sourcePageSkeletons)
+      .where(
+        and(
+          eq(schema.sourcePageSkeletons.sessionId, sessionId),
+          eq(schema.sourcePageSkeletons.pageNumber, pageNumber)
+        )
+      )
+      .run()
+  }
+
+  async listSourcePageSkeletons(sessionId: string): Promise<SourcePageSkeletonRecord[]> {
+    const rows = await this.db
+      .select()
+      .from(schema.sourcePageSkeletons)
+      .where(eq(schema.sourcePageSkeletons.sessionId, sessionId))
+      .orderBy(asc(schema.sourcePageSkeletons.pageNumber))
+      .all()
+    return rows.map((row) => this.normalizeSourcePageSkeletonRow(row as Record<string, unknown>))
+  }
+
   async upsertSessionPage(page: SessionPageInput): Promise<void> {
     const now = Math.floor(Date.now() / 1000)
     await this.db
@@ -727,7 +1088,9 @@ export class PPTDatabase {
         pageNumber: pageNumberExpr,
         updatedAt: now
       })
-      .where(and(eq(schema.sessionPages.sessionId, sessionId), inArray(schema.sessionPages.id, pageIds)))
+      .where(
+        and(eq(schema.sessionPages.sessionId, sessionId), inArray(schema.sessionPages.id, pageIds))
+      )
       .run()
   }
 
@@ -740,7 +1103,9 @@ export class PPTDatabase {
         deletedAt: now,
         updatedAt: now
       })
-      .where(and(eq(schema.sessionPages.sessionId, sessionId), inArray(schema.sessionPages.id, ids)))
+      .where(
+        and(eq(schema.sessionPages.sessionId, sessionId), inArray(schema.sessionPages.id, ids))
+      )
       .run()
   }
 
@@ -757,9 +1122,7 @@ export class PPTDatabase {
           ? (String(row.scope) as SessionOperationScope)
           : null,
       prompt:
-        typeof row.prompt === 'string' && row.prompt.trim().length > 0
-          ? String(row.prompt)
-          : null,
+        typeof row.prompt === 'string' && row.prompt.trim().length > 0 ? String(row.prompt) : null,
       parent_operation_id:
         typeof (row.parentOperationId ?? row.parent_operation_id) === 'string'
           ? String(row.parentOperationId ?? row.parent_operation_id)
@@ -792,7 +1155,9 @@ export class PPTDatabase {
     }
   }
 
-  private normalizeSessionOperationPageRow(row: Record<string, unknown>): SessionOperationPageRecord {
+  private normalizeSessionOperationPageRow(
+    row: Record<string, unknown>
+  ): SessionOperationPageRecord {
     return {
       id: String(row.id || ''),
       operation_id: String(row.operationId ?? row.operation_id ?? ''),
@@ -1134,6 +1499,10 @@ export class PPTDatabase {
         typeof (message.tokenCount ?? message.token_count) === 'number'
           ? Number(message.tokenCount ?? message.token_count)
           : null,
+      run_model:
+        typeof (message.runModel ?? message.run_model) === 'string'
+          ? String(message.runModel ?? message.run_model)
+          : null,
       created_at:
         typeof (message.createdAt ?? message.created_at) === 'number'
           ? Number(message.createdAt ?? message.created_at)
@@ -1155,6 +1524,7 @@ export class PPTDatabase {
       selector?: string | null
       image_paths?: string[] | null
       video_paths?: string[] | null
+      run_model?: string | null
     }
   ): Promise<string> {
     const id = crypto.randomUUID()
@@ -1210,6 +1580,10 @@ export class PPTDatabase {
         toolName: message.tool_name || null,
         toolCallId: message.tool_call_id || null,
         tokenCount: message.token_count || null,
+        runModel:
+          typeof message.run_model === 'string' && message.run_model.trim().length > 0
+            ? message.run_model
+            : null,
         createdAt: now
       })
       .run()
@@ -1313,6 +1687,7 @@ export class PPTDatabase {
         toolName: schema.messages.toolName,
         toolCallId: schema.messages.toolCallId,
         tokenCount: schema.messages.tokenCount,
+        runModel: schema.messages.runModel,
         createdAt: schema.messages.createdAt
       })
       .from(schema.messages)
@@ -1328,9 +1703,9 @@ export class PPTDatabase {
 
     let idx = lastCompressedIndex + 1
     return results.map((r) => ({
-      ...r,
+      ...this.normalizeMessageRow(r as Record<string, unknown>),
       idx: idx++
-    })) as unknown as (Message & { idx: number })[]
+    }))
   }
 
   // ========== Settings ==========
@@ -1395,6 +1770,16 @@ export class PPTDatabase {
     return result as unknown as ModelConfigRow | undefined
   }
 
+  async getModelConfig(id: string): Promise<ModelConfigRow | undefined> {
+    const result = await this.db
+      .select()
+      .from(schema.modelConfigs)
+      .where(eq(schema.modelConfigs.id, id))
+      .limit(1)
+      .get()
+    return result as unknown as ModelConfigRow | undefined
+  }
+
   async upsertModelConfig(data: {
     id?: string
     name: string
@@ -1403,11 +1788,13 @@ export class PPTDatabase {
     apiKey: string
     baseUrl: string
     maxTokens?: number
+    disableTemperature?: boolean
     active?: boolean
   }): Promise<string> {
     const id = data.id || crypto.randomUUID()
     const now = Math.floor(Date.now() / 1000)
     const maxTokens = data.maxTokens || 4096
+    const disableTemperature = data.disableTemperature ? 1 : 0
     if (data.active) {
       await this.db
         .update(schema.modelConfigs)
@@ -1425,6 +1812,7 @@ export class PPTDatabase {
         apiKey: data.apiKey,
         baseUrl: data.baseUrl,
         maxTokens,
+        disableTemperature,
         active: data.active ? 1 : 0,
         createdAt: now,
         updatedAt: now
@@ -1438,6 +1826,7 @@ export class PPTDatabase {
           apiKey: data.apiKey,
           baseUrl: data.baseUrl,
           maxTokens,
+          disableTemperature,
           active: data.active ? 1 : 0,
           updatedAt: now
         }

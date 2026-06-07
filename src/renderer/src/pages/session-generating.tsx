@@ -10,11 +10,14 @@ import {
   GenerationSidebar,
   GenerationStatusPanel,
   type GenerationPreviewPage,
+  type GenerationRunStatus,
   type GenerationStageKey
 } from '../components/session-generating'
+import { useModelAction } from '../hooks/useModelAction'
 
 type LocationState = {
   initialPrompt?: string
+  modelConfigId?: string
   retry?: boolean
   rerunToken?: number
 }
@@ -103,6 +106,9 @@ const friendlyProgressDetail = (detail: string, lang: Lang): string => {
 
 const isFailureProgress = (label: string | undefined, detail: string): boolean =>
   /失败|failed|fail|error|错误/i.test(`${label || ''} ${detail}`)
+
+const isCancellationMessage = (message: string | null | undefined): boolean =>
+  /^(生成已取消|Generation cancelled|Generation canceled)$/i.test((message || '').trim())
 
 const friendlyProgressLabel = (label: string | undefined, detail: string, lang: Lang): string => {
   const compactLabel = compactWhitespace(label || '')
@@ -289,6 +295,8 @@ export function SessionGeneratingPage({
   const navigate = useNavigate()
   const location = useLocation()
   const { lang, t } = useLang()
+  const modelAction = useModelAction()
+  const { ensureModelActive, selectedModelConfigId } = modelAction
   const state = (location.state as LocationState | null) || null
   const startedSessionRef = useRef<string | null>(null)
   const activeRunIdRef = useRef<string | null>(null)
@@ -299,7 +307,7 @@ export function SessionGeneratingPage({
   const currentStageRef = useRef<string>('preflight')
   const lastProgressLogRef = useRef<{ stage: string; progress: number; time: number } | null>(null)
 
-  const [status, setStatus] = useState<'running' | 'completed' | 'failed'>('running')
+  const [status, setStatus] = useState<GenerationRunStatus>('running')
   const [progress, setProgress] = useState(0)
   const [events, setEvents] = useState<Array<{ text: string; time?: string }>>([
     { text: t('generating.created'), time: new Date().toISOString() }
@@ -313,7 +321,9 @@ export function SessionGeneratingPage({
   )
   const [presentationTitle, setPresentationTitle] = useState<string>('')
   const generatingPath =
-    generationKind === 'template' && id ? `/sessions/${id}/template-generating` : `/sessions/${id}/generating`
+    generationKind === 'template' && id
+      ? `/sessions/${id}/template-generating`
+      : `/sessions/${id}/generating`
 
   const appendEvent = (line: string, timestamp?: string): void => {
     const el = eventsContainerRef.current
@@ -596,8 +606,9 @@ export function SessionGeneratingPage({
       if (event.type === 'run_error') {
         if (options?.replay && state?.retry) return
         if (!active) return
+        const wasCancelled = isCancellationMessage(event.payload.message)
         terminalStatusRef.current = 'failed'
-        setStatus('failed')
+        setStatus(wasCancelled ? 'cancelled' : 'failed')
         setError(friendlyFailureMessage(event.payload.message, lang))
         appendEvent(t('generating.failedRetryOrBack'), event.payload.timestamp)
         void ipc
@@ -628,8 +639,12 @@ export function SessionGeneratingPage({
 
     const unsubscribe = ipc.onGenerateChunk((event) => applyChunk(event))
 
-    const startRun = (): void => {
-      const runKey = `${id}:${generationKind}:${state?.retry ? 'retry' : 'generate'}:${state?.rerunToken ?? 'initial'}`
+    const startRun = async (): Promise<void> => {
+      const resolvedModelConfigId = await ensureModelActive(
+        state?.modelConfigId || selectedModelConfigId
+      )
+      if (!active || !resolvedModelConfigId) return
+      const runKey = `${id}:${generationKind}:${state?.retry ? 'retry' : 'generate'}:${state?.rerunToken ?? 'initial'}:${resolvedModelConfigId}`
       if (startedSessionRef.current === runKey) return
       startedSessionRef.current = runKey
       setStatus('running')
@@ -640,29 +655,34 @@ export function SessionGeneratingPage({
           sessionId: id,
           generationKind,
           retry: Boolean(state?.retry),
-          hasInitialPrompt: Boolean(initialPrompt)
+          hasInitialPrompt: Boolean(initialPrompt),
+          modelConfigId: resolvedModelConfigId
         })
       }
       const request = state?.retry
         ? generationKind === 'template'
           ? ipc.startTemplateGenerate({
               sessionId: id,
+              modelConfigId: resolvedModelConfigId,
               userMessage: state.initialPrompt?.trim() || '',
               type: 'deck',
               retry: true
             })
           : ipc.retryFailedPages({
               sessionId: id,
+              modelConfigId: resolvedModelConfigId,
               userMessage: state.initialPrompt?.trim() || undefined
             })
         : generationKind === 'template'
           ? ipc.startTemplateGenerate({
               sessionId: id,
+              modelConfigId: resolvedModelConfigId,
               userMessage: initialPrompt,
               type: 'deck'
             })
           : ipc.startGenerate({
               sessionId: id,
+              modelConfigId: resolvedModelConfigId,
               userMessage: initialPrompt,
               type: 'deck'
             })
@@ -679,6 +699,11 @@ export function SessionGeneratingPage({
             console.info('[generate:start] promise resolved', { sessionId: id })
           }
           if (!active || terminalStatusRef.current) return
+          if (result?.queued) {
+            setStatus('queued')
+            appendEvent(t('generating.queued'), new Date().toISOString())
+            return
+          }
           appendEvent(t('generating.started'), new Date().toISOString())
         })
         .catch((e) => {
@@ -775,7 +800,11 @@ export function SessionGeneratingPage({
                 : Math.min(90, Math.floor(runState.progress))
             setProgress((prev) => Math.max(prev, safeProgress))
           }
-          if (shouldHydrateFromSnapshot && runState.status === 'failed' && runState.error) {
+          if (
+            shouldHydrateFromSnapshot &&
+            (runState.status === 'failed' || runState.status === 'cancelled') &&
+            runState.error
+          ) {
             setError(friendlyFailureMessage(runState.error, lang))
           }
           if (
@@ -791,8 +820,12 @@ export function SessionGeneratingPage({
             navigate(`/sessions/${id}`, { replace: true })
             return
           }
-          if (runState.status === 'failed' && !state?.retry && !explicitRerun) {
-            setStatus('failed')
+          if (
+            (runState.status === 'failed' || runState.status === 'cancelled') &&
+            !state?.retry &&
+            !explicitRerun
+          ) {
+            setStatus(runState.status)
             setError(
               runState.error
                 ? friendlyFailureMessage(runState.error, lang)
@@ -802,8 +835,11 @@ export function SessionGeneratingPage({
             return
           }
           if (runState.hasActiveRun) {
-            setStatus('running')
-            appendEvent(t('generating.resumed'), new Date().toISOString())
+            setStatus(runState.status === 'queued' ? 'queued' : 'running')
+            appendEvent(
+              runState.status === 'queued' ? t('generating.queued') : t('generating.resumed'),
+              new Date().toISOString()
+            )
             return
           }
         }
@@ -845,17 +881,30 @@ export function SessionGeneratingPage({
           appendEvent(t('generating.keptFailed'), new Date().toISOString())
           return
         }
-        startRun()
+        void startRun()
       })
       .catch(() => {
-        startRun()
+        void startRun()
       })
 
     return () => {
       active = false
       unsubscribe?.()
     }
-  }, [id, navigate, location.key, generationKind, state?.initialPrompt, state?.retry, state?.rerunToken, lang, t])
+  }, [
+    id,
+    navigate,
+    location.key,
+    generationKind,
+    state?.initialPrompt,
+    state?.modelConfigId,
+    state?.retry,
+    state?.rerunToken,
+    ensureModelActive,
+    selectedModelConfigId,
+    lang,
+    t
+  ])
 
   const displayProgress = Math.max(0, Math.min(100, Math.round(progress)))
   const fullyGenerated = isSessionFullyGenerated(editorGate)
@@ -896,22 +945,24 @@ export function SessionGeneratingPage({
     rendering: t('generating.stages.rendering'),
     validation: t('generating.stages.validation')
   }
-  const handleContinueRemaining = (): void => {
+  const handleContinueRemaining = (modelConfigId: string): void => {
     if (!id) return
     navigate(generatingPath, {
       replace: true,
       state: {
+        modelConfigId,
         retry: true,
         rerunToken: Date.now()
       }
     })
   }
-  const handleRegenerate = (): void => {
+  const handleRegenerate = (modelConfigId: string): void => {
     if (!id) return
     navigate(generatingPath, {
       replace: true,
       state: {
         initialPrompt: state?.initialPrompt,
+        modelConfigId,
         retry: false,
         rerunToken: Date.now()
       }
@@ -943,14 +994,14 @@ export function SessionGeneratingPage({
       <div className="app-no-drag relative z-10 flex min-h-0 flex-1 flex-col gap-4 px-5 pb-5 pt-4 lg:flex-row">
         <GenerationSidebar
           title={presentationTitle || t('generating.title')}
-          backHomeLabel={t('generating.backHome')}
+          backHomeLabel={t('generating.backToSessions')}
           logTitle={friendlyText(lang, '生成日志', 'Generation log')}
           pageCountLabel={`${completedPreviewCount}/${displayedTotalPages}`}
           growingLabel={t('generating.growing')}
           failedLabel={t('generating.failed')}
           events={events}
           status={status}
-          onBackHome={() => navigate('/')}
+          onBackHome={() => navigate('/sessions')}
           viewportRef={eventsContainerRef}
           onViewportScroll={(e) => {
             const el = e.currentTarget
@@ -979,6 +1030,7 @@ export function SessionGeneratingPage({
             hasGeneratedPages={canContinueRemaining}
             canEnterEditor={canEnterEditor}
             showEditorShortcut={showProgressEditorShortcut}
+            modelAction={modelAction}
             onEnterEditor={() => navigate(`/sessions/${id}`)}
             onContinueRemaining={handleContinueRemaining}
             onRegenerate={handleRegenerate}

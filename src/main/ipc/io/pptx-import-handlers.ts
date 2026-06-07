@@ -6,8 +6,8 @@ import crypto from 'crypto'
 import type { IpcContext } from '../context'
 import { importPptxToEditableHtml, type PptxImportProgressPayload } from '../../utils/pptx-importer'
 import { extractStyleFromExistingHtml } from '../../utils/style-pptx-import'
-import { createStyleSkill } from '../../utils/style-skills'
-import { resolveActiveModelConfig, resolveGlobalModelTimeouts } from '../config/model-config-utils'
+import { createStyleSkill, resolveUsableStyleId } from '../../utils/style-skills'
+import { resolveGlobalModelTimeouts, resolveModelConfigForTask } from '../config/model-config-utils'
 import { buildDesignContractWithLLM } from '../engine/generate'
 import { customAlphabet } from 'nanoid'
 import { recordHistoryOperationStrict } from '../../history/git-history-service'
@@ -19,18 +19,23 @@ type PptxImportPayload = {
   filePath?: unknown
   title?: unknown
   styleId?: unknown
+  modelConfigId?: unknown
 }
 
-const MAX_PPTX_SIZE_MB = 100
+const MAX_PPTX_SIZE_MB = 500
 const MAX_PPTX_SIZE = MAX_PPTX_SIZE_MB * 1024 * 1024
 
-const parsePayload = (payload: unknown): { filePath: string; title: string; styleId: string | null } => {
+const parsePayload = (
+  payload: unknown
+): { filePath: string; title: string; styleId: string | null; modelConfigId?: string } => {
   const record = payload && typeof payload === 'object' ? (payload as PptxImportPayload) : {}
   const filePath = typeof record.filePath === 'string' ? record.filePath.trim() : ''
   if (!filePath) throw new Error('PPTX 文件路径不能为空')
   const title = typeof record.title === 'string' ? record.title.trim() : ''
   const styleId = typeof record.styleId === 'string' && record.styleId.trim() ? record.styleId.trim() : null
-  return { filePath, title, styleId }
+  const modelConfigId =
+    typeof record.modelConfigId === 'string' ? record.modelConfigId.trim() : undefined
+  return { filePath, title, styleId, modelConfigId }
 }
 
 export function registerPptxImportHandlers(ctx: IpcContext): void {
@@ -84,12 +89,13 @@ export function registerPptxImportHandlers(ctx: IpcContext): void {
         label: '正在写入会话记录',
         totalPages: imported.pageCount
       })
+      const initialStyleId = resolveUsableStyleId(parsedPayload.styleId)
 
       await db.createSession({
         id: sessionId,
         title: imported.title,
         topic: imported.title,
-        styleId: parsedPayload.styleId || undefined,
+        styleId: initialStyleId,
         pageCount: imported.pageCount,
         provider: 'import',
         model: 'pptx-import'
@@ -105,9 +111,11 @@ export function registerPptxImportHandlers(ctx: IpcContext): void {
         sessionId,
         mode: 'import',
         totalPages: imported.pageCount,
+        modelConfigId: parsedPayload.modelConfigId,
         metadata: {
           source: 'pptx-import',
-          originalFileName
+          originalFileName,
+          modelConfigId: parsedPayload.modelConfigId
         }
       })
       for (const page of imported.pages) {
@@ -173,7 +181,10 @@ export function registerPptxImportHandlers(ctx: IpcContext): void {
 
       // --- Auto style extraction (non-blocking) ---
       try {
-        const activeModel = await resolveActiveModelConfig(ctx)
+        const activeModel = await resolveModelConfigForTask(ctx, {
+          modelConfigId: parsedPayload.modelConfigId,
+          purpose: 'pptx:import'
+        })
         const modelTimeouts = await resolveGlobalModelTimeouts(ctx)
         const styleResult = await extractStyleFromExistingHtml({
           projectDir,

@@ -1,12 +1,15 @@
 import { BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import log from 'electron-log/main.js'
 import fs from 'fs'
+import os from 'os'
 import path from 'path'
+import { execFileSync } from 'child_process'
 import { is } from '@electron-toolkit/utils'
 import { nanoid } from 'nanoid'
 import { zipSync } from 'fflate'
 import { PDFDocument } from 'pdf-lib'
 import type { IpcContext } from '../context'
+import { resolveOutlinesForPages } from '../session/page-outline-utils'
 import {
   writeHtmlToPptx,
   collectEmbeddedFonts,
@@ -22,6 +25,7 @@ type PptxExportPayload = {
   sessionId?: unknown
   imageOnly?: unknown
   embedFonts?: unknown
+  pageId?: unknown
 }
 
 const parseSessionId = (payload: unknown): string => {
@@ -49,8 +53,27 @@ const parseFontEmbedMode = (payload: unknown): 'auto' | 'always' | 'never' => {
   return 'always'
 }
 
+const parseExportPageId = (payload: unknown): string => {
+  if (!payload || typeof payload !== 'object') return ''
+  const value = (payload as PptxExportPayload).pageId
+  return typeof value === 'string' ? value.trim() : ''
+}
+
 const sanitizeExportBaseName = (value: string, fallback: string): string =>
   value.replace(/[\\/:*?"<>|]/g, '_').slice(0, 120) || fallback
+
+const buildOutlinesMarkdown = (args: {
+  title: string
+  pages: Array<{ id: string; page_number: number; title: string }>
+  outlines: Map<string, string | null>
+}): string => {
+  const sections = args.pages.map((page) => {
+    const pageTitle = String(page.title || `P${page.page_number}`).trim()
+    const outline = String(args.outlines.get(page.id) || '').trim()
+    return [`## P${page.page_number}. ${pageTitle}`, outline].filter(Boolean).join('\n\n')
+  })
+  return [`# ${args.title}`, ...sections].filter(Boolean).join('\n\n').trim() + '\n'
+}
 
 const isSameOrChildPath = async (candidatePath: string, parentPath: string): Promise<boolean> => {
   const resolveRealPath = async (value: string): Promise<string> =>
@@ -82,6 +105,123 @@ const collectDirectoryZipFiles = (
     } else if (entry.isFile()) {
       zipFiles[zipPath] = fs.readFileSync(fullPath)
     }
+  }
+}
+
+const sanitizeMacBundleExecutableName = (value: string): string => {
+  const sanitized = value.replace(/[/:]/g, '').trim()
+  return sanitized || 'slides'
+}
+
+const sanitizeMacBundleIdentifierPart = (value: string): string => {
+  const sanitized = value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+  return sanitized || 'slides'
+}
+
+const escapeXmlText = (value: string): string =>
+  value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;')
+
+const buildMacInfoPlist = (appName: string, executableName: string): string => `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleExecutable</key>
+  <string>${escapeXmlText(executableName)}</string>
+  <key>CFBundleIdentifier</key>
+  <string>com.ohmyppt.slidepack.${sanitizeMacBundleIdentifierPart(appName)}</string>
+  <key>CFBundleName</key>
+  <string>${escapeXmlText(appName)}</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleVersion</key>
+  <string>1</string>
+  <key>CFBundleShortVersionString</key>
+  <string>1.0</string>
+</dict>
+</plist>
+`
+
+const collectMacAppZipFiles = (
+  appRoot: string,
+  appName: string,
+  zipFiles: Record<string, Uint8Array | [Uint8Array, unknown]>,
+  currentDir = appRoot
+): void => {
+  for (const entry of fs.readdirSync(currentDir, { withFileTypes: true })) {
+    const fullPath = path.join(currentDir, entry.name)
+    const relativePath = path.relative(appRoot, fullPath).split(path.sep).join('/')
+    const zipPath = `${appName}.app/${relativePath}`
+    if (entry.isDirectory()) {
+      collectMacAppZipFiles(appRoot, appName, zipFiles, fullPath)
+    } else if (entry.isFile()) {
+      const mode = fs.statSync(fullPath).mode & 0o777
+      zipFiles[zipPath] = [
+        fs.readFileSync(fullPath),
+        { os: 3, attrs: (mode || 0o644) << 16 }
+      ]
+    }
+  }
+}
+
+const writeMacAppZip = (
+  outputPath: string,
+  appName: string,
+  viewerPath: string,
+  slidesZipData: Uint8Array
+): void => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ohmyppt-slide-pack-app-'))
+  try {
+    const appRoot = path.join(tempDir, `${appName}.app`)
+    const macosDir = path.join(appRoot, 'Contents', 'MacOS')
+    const resourcesDir = path.join(appRoot, 'Contents', 'Resources')
+    fs.mkdirSync(macosDir, { recursive: true })
+    fs.mkdirSync(resourcesDir, { recursive: true })
+
+    const executableName = sanitizeMacBundleExecutableName(appName)
+    const executablePath = path.join(macosDir, executableName)
+    fs.copyFileSync(viewerPath, executablePath)
+    fs.chmodSync(executablePath, 0o755)
+    fs.writeFileSync(path.join(resourcesDir, 'slides.zip'), Buffer.from(slidesZipData))
+    fs.writeFileSync(
+      path.join(appRoot, 'Contents', 'Info.plist'),
+      buildMacInfoPlist(appName, executableName),
+      'utf-8'
+    )
+
+    if (process.platform === 'darwin') {
+      try {
+        execFileSync('codesign', ['--force', '--deep', '--sign', '-', '--timestamp=none', appRoot], {
+          stdio: 'pipe'
+        })
+      } catch (error) {
+        log.warn('[export:slidePack] codesign failed, continuing with unsigned app bundle', {
+          appName,
+          message: error instanceof Error ? error.message : String(error)
+        })
+      }
+    }
+
+    if (process.platform === 'darwin') {
+      execFileSync('ditto', ['-c', '-k', '--keepParent', `${appName}.app`, outputPath], {
+        cwd: tempDir,
+        stdio: 'pipe'
+      })
+      return
+    }
+
+    const zipFiles: Record<string, Uint8Array | [Uint8Array, unknown]> = {}
+    collectMacAppZipFiles(appRoot, appName, zipFiles)
+    fs.writeFileSync(outputPath, Buffer.from(zipSync(zipFiles as Record<string, Uint8Array>)))
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true })
   }
 }
 
@@ -262,15 +402,26 @@ export function registerExportHandlers(ctx: IpcContext): void {
     }
     const imageOnly = parseImageOnly(payload)
     const fontEmbedMode = imageOnly ? 'never' : parseFontEmbedMode(payload)
+    const requestedPageId = parseExportPageId(payload)
 
-    const { session, pages, projectDir } = await resolveSessionPageFiles(sessionId)
+    const { session, pages: allPages, projectDir } = await resolveSessionPageFiles(sessionId)
+    const pages = requestedPageId
+      ? allPages.filter((page) => page.id === requestedPageId)
+      : allPages
+    if (requestedPageId && pages.length === 0) {
+      throw new Error(`页面不存在：${requestedPageId}`)
+    }
     const sessionTitle =
       typeof session.title === 'string' && session.title.trim().length > 0
         ? session.title.trim()
         : `ohmyppt-${sessionId}`
     const prefix = imageOnly ? '【Image】' : '【Edit】'
+    const singlePage = requestedPageId && pages.length === 1 ? pages[0] : null
+    const singlePageTitle = singlePage
+      ? singlePage.title.trim() || `P${String(singlePage.pageNumber).padStart(2, '0')}`
+      : ''
     const sanitizedBaseName = sanitizeExportBaseName(
-      `${prefix}${sessionTitle}`,
+      singlePage ? `${prefix}${singlePageTitle}` : `${prefix}${sessionTitle}`,
       `ohmyppt-${sessionId}`
     )
 
@@ -295,9 +446,11 @@ export function registerExportHandlers(ctx: IpcContext): void {
         const mode = imageOnly ? 'image' : 'editable'
         log.info('[export:pptx] extract page', {
           sessionId,
+          sessionPageId: page.id,
           pageId: page.pageId,
           htmlPath: page.htmlPath,
-          mode
+          mode,
+          singlePage: Boolean(requestedPageId)
         })
         const extracted = imageOnly
           ? await captureHtmlPageToPptxImageSlide({
@@ -373,6 +526,7 @@ export function registerExportHandlers(ctx: IpcContext): void {
         filePath: saveResult.filePath,
         warningCount: warnings.length,
         imageOnly,
+        sessionPageId: requestedPageId || undefined,
         fontEmbedMode,
         embeddedFontCount: embeddedFonts.length
       })
@@ -387,6 +541,69 @@ export function registerExportHandlers(ctx: IpcContext): void {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       log.error('[export:pptx] failed', {
+        sessionId,
+        message
+      })
+      throw error
+    }
+  })
+
+  ipcMain.handle('export:outlinesMarkdown', async (event, payload: unknown) => {
+    const sessionId = parseSessionId(payload)
+    if (!sessionId) {
+      throw new Error('sessionId 不能为空')
+    }
+
+    const { session, projectDir } = await resolveSessionPageFiles(sessionId)
+    const pages = await db.listSessionPages(sessionId)
+    if (pages.length === 0) {
+      throw new Error('没有可导出的大纲页面')
+    }
+    const outlines = await resolveOutlinesForPages(db, sessionId, pages)
+    const rawTitle =
+      typeof session.title === 'string' && session.title.trim().length > 0
+        ? session.title.trim()
+        : `ohmyppt-${sessionId}`
+    const baseName = sanitizeExportBaseName(`${rawTitle}-大纲`, `ohmyppt-${sessionId}-outline`)
+    const content = buildOutlinesMarkdown({
+      title: rawTitle,
+      pages,
+      outlines
+    })
+
+    const ownerWindow =
+      BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getFocusedWindow() ?? mainWindow
+    const saveResult = await dialog.showSaveDialog(ownerWindow, {
+      title: '导出大纲',
+      defaultPath: path.join(path.dirname(projectDir), `${baseName}.md`),
+      filters: [
+        { name: 'Markdown', extensions: ['md'] },
+        { name: 'Text', extensions: ['txt'] }
+      ],
+      properties: ['createDirectory', 'showOverwriteConfirmation']
+    })
+
+    if (saveResult.canceled || !saveResult.filePath) {
+      return { success: false, cancelled: true }
+    }
+
+    try {
+      await fs.promises.writeFile(saveResult.filePath, content, 'utf-8')
+      log.info('[export:outlinesMarkdown] completed', {
+        sessionId,
+        filePath: saveResult.filePath,
+        byteLength: Buffer.byteLength(content, 'utf-8')
+      })
+      shell.showItemInFolder(saveResult.filePath)
+      return {
+        success: true,
+        cancelled: false,
+        path: saveResult.filePath,
+        warnings: []
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      log.error('[export:outlinesMarkdown] failed', {
         sessionId,
         message
       })
@@ -413,11 +630,8 @@ export function registerExportHandlers(ctx: IpcContext): void {
         { platform: 'windows-amd64', bin: 'slide-pack-windows-amd64.exe', ext: '.exe', os: 'win32', arch: 'x64' }
       ]
 
-      const currentPlatform = process.platform
-      const currentArch = process.arch
-
       const rawTitle = typeof session.title === 'string' && session.title.trim() ? session.title.trim() : 'slides'
-      const sessionName = rawTitle.replace(/[<>:"/\\|?*]/g, '').trim()
+      const sessionName = sanitizeExportBaseName(rawTitle, 'slides')
 
       // Let user choose save directory
       const ownerWindow =
@@ -464,7 +678,7 @@ export function registerExportHandlers(ctx: IpcContext): void {
 
       const generatedFiles: string[] = []
 
-      // For each platform: viewer + zip + 8-byte trailer → output executable
+      // macOS uses an app bundle with slides.zip in Resources; Windows keeps the trailer format.
       for (const t of targets) {
         const viewerPath = path.join(resourcesDir, t.bin)
         if (!fs.existsSync(viewerPath)) {
@@ -472,27 +686,20 @@ export function registerExportHandlers(ctx: IpcContext): void {
           continue
         }
 
-        const viewerData = fs.readFileSync(viewerPath)
-        const outputName = `${sessionName}-${t.platform}${t.ext}`
-
-        // Trailer: uint64 LE = ZIP data length
-        const trailer = Buffer.alloc(8)
-        trailer.writeBigUInt64LE(BigInt(zipData.byteLength))
-
-        const output = Buffer.concat([viewerData, Buffer.from(zipData), trailer])
-
-        // For cross-platform darwin binaries: wrap in a zip with Unix permissions
-        // so macOS can execute after extracting (Windows chmod is a no-op for Unix perms)
-        const isCrossPlatform = t.os !== currentPlatform || t.arch !== currentArch
-        if (isCrossPlatform && t.os === 'darwin') {
-          const innerName = `${sessionName}-${t.platform}`
-          const permissionZip = zipSync(
-            { [innerName]: [new Uint8Array(output), { os: 3, attrs: 0o755 << 16 }] as any }
-          )
-          const zipOutputName = `${sessionName}-${t.platform}.zip`
-          fs.writeFileSync(path.join(outputFolder, zipOutputName), Buffer.from(permissionZip))
+        if (t.os === 'darwin') {
+          const appName = `${sessionName}-${t.platform}`
+          const zipOutputName = `${appName}.app.zip`
+          writeMacAppZip(path.join(outputFolder, zipOutputName), appName, viewerPath, zipData)
           generatedFiles.push(zipOutputName)
         } else {
+          const viewerData = fs.readFileSync(viewerPath)
+          const outputName = `${sessionName}-${t.platform}${t.ext}`
+
+          // Trailer: uint64 LE = ZIP data length
+          const trailer = Buffer.alloc(8)
+          trailer.writeBigUInt64LE(BigInt(zipData.byteLength))
+
+          const output = Buffer.concat([viewerData, Buffer.from(zipData), trailer])
           const outputPath = path.join(outputFolder, outputName)
           fs.writeFileSync(outputPath, output)
           fs.chmodSync(outputPath, 0o755)
@@ -507,12 +714,12 @@ export function registerExportHandlers(ctx: IpcContext): void {
 双击对应平台的文件即可在浏览器中打开演示。
 
 文件说明：
-  *-macos-arm64(.zip)       → Apple Silicon Mac (M1/M2/M3/M4)
-  *-macos-amd64(.zip)       → Intel Mac
+  *-macos-arm64.app.zip     → Apple Silicon Mac (M1/M2/M3/M4)
+  *-macos-amd64.app.zip     → Intel Mac
   *-windows-amd64.exe       → Windows 电脑
 
 使用方法：
-  macOS：若为 .zip 文件请先解压，再双击解压后的文件打开
+  macOS：先解压 .app.zip，再双击 .app 打开
   Windows：双击 .exe 文件打开
   如果提示"无法打开"，请右键 → 打开 → 确认打开
 

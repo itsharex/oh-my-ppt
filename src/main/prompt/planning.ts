@@ -1,4 +1,4 @@
-import { CONTENT_LANGUAGE_RULES } from './shared'
+import { CONTENT_LANGUAGE_RULES, SOURCE_MATERIAL_PLANNING_RULES } from './shared'
 import type { AvailableFont } from '../tools/font-registry'
 
 export function buildPlanningSystemPrompt(totalPages: number = 0): string {
@@ -7,14 +7,16 @@ export function buildPlanningSystemPrompt(totalPages: number = 0): string {
     '',
     CONTENT_LANGUAGE_RULES,
     '',
+    SOURCE_MATERIAL_PLANNING_RULES,
+    '',
     '## Hard constraints',
     `Return exactly ${totalPages} slide plans. The JSON array length must equal ${totalPages}.`,
     `Never return fewer or more than ${totalPages} items.`,
-    `If the material does not naturally fill ${totalPages} slides, split sections thoughtfully or add useful transition slides such as agenda, data overview, synthesis, next steps, or outlook.`,
+    `For open-ended topics without source materials, if the material does not naturally fill ${totalPages} slides, split sections thoughtfully or add useful presentation-structure slides such as cover, agenda, synthesis, summary, next steps, or outlook.`,
     '',
     'Rules:',
     '- Titles should be concise, hierarchical, and aligned with the narrative.',
-    '- The first slide is usually a cover; the last slide is usually a conclusion, summary, thank-you, or next-steps slide.',
+    '- For open-ended topics without source materials, the first slide is usually a cover; the last slide is usually a conclusion, summary, thank-you, or next-steps slide.',
     '- Key points must be short phrases, not long paragraphs. Provide 1-6 key points per slide.',
     '- Keep each key point compact and focused on the information type: data, chart, structure, conclusion, decision, or action.',
     '- Assign layoutIntent based on the slide content type:',

@@ -26,8 +26,8 @@ let isShuttingDown = false
 let isTrayEnabled = false
 
 const APP_NAME = 'OhMyPPT'
-const DEFAULT_WINDOW_WIDTH = 1200
-const DEFAULT_WINDOW_HEIGHT = 780
+const DEFAULT_WINDOW_WIDTH = 1280
+const DEFAULT_WINDOW_HEIGHT = 820
 const BASE_MIN_WIDTH = 880
 const BASE_MIN_HEIGHT = 680
 const TITLEBAR_HEIGHT = 48

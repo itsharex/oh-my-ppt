@@ -9,6 +9,7 @@ import {
   resolveModelTimeoutMs
 } from '@shared/model-timeout'
 import { readAppLocale, uiText } from '../config/locale-utils'
+import { runWithModelTemperatureControl } from '../../model-runtime'
 
 const readGlobalTimeouts = (
   settings: Record<string, unknown>
@@ -24,6 +25,10 @@ const VALID_PROVIDERS = ['anthropic', 'openai', 'google'] as const
 type Provider = (typeof VALID_PROVIDERS)[number]
 const normalizeProvider = (provider: unknown): Provider =>
   VALID_PROVIDERS.includes(provider as Provider) ? (provider as Provider) : 'openai'
+const normalizeMaxTokens = (value: unknown): number => {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return 4096
+  return Math.max(256, Math.min(16384, Math.floor(value)))
+}
 
 export function registerSettingsHandlers(ctx: IpcContext): void {
   const { mainWindow, db, encryptApiKey, decryptApiKey } = ctx
@@ -61,6 +66,7 @@ export function registerSettingsHandlers(ctx: IpcContext): void {
       apiKey: decryptApiKey(config.apiKey),
       baseUrl: config.baseUrl,
       maxTokens: config.maxTokens || 4096,
+      disableTemperature: config.disableTemperature === 1,
       active: config.active === 1,
       createdAt: config.createdAt,
       updatedAt: config.updatedAt
@@ -158,10 +164,7 @@ export function registerSettingsHandlers(ctx: IpcContext): void {
     if (!name) throw new Error(uiText(locale, '请填写模型名称。', 'Enter model name.'))
     if (!model) throw new Error(uiText(locale, '请填写 model。', 'Enter model.'))
     if (!apiKey) throw new Error(uiText(locale, '请填写 api_key。', 'Enter api_key.'))
-    const maxTokens =
-      typeof record.maxTokens === 'number' && record.maxTokens > 0
-        ? Math.min(record.maxTokens, 16384)
-        : 4096
+    const maxTokens = normalizeMaxTokens(record.maxTokens)
     const savedId = await db.upsertModelConfig({
       id,
       name,
@@ -170,6 +173,7 @@ export function registerSettingsHandlers(ctx: IpcContext): void {
       apiKey: encryptApiKey(apiKey),
       baseUrl,
       maxTokens,
+      disableTemperature: record.disableTemperature === true,
       active: record.active === true
     })
     return { success: true, id: savedId }
@@ -210,11 +214,13 @@ export function registerSettingsHandlers(ctx: IpcContext): void {
 
   ipcMain.handle(
     'settings:verifyApiKey',
-    async (_event, { provider, apiKey, model, baseUrl, maxTokens, timeoutMs }) => {
+    async (
+      _event,
+      { provider, apiKey, model, baseUrl, maxTokens, disableTemperature, timeoutMs }
+    ) => {
       const locale = await readAppLocale(ctx)
       const resolvedTimeoutMs = resolveModelTimeoutMs(timeoutMs, 'verify')
-      const resolvedMaxTokens =
-        typeof maxTokens === 'number' && maxTokens > 0 ? Math.min(maxTokens, 16384) : 4096
+      const resolvedMaxTokens = normalizeMaxTokens(maxTokens)
       log.info('[settings:verifyApiKey] received', {
         provider,
         model,
@@ -235,13 +241,17 @@ export function registerSettingsHandlers(ctx: IpcContext): void {
       }
 
       try {
-        const client = resolveModel(
-          provider,
-          apiKey.trim(),
-          model.trim(),
-          typeof baseUrl === 'string' ? baseUrl.trim() : '',
-          undefined,
-          resolvedMaxTokens
+        const client = runWithModelTemperatureControl(
+          { disableTemperature: disableTemperature === true },
+          () =>
+            resolveModel(
+              provider,
+              apiKey.trim(),
+              model.trim(),
+              typeof baseUrl === 'string' ? baseUrl.trim() : '',
+              undefined,
+              resolvedMaxTokens
+            )
         )
         await client.invoke('Reply with OK.', {
           signal: AbortSignal.timeout(resolvedTimeoutMs)

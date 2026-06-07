@@ -14,9 +14,17 @@ export interface ParseDocumentPlanPayload {
     path: string
     name?: string
   }>
+  modelConfigId?: string
   topic?: string
-  pageCount?: number
   existingBrief?: string
+}
+
+export interface SourceDocumentPlan {
+  version: 1
+  confidence: 'high' | 'medium' | 'low'
+  sourceDocumentPath?: string
+  sourceDocumentName?: string
+  pageSkeleton: DocumentPlanPageSkeletonItem[]
 }
 
 export interface PrepareReferenceDocumentPayload {
@@ -31,18 +39,43 @@ export interface ParseImageReferencePayload {
     path: string
     name?: string
   }
+  modelConfigId?: string
 }
 
 export interface ParsedDocumentPlanResult {
   topic: string
   pageCount: number
   briefText: string
+  pageSkeleton?: DocumentPlanPageSkeletonItem[]
+  sourcePlan?: SourceDocumentPlan
   files: Array<{
     name: string
     type: 'markdown' | 'text' | 'csv' | 'docx' | 'image'
     characterCount: number
     path: string
   }>
+}
+
+export interface DocumentPlanPageSkeletonItem {
+  id?: string
+  pageNumber: number
+  title: string
+  role: 'chapter-divider' | 'content'
+  sourceHeading: string
+  headingLevel: number
+  lineStart: number
+  lineEnd: number
+  reason: string
+}
+
+export const isInternalDocumentPlanPageReason = (reason: string): boolean => {
+  const normalized = reason.toLowerCase()
+  return (
+    normalized.includes('major # heading') ||
+    normalized.includes('leaf ## section') ||
+    normalized.includes('standalone level-') ||
+    normalized.includes('section has substantial own body')
+  )
 }
 
 export interface PreparedReferenceDocumentResult {
@@ -53,6 +86,7 @@ export interface PptxImportPayload {
   filePath: string
   title?: string
   styleId?: string | null
+  modelConfigId?: string
 }
 
 export interface PptxImportProgressPayload {
@@ -88,7 +122,9 @@ export const normalizeFontSelection = (value: unknown): FontSelection => {
   const record = value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
   if (record.mode !== 'pair') return { mode: 'auto' }
   const title =
-    record.title && typeof record.title === 'object' ? (record.title as Record<string, unknown>) : {}
+    record.title && typeof record.title === 'object'
+      ? (record.title as Record<string, unknown>)
+      : {}
   const body =
     record.body && typeof record.body === 'object' ? (record.body as Record<string, unknown>) : {}
   const titleFamily = typeof title.family === 'string' ? title.family.trim() : ''
@@ -113,6 +149,7 @@ export const normalizeFontSelection = (value: unknown): FontSelection => {
 
 export interface GenerateStartPayload {
   sessionId: string
+  modelConfigId?: string
   userMessage: string
   type?: 'deck' | 'page'
   chatType?: 'main' | 'page'
@@ -129,17 +166,20 @@ export interface GenerateStartPayload {
 
 export interface GenerateRetryFailedPayload {
   sessionId: string
+  modelConfigId?: string
   userMessage?: string
 }
 
 export interface GenerateAddPagePayload {
   sessionId: string
+  modelConfigId?: string
   userMessage: string
   insertAfterPageNumber: number
 }
 
 export interface GenerateRetrySinglePagePayload {
   sessionId: string
+  modelConfigId?: string
   pageId: string
 }
 
@@ -171,6 +211,8 @@ export interface GenerateStagePayload {
   progress?: number
   currentPage?: number
   totalPages?: number
+  completedPageCount?: number
+  failedPageCount?: number
   timestamp?: string
 }
 
@@ -221,6 +263,8 @@ export type GenerateChunkEvent =
         runId: string
         sessionId?: string
         totalPages: number
+        completedPageCount?: number
+        failedPageCount?: number
         timestamp?: string
       }
     }
@@ -230,6 +274,9 @@ export type GenerateChunkEvent =
         runId: string
         sessionId?: string
         message: string
+        cancelled?: boolean
+        completedPageCount?: number
+        failedPageCount?: number
         timestamp?: string
       }
     }

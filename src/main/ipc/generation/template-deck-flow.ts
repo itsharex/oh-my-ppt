@@ -12,6 +12,7 @@ import type { DeckContext, EmitAssistantFn } from './types'
 import { resolveDeckContext } from './deck-flow'
 import { parseJsonObject } from '../utils'
 import { resolveTemplateDesignContract } from '../templates/template-design-contract'
+import { canUseSourcePlanDirectly, mapSourcePlanToOutlineItems } from './source-plan'
 
 type TemplateSeedPage = {
   id: string
@@ -173,7 +174,8 @@ export async function executeTemplateDeckGeneration(
     ),
     type: 'stream_chunk',
     chat_scope: context.messageScope,
-    page_id: context.messagePageId
+    page_id: context.messagePageId,
+    run_model: context.runModel
   })
 
   await db.createGenerationRun({
@@ -181,11 +183,16 @@ export async function executeTemplateDeckGeneration(
     sessionId: context.sessionId,
     mode: 'generate',
     totalPages: pageRefs.length,
+    modelConfigId: context.modelConfigId,
     metadata: {
       templateGeneration: true,
       templateRetry: context.templateRetry,
       topic: context.topic,
       styleId: context.styleId,
+      modelConfigId: context.modelConfigId,
+      modelConfigName: context.modelConfigName,
+      provider: context.provider,
+      model: context.model,
       projectDir: context.entry.projectDir,
       indexPath
     }
@@ -205,6 +212,13 @@ export async function executeTemplateDeckGeneration(
   const latestPageSnapshot = context.templateRetry
     ? await db.listLatestGenerationPageSnapshot(context.sessionId)
     : []
+  const shouldUseSourcePlan =
+    !context.templateRetry &&
+    canUseSourcePlanDirectly({
+      sourcePlan: context.sourcePlan,
+      totalPages: pageRefs.length,
+      userMessage: context.userMessage
+    })
   const plannedOutlineItems = context.templateRetry
     ? pageRefs.map((page) => {
         const snapshot = latestPageSnapshot.find((item) => item.page_id === page.pageId)
@@ -216,6 +230,8 @@ export async function executeTemplateDeckGeneration(
             : undefined
         }
       })
+    : shouldUseSourcePlan && context.sourcePlan
+      ? mapSourcePlanToOutlineItems(context.sourcePlan)
     : await planDeckWithLLM({
         provider: context.provider,
         apiKey: context.apiKey,
@@ -229,6 +245,7 @@ export async function executeTemplateDeckGeneration(
         appLocale: context.appLocale,
         topic: context.topic,
         userMessage: context.userMessage,
+        sourceDocumentPaths: context.sourceDocumentPaths,
         emit: (chunk) => emitDeckChunk(chunk),
         runId: context.runId,
         signal: context.entry.abortController.signal

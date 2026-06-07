@@ -3,14 +3,14 @@ import { useNavigate } from 'react-router-dom'
 import {
   FileUp,
   LayoutTemplate,
-  Loader2,
-  RefreshCw
+  Loader2
 } from 'lucide-react'
 import { Button } from '../components/ui/Button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../components/ui/Dialog'
 import { SaveTemplateDialog } from '../components/templates/SaveTemplateDialog'
 import { TemplateCard, TemplateEmptyState } from '../components/templates/TemplateCard'
 import { TemplateUseDialog } from '../components/templates/TemplateUseDialog'
+import { ModelSplitButton } from '../components/model/ModelActionButton'
 import { useTemplateStore, useToastStore } from '../store'
 import { ipc, type TemplateListItem } from '../lib/ipc'
 import { useT } from '../i18n'
@@ -43,15 +43,17 @@ export function TemplatesPage(): React.JSX.Element {
     deleteTemplate
   } = useTemplateStore()
   const { success, error, warning } = useToastStore()
-  const { ensureModelActive } = useModelAction()
+  const modelAction = useModelAction()
+  const { ensureModelActive } = modelAction
   const [useTarget, setUseTarget] = useState<TemplateListItem | null>(null)
   const [previewTarget, setPreviewTarget] = useState<TemplateListItem | null>(null)
   const [editTarget, setEditTarget] = useState<TemplateListItem | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<TemplateListItem | null>(null)
-  const [directCreatingTemplateName, setDirectCreatingTemplateName] = useState<string | null>(null)
+  const [directCreatingTemplate, setDirectCreatingTemplate] = useState<TemplateListItem | null>(null)
   const [editing, setEditing] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const pptxInputRef = useRef<HTMLInputElement | null>(null)
+  const pptxImportModelConfigIdRef = useRef<string>('')
   const [importingPptxTemplate, setImportingPptxTemplate] = useState(false)
   const [pptxTemplateProgress, setPptxTemplateProgress] = useState<string | null>(null)
 
@@ -94,9 +96,12 @@ export function TemplatesPage(): React.JSX.Element {
     return false
   }
 
-  const handleImportPptxTemplateClick = async (): Promise<void> => {
+  const handleImportPptxTemplateClick = async (modelConfigId: string): Promise<void> => {
     if (importingPptxTemplate) return
     if (!(await ensureUploadPrerequisites())) return
+    const resolvedModelConfigId = await ensureModelActive(modelConfigId)
+    if (!resolvedModelConfigId) return
+    pptxImportModelConfigIdRef.current = resolvedModelConfigId
     pptxInputRef.current?.click()
   }
 
@@ -130,9 +135,12 @@ export function TemplatesPage(): React.JSX.Element {
     setImportingPptxTemplate(true)
     setPptxTemplateProgress(t('templates.pptxTemplatePreparing'))
     try {
+      const modelConfigId = await ensureModelActive(pptxImportModelConfigIdRef.current)
+      if (!modelConfigId) return
       const result = await importPptxAsTemplate({
         filePath,
-        name: selectedFile.name.replace(/\.pptx$/i, '')
+        name: selectedFile.name.replace(/\.pptx$/i, ''),
+        modelConfigId
       })
       await wait(DIRECT_CREATE_DONE_DELAY_MS)
       success(t('templates.pptxTemplateImported'), {
@@ -149,15 +157,16 @@ export function TemplatesPage(): React.JSX.Element {
         description: err instanceof Error ? err.message : t('common.retryLater')
       })
     } finally {
+      pptxImportModelConfigIdRef.current = ''
       setImportingPptxTemplate(false)
       setPptxTemplateProgress(null)
     }
   }
 
   const handleCreateEditable = async (template: TemplateListItem): Promise<void> => {
-    if (directCreatingTemplateName) return
+    if (directCreatingTemplate) return
     const deckTitle = template.name
-    setDirectCreatingTemplateName(deckTitle)
+    setDirectCreatingTemplate(template)
     try {
       const sessionId = await createEditableSessionFromTemplate({
         templateId: template.id,
@@ -172,7 +181,7 @@ export function TemplatesPage(): React.JSX.Element {
         description: err instanceof Error ? err.message : t('common.retryLater')
       })
     } finally {
-      setDirectCreatingTemplateName(null)
+      setDirectCreatingTemplate(null)
     }
   }
 
@@ -230,23 +239,16 @@ export function TemplatesPage(): React.JSX.Element {
             <span className="rounded-md border border-[#d6c08d]/70 bg-[#fff7e8] px-2.5 py-1.5 text-xs font-medium text-[#7c6a4c]">
               {t('templates.count', { count: templates.length })}
             </span>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => void handleImportPptxTemplateClick()}
+            <ModelSplitButton
+              modelAction={modelAction}
+              label={t('templates.importPptx')}
+              loadingLabel={t('templates.importingPptxTemplate')}
+              loading={importingPptxTemplate}
               disabled={loading || importingPptxTemplate}
-            >
-              {importingPptxTemplate ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <FileUp className="mr-2 h-4 w-4" />
-              )}
-              {t('templates.importPptx')}
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => void load()} disabled={loading}>
-              <RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-              {t('templates.refresh')}
-            </Button>
+              icon={FileUp}
+              tone="subtle"
+              onRun={(modelConfigId) => handleImportPptxTemplateClick(modelConfigId)}
+            />
           </div>
         </div>
       </div>
@@ -262,11 +264,12 @@ export function TemplatesPage(): React.JSX.Element {
       {templates.length === 0 ? (
         <TemplateEmptyState />
       ) : (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
           {templates.map((template) => (
             <TemplateCard
               key={template.id}
               template={template}
+              directCreating={directCreatingTemplate?.id === template.id}
               onUseDirect={(item) => void handleCreateEditable(item)}
               onUseGenerate={(item) => void openUseDialog(item)}
               onPreview={setPreviewTarget}
@@ -277,7 +280,7 @@ export function TemplatesPage(): React.JSX.Element {
         </div>
       )}
 
-      {directCreatingTemplateName ? (
+      {directCreatingTemplate ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#2d261f]/28 backdrop-blur-[2px]">
           <div className="w-[min(360px,calc(100vw-32px))] rounded-xl border border-[#ded2bd]/80 bg-[#fffdf8] px-5 py-4 shadow-[0_18px_45px_rgba(57,47,36,0.22)]">
             <div className="flex items-center gap-3">
@@ -286,7 +289,7 @@ export function TemplatesPage(): React.JSX.Element {
               </div>
               <div className="min-w-0">
                 <p className="text-sm font-medium text-[#34402c]">{t('templates.creatingEditable')}</p>
-                <p className="mt-1 truncate text-xs text-muted-foreground">{directCreatingTemplateName}</p>
+                <p className="mt-1 truncate text-xs text-muted-foreground">{directCreatingTemplate.name}</p>
               </div>
             </div>
           </div>

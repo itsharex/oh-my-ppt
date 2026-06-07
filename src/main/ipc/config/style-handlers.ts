@@ -13,7 +13,7 @@ import {
   deleteStyleSkill
 } from '../../utils/style-skills'
 import type { IpcContext } from '../context'
-import { resolveActiveModelConfig, resolveGlobalModelTimeouts } from './model-config-utils'
+import { resolveGlobalModelTimeouts, resolveModelConfigForTask } from './model-config-utils'
 import { parseStyleFile } from '../../utils/style-import'
 import { parseStyleImage } from '../../utils/style-image-import'
 import { parseStylePptx } from '../../utils/style-pptx-import'
@@ -156,7 +156,10 @@ export function registerStyleHandlers(ctx: IpcContext): void {
   ipcMain.handle('styles:parseFile', async (_event, payload) => {
     const filePath = typeof payload?.filePath === 'string' ? payload.filePath.trim() : ''
     if (!filePath) throw new Error('文件路径为空')
-    const activeModel = await resolveActiveModelConfig(ctx)
+    const activeModel = await resolveModelConfigForTask(ctx, {
+      modelConfigId: payload?.modelConfigId,
+      purpose: 'styles:parseFile'
+    })
     const modelTimeouts = await resolveGlobalModelTimeouts(ctx)
     const styleImportDir = path.join(await ctx.resolveStoragePath(), 'style-import')
     await fs.promises.mkdir(styleImportDir, { recursive: true })
@@ -175,7 +178,10 @@ export function registerStyleHandlers(ctx: IpcContext): void {
   ipcMain.handle('styles:parsePptx', async (_event, payload) => {
     const filePath = typeof payload?.filePath === 'string' ? payload.filePath.trim() : ''
     if (!filePath) throw new Error('文件路径为空')
-    const activeModel = await resolveActiveModelConfig(ctx)
+    const activeModel = await resolveModelConfigForTask(ctx, {
+      modelConfigId: payload?.modelConfigId,
+      purpose: 'styles:parsePptx'
+    })
     const modelTimeouts = await resolveGlobalModelTimeouts(ctx)
     const tmpRootDir = path.join(await ctx.resolveStoragePath(), 'tmpStyle')
     await fs.promises.mkdir(tmpRootDir, { recursive: true })
@@ -214,7 +220,10 @@ export function registerStyleHandlers(ctx: IpcContext): void {
       )
     }
 
-    const activeModel = await resolveActiveModelConfig(ctx)
+    const activeModel = await resolveModelConfigForTask(ctx, {
+      modelConfigId: payload?.modelConfigId,
+      purpose: 'styles:parseImage'
+    })
     const modelTimeouts = await resolveGlobalModelTimeouts(ctx)
     return await parseStyleImage({
       imageBase64,

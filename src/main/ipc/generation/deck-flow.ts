@@ -5,6 +5,7 @@ import { finalizeGenerationSuccess } from './finalization'
 import { progressText } from '@shared/progress'
 import path from 'path'
 import fs from 'fs'
+import log from 'electron-log/main.js'
 import { type LayoutIntent } from '@shared/layout-intent'
 import { isPlaceholderPageHtml, validatePersistedPageHtml } from '../../tools/html-utils'
 import { buildProjectIndexHtml, type DeckPageFile } from '../engine/template'
@@ -19,6 +20,7 @@ import {
   resolveCommonContext,
   resolveSourceDocuments
 } from './context'
+import { canUseSourcePlanDirectly, mapSourcePlanToOutlineItems } from './source-plan'
 
 const pageSlugId = customAlphabet('abcdefghijklmnopqrstuvwxyz0123456789', 10)
 
@@ -31,7 +33,7 @@ export async function resolveDeckContext(
   const { db, formatImagePathsForPrompt } = ctx
   if (!input.sessionId) throw new Error('sessionId 不能为空')
 
-  const common = await resolveCommonContext(ctx, input.sessionId)
+  const common = await resolveCommonContext(ctx, input.sessionId, input.modelConfigId)
   const userMessage = `${input.rawUserMessage}${formatImagePathsForPrompt([])}`
   const userProvidedOutlineTitles = buildOutlineTitles(input.rawUserMessage)
   const totalPages = buildTotalPages(common.sessionRecord)
@@ -48,7 +50,8 @@ export async function resolveDeckContext(
     content: input.rawUserMessage,
     type: 'text',
     chat_scope: 'main',
-    image_paths: []
+    image_paths: [],
+    run_model: common.runModel
   })
   await db.updateSessionStatus(input.sessionId, 'active')
 
@@ -74,6 +77,9 @@ export async function resolveDeckContext(
     provider: common.provider,
     apiKey: common.apiKey,
     model: common.model,
+    modelConfigId: common.modelConfigId,
+    modelConfigName: common.modelConfigName,
+    runModel: common.runModel,
     modelTimeouts: common.modelTimeouts,
     providerBaseUrl: common.providerBaseUrl,
     maxTokens: common.maxTokens,
@@ -83,6 +89,7 @@ export async function resolveDeckContext(
     imagePaths: [],
     videoPaths: [],
     sourceDocumentPaths,
+    sourcePlan: common.sourcePlan,
     topic: common.topic,
     deckTitle: common.deckTitle,
     appLocale: common.appLocale,
@@ -132,7 +139,8 @@ export async function executeDeckGeneration(
     ),
     type: 'stream_chunk',
     chat_scope: context.messageScope,
-    page_id: context.messagePageId
+    page_id: context.messagePageId,
+    run_model: context.runModel
   })
   await sleep(120, context.entry.abortController.signal)
 
@@ -151,9 +159,14 @@ export async function executeDeckGeneration(
     sessionId: context.sessionId,
     mode: 'generate',
     totalPages: pageRefs.length,
+    modelConfigId: context.modelConfigId,
     metadata: {
       topic: context.topic,
       styleId: context.styleId,
+      modelConfigId: context.modelConfigId,
+      modelConfigName: context.modelConfigName,
+      provider: context.provider,
+      model: context.model,
       projectDir: context.entry.projectDir,
       indexPath
     }
@@ -191,23 +204,53 @@ export async function executeDeckGeneration(
     })
   })
 
-  const plannerPromise = planDeckWithLLM({
-    provider: context.provider,
-    apiKey: context.apiKey,
-    model: context.model,
-    baseUrl: context.providerBaseUrl,
-    maxTokens: context.maxTokens,
-    modelTimeoutMs: context.modelTimeouts.planning,
-    temperature: PLANNER_TEMPERATURE,
-    styleId: context.styleId,
+  const shouldUseSourcePlan = canUseSourcePlanDirectly({
+    sourcePlan: context.sourcePlan,
     totalPages: pageRefs.length,
-    appLocale: context.appLocale,
-    topic: context.topic,
-    userMessage: context.userMessage,
-    emit: (chunk) => emitDeckChunk(chunk),
-    runId: context.runId,
-    signal: context.entry.abortController.signal
+    userMessage: context.userMessage
   })
+  const plannerPromise = shouldUseSourcePlan && context.sourcePlan
+    ? Promise.resolve(mapSourcePlanToOutlineItems(context.sourcePlan))
+    : planDeckWithLLM({
+        provider: context.provider,
+        apiKey: context.apiKey,
+        model: context.model,
+        baseUrl: context.providerBaseUrl,
+        maxTokens: context.maxTokens,
+        modelTimeoutMs: context.modelTimeouts.planning,
+        temperature: PLANNER_TEMPERATURE,
+        styleId: context.styleId,
+        totalPages: pageRefs.length,
+        appLocale: context.appLocale,
+        topic: context.topic,
+        userMessage: context.userMessage,
+        sourceDocumentPaths: context.sourceDocumentPaths,
+        emit: (chunk) => emitDeckChunk(chunk),
+        runId: context.runId,
+        signal: context.entry.abortController.signal
+      })
+  if (shouldUseSourcePlan) {
+    log.info('[generate:deck] using source page skeleton as outline plan', {
+      sessionId: context.sessionId,
+      pageCount: pageRefs.length,
+      sourceDocumentPath: context.sourcePlan?.sourceDocumentPath ?? null
+    })
+    emitDeckChunk({
+      type: 'llm_status',
+      payload: {
+        runId: context.runId,
+        stage: 'planning',
+        label: progressText(context.appLocale, 'planning'),
+        progress: 9,
+        totalPages: pageRefs.length,
+        detail: uiText(
+          context.appLocale,
+          `已使用源文档结构生成 ${pageRefs.length} 页计划`,
+          `Using source document structure for ${pageRefs.length} slide plans`
+        )
+      }
+    })
+  }
   const designContractPromise = sleep(500, context.entry.abortController.signal).then(() =>
     buildDesignContractWithLLM({
       provider: context.provider,
@@ -614,7 +657,8 @@ export async function executeDeckGeneration(
       tool_name: 'update_page_file',
       tool_call_id: context.runId,
       chat_scope: context.messageScope,
-      page_id: context.messagePageId
+      page_id: context.messagePageId,
+      run_model: context.runModel
     })
   }
 

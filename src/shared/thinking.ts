@@ -1,4 +1,4 @@
-import type { FontSelection } from './generation'
+import type { FontSelection, SourceDocumentPlan } from './generation'
 
 export type ThinkingStage = 'collect' | 'outline' | 'draft' | 'refine' | 'ready'
 
@@ -45,4 +45,14 @@ export interface ThinkingPrepareGenerationResult {
   styleId: string
   styleText?: string
   fontSelection: FontSelection
+  sourcePlan?: SourceDocumentPlan
+}
+
+export interface ThinkingPageOutlineUpdate {
+  pageNumber: number
+  title: string
+  role: string
+  objective: string
+  summary: string
+  keyPoints: string[]
 }

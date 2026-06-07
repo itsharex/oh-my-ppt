@@ -7,24 +7,27 @@ import {
   DialogDescription,
   DialogFooter
 } from '../ui/Dialog'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue
-} from '../ui/Select'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/Select'
 import { Button } from '../ui/Button'
 import { Input } from '../ui/Input'
 import { useT } from '@renderer/i18n'
 import { ipc, type FontListItem } from '@renderer/lib/ipc'
-import type { FontSelection } from '@shared/generation'
+import type { FontSelection, SourceDocumentPlan } from '@shared/generation'
 import type { ThinkingPrepareGenerationResult } from '@shared/thinking'
 import { Sparkles } from 'lucide-react'
 import { ModelSplitButton } from '../model/ModelActionButton'
 import { useModelAction } from '@renderer/hooks/useModelAction'
 
 type FontPairRef = Extract<FontSelection, { mode: 'pair' }>['title']
+
+const MIN_PAGE_COUNT = 1
+const MAX_PAGE_COUNT = 500
+
+const resolvePageCount = (value: string, fallback: number): number => {
+  const parsed = Number.parseInt(value, 10)
+  const resolved = Number.isFinite(parsed) ? parsed : fallback
+  return Math.min(MAX_PAGE_COUNT, Math.max(MIN_PAGE_COUNT, resolved))
+}
 
 interface StyleOption {
   id: string
@@ -94,7 +97,9 @@ const resolveMatchedStyleId = (
       ...(option.aliases || []),
       option.description,
       option.styleCase || ''
-    ].join(' ').toLowerCase()
+    ]
+      .join(' ')
+      .toLowerCase()
     let score = 0
     for (const token of queryTokens) {
       if (!token || !haystack.includes(token)) continue
@@ -115,6 +120,7 @@ interface GenerationConfirmDialogProps {
     styleId: string
     fontSelection: FontSelection
     referenceDocumentPath: string
+    sourcePlan?: SourceDocumentPlan
     modelConfigId?: string
   }) => void
 }
@@ -167,21 +173,18 @@ export function GenerationConfirmDialog({
   }, [prepared, fontOptions])
 
   const loadOptions = useCallback(async (): Promise<void> => {
-    const [styleRes, fontRes] = await Promise.all([
-      ipc.listStyles(),
-      ipc.listFonts()
-    ])
-    const sorted = [...styleRes.items].sort(
-      (a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)
+    const [styleRes, fontRes] = await Promise.all([ipc.listStyles(), ipc.listFonts()])
+    const sorted = [...styleRes.items].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
+    setStyleOptions(
+      sorted.map((item) => ({
+        id: item.id,
+        styleKey: item.styleKey,
+        label: item.label,
+        description: item.description,
+        aliases: item.aliases,
+        styleCase: item.styleCase
+      }))
     )
-    setStyleOptions(sorted.map((item) => ({
-      id: item.id,
-      styleKey: item.styleKey,
-      label: item.label,
-      description: item.description,
-      aliases: item.aliases,
-      styleCase: item.styleCase
-    })))
     const fonts = [...fontRes.userFonts, ...fontRes.googleFonts]
     setFontOptions(fonts)
   }, [])
@@ -222,16 +225,22 @@ export function GenerationConfirmDialog({
 
   const handleConfirm = async (modelConfigId = selectedModelConfigId): Promise<void> => {
     if (!resolvedConfirmStyleId || confirming) return
-    if (!(await ensureModelActive(modelConfigId))) return
+    const resolvedModelConfigId = await ensureModelActive(modelConfigId)
+    if (!resolvedModelConfigId) return
     setConfirming(true)
     try {
+      const resolvedPageCount = resolvePageCount(pageCount, prepared.pageCount)
       onConfirm({
         topic: topic.trim() || prepared.topic,
-        pageCount: Number.parseInt(pageCount, 10) || prepared.pageCount,
+        pageCount: resolvedPageCount,
         styleId: resolvedConfirmStyleId,
         fontSelection: resolveFontSelection(),
         referenceDocumentPath: prepared.thinkingDocumentPath,
-        modelConfigId
+        sourcePlan:
+          prepared.sourcePlan?.pageSkeleton.length === resolvedPageCount
+            ? prepared.sourcePlan
+            : undefined,
+        modelConfigId: resolvedModelConfigId
       })
       onOpenChange(false)
     } finally {
@@ -244,7 +253,7 @@ export function GenerationConfirmDialog({
       <DialogContent className="w-[calc(100vw-2rem)] max-w-3xl overflow-hidden">
         <DialogHeader>
           <DialogTitle>{t('thinking.generationDialogTitle')}</DialogTitle>
-          <DialogDescription className='text-[12px]'>
+          <DialogDescription className="text-[12px]">
             {t('thinking.generationDialogDescription')}
           </DialogDescription>
         </DialogHeader>
@@ -252,11 +261,7 @@ export function GenerationConfirmDialog({
         <div className="min-w-0 space-y-3 py-2 [&_button[role=combobox]]:h-8 [&_input]:h-8 [&_label]:mb-1.5 [&_label]:text-xs">
           <div className="min-w-0">
             <label className="block font-medium">{t('home.topic')}</label>
-            <Input
-              className="min-w-0"
-              value={topic}
-              onChange={(e) => setTopic(e.target.value)}
-            />
+            <Input className="min-w-0" value={topic} onChange={(e) => setTopic(e.target.value)} />
           </div>
 
           <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_6.25rem]">
@@ -294,6 +299,9 @@ export function GenerationConfirmDialog({
                   const next = e.target.value
                   if (next === '' || /^\d+$/.test(next)) setPageCount(next)
                 }}
+                onBlur={() => {
+                  setPageCount(String(resolvePageCount(pageCount, prepared.pageCount)))
+                }}
               />
             </div>
           </div>
@@ -310,14 +318,25 @@ export function GenerationConfirmDialog({
                   {availableTitle.map((font) => {
                     const isUploaded = font.source === 'uploaded'
                     return (
-                      <SelectItem key={`${font.source}:${font.id}`} value={`${font.source}:${font.id}`}>
+                      <SelectItem
+                        key={`${font.source}:${font.id}`}
+                        value={`${font.source}:${font.id}`}
+                      >
                         <span className="flex items-center gap-2">
-                          <span className={`shrink-0 rounded px-1 py-0.5 text-[10px] font-medium ${
-                            isUploaded ? 'bg-[#eef9ec] text-[#4a7a46]' : 'bg-[#eef6ff] text-[#3e6685]'
-                          }`}>
-                            {isUploaded ? t('home.fontSourceUploaded') : t('home.fontSourceBuiltIn')}
+                          <span
+                            className={`shrink-0 rounded px-1 py-0.5 text-[10px] font-medium ${
+                              isUploaded
+                                ? 'bg-[#eef9ec] text-[#4a7a46]'
+                                : 'bg-[#eef6ff] text-[#3e6685]'
+                            }`}
+                          >
+                            {isUploaded
+                              ? t('home.fontSourceUploaded')
+                              : t('home.fontSourceBuiltIn')}
                           </span>
-                          <span className="truncate">{t('home.fontPairTitle')} · {font.family}</span>
+                          <span className="truncate">
+                            {t('home.fontPairTitle')} · {font.family}
+                          </span>
                         </span>
                       </SelectItem>
                     )
@@ -333,14 +352,25 @@ export function GenerationConfirmDialog({
                   {availableBody.map((font) => {
                     const isUploaded = font.source === 'uploaded'
                     return (
-                      <SelectItem key={`${font.source}:${font.id}`} value={`${font.source}:${font.id}`}>
+                      <SelectItem
+                        key={`${font.source}:${font.id}`}
+                        value={`${font.source}:${font.id}`}
+                      >
                         <span className="flex items-center gap-2">
-                          <span className={`shrink-0 rounded px-1 py-0.5 text-[10px] font-medium ${
-                            isUploaded ? 'bg-[#eef9ec] text-[#4a7a46]' : 'bg-[#eef6ff] text-[#3e6685]'
-                          }`}>
-                            {isUploaded ? t('home.fontSourceUploaded') : t('home.fontSourceBuiltIn')}
+                          <span
+                            className={`shrink-0 rounded px-1 py-0.5 text-[10px] font-medium ${
+                              isUploaded
+                                ? 'bg-[#eef9ec] text-[#4a7a46]'
+                                : 'bg-[#eef6ff] text-[#3e6685]'
+                            }`}
+                          >
+                            {isUploaded
+                              ? t('home.fontSourceUploaded')
+                              : t('home.fontSourceBuiltIn')}
                           </span>
-                          <span className="truncate">{t('home.fontPairBody')} · {font.family}</span>
+                          <span className="truncate">
+                            {t('home.fontPairBody')} · {font.family}
+                          </span>
                         </span>
                       </SelectItem>
                     )

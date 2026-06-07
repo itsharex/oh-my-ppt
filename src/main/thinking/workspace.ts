@@ -5,6 +5,7 @@ import log from 'electron-log/main.js'
 import { normalizeThinkingAssistantReply, normalizeThinkingMessages } from './reply-normalizer'
 import type {
   ThinkingChatMessage,
+  ThinkingPageOutlineUpdate,
   ThinkingStage,
   ThinkingSource,
   ThinkingWorkspace,
@@ -122,6 +123,61 @@ export async function deleteWorkspace(storagePath: string, thinkingId: string): 
 export async function writeThinkingMd(dir: string, content: string): Promise<void> {
   const filePath = path.join(dir, 'thinking.md')
   await fs.promises.writeFile(filePath, content, 'utf-8')
+}
+
+function normalizeSingleLine(value: string): string {
+  return value.trim().replace(/\s+/g, ' ')
+}
+
+export function replaceThinkingPageOutline(
+  thinkingMd: string,
+  update: ThinkingPageOutlineUpdate
+): string {
+  const pageNumber = Math.floor(Number(update.pageNumber))
+  const title = normalizeSingleLine(update.title).slice(0, 200)
+  const role = normalizeSingleLine(update.role).slice(0, 80)
+  const objective = normalizeSingleLine(update.objective).slice(0, 1000)
+  const summary = update.summary.trim().slice(0, 5000)
+  const keyPoints = update.keyPoints
+    .map((point) => normalizeSingleLine(point).slice(0, 1000))
+    .filter(Boolean)
+    .slice(0, 20)
+
+  if (!Number.isInteger(pageNumber) || pageNumber < 1) {
+    throw new Error('Invalid page number')
+  }
+  if (!title || !role || !objective || !summary || keyPoints.length === 0) {
+    throw new Error('Page outline fields cannot be empty')
+  }
+
+  const headingRegex = new RegExp(`^##\\s*Page\\s+${pageNumber}\\s*:.+$`, 'm')
+  const headingMatch = thinkingMd.match(headingRegex)
+  if (!headingMatch || typeof headingMatch.index !== 'number') {
+    throw new Error(`Page ${pageNumber} was not found in thinking.md`)
+  }
+
+  const start = headingMatch.index
+  const remaining = thinkingMd.slice(start + headingMatch[0].length)
+  const nextHeadingMatch = remaining.match(/^##\s+.+$/m)
+  const end =
+    nextHeadingMatch && typeof nextHeadingMatch.index === 'number'
+      ? start + headingMatch[0].length + nextHeadingMatch.index
+      : thinkingMd.length
+  const section = [
+    `## Page ${pageNumber}: ${title}`,
+    `- Role: ${role}`,
+    `- Objective: ${objective}`,
+    '',
+    summary,
+    '',
+    ...keyPoints.map((point) => `- ${point}`)
+  ].join('\n')
+
+  return (
+    `${thinkingMd.slice(0, start).trimEnd()}\n\n${section}\n\n${thinkingMd
+      .slice(end)
+      .trimStart()}`.trimEnd() + '\n'
+  )
 }
 
 export async function writeContextMd(dir: string, content: string): Promise<void> {

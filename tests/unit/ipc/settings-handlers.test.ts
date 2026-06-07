@@ -192,3 +192,61 @@ describe('registerSettingsHandlers proxy settings', () => {
     expect(db.setSetting).toHaveBeenCalledWith('proxy_url', '')
   })
 })
+
+describe('registerSettingsHandlers model temperature settings', () => {
+  beforeEach(() => {
+    settingsHandlersState.handlers.clear()
+    settingsHandlersState.ipcMainMock.handle.mockClear()
+    settingsHandlersState.localeMock.readAppLocale.mockResolvedValue('zh')
+  })
+
+  it('returns disableTemperature in the model config list', async () => {
+    const { getHandler } = await registerWithDb({
+      listModelConfigs: vi.fn(async () => [
+        {
+          id: 'model-1',
+          name: 'Reasoning model',
+          provider: 'openai',
+          model: 'reasoner',
+          apiKey: 'secret',
+          baseUrl: '',
+          maxTokens: 4096,
+          disableTemperature: 1,
+          active: 1,
+          createdAt: 1,
+          updatedAt: 2
+        }
+      ])
+    })
+
+    const listModelConfigs = getHandler('settings:listModelConfigs')
+    await expect(listModelConfigs?.()).resolves.toEqual([
+      expect.objectContaining({
+        id: 'model-1',
+        disableTemperature: true
+      })
+    ])
+  })
+
+  it('persists disableTemperature when saving a model config', async () => {
+    const upsertModelConfig = vi.fn(async () => 'model-1')
+    const { getHandler } = await registerWithDb({ upsertModelConfig })
+
+    const saveModelConfig = getHandler('settings:upsertModelConfig')
+    await saveModelConfig?.(undefined, {
+      name: 'Reasoning model',
+      provider: 'openai',
+      model: 'reasoner',
+      apiKey: 'secret',
+      baseUrl: '',
+      maxTokens: 4096,
+      disableTemperature: true
+    })
+
+    expect(upsertModelConfig).toHaveBeenCalledWith(
+      expect.objectContaining({
+        disableTemperature: true
+      })
+    )
+  })
+})

@@ -129,7 +129,9 @@ export function ModelConfigDialog({
               onChange={(e) => onFormChange({ model: e.target.value })}
               className="h-8"
             />
-            <p className="mt-1 text-xs text-muted-foreground">{t('settings.modelHint')}</p>
+            <p className="mt-1 text-[12px] text-muted-foreground/50">
+              {t('settings.modelHint')}
+            </p>
           </div>
 
           <div>
@@ -140,7 +142,7 @@ export function ModelConfigDialog({
               onChange={(e) => onFormChange({ baseUrl: e.target.value })}
               className="h-8"
             />
-            <p className="mt-1 text-xs text-muted-foreground">
+            <p className="mt-1 text-[12px] text-muted-foreground/50">
               {form.provider === 'google'
                 ? t('settings.baseUrlHintGoogle')
                 : t('settings.baseUrlHint')}
@@ -150,19 +152,33 @@ export function ModelConfigDialog({
           <div>
             <label className="mb-1 block text-sm font-medium">max_tokens</label>
             <Input
-              type="number"
-              min={256}
-              max={16384}
-              step={256}
+              inputMode="numeric"
+              pattern="[0-9]*"
               value={form.maxTokens}
-              onChange={(e) =>
-                onFormChange({
-                  maxTokens: Math.max(256, Math.min(16384, Number(e.target.value) || 4096))
-                })
-              }
+              onChange={(e) => onFormChange({ maxTokens: e.target.value })}
               className="h-8"
             />
-            <p className="mt-1 text-xs text-muted-foreground">{t('settings.maxTokensHint')}</p>
+            <p className="mt-1 text-[12px] text-muted-foreground/50">
+              {t('settings.maxTokensHint')}
+            </p>
+          </div>
+
+          <div className="flex items-center justify-between gap-4 border-y border-[#e3d8c5] py-2.5">
+            <span className="min-w-0">
+              <span className="block text-sm font-medium">{t('settings.disableTemperature')}</span>
+              <span className="mt-0.5 block text-[12px] text-muted-foreground/50">
+                {t('settings.disableTemperatureHint')}
+              </span>
+            </span>
+            <input
+              type="checkbox"
+              aria-label={t('settings.disableTemperature')}
+              checked={form.disableTemperature}
+              onChange={(event) =>
+                onFormChange({ disableTemperature: event.currentTarget.checked })
+              }
+              className="h-4 w-4 shrink-0 cursor-pointer accent-[#5d7b4d]"
+            />
           </div>
 
           <div>
@@ -192,7 +208,9 @@ export function ModelConfigDialog({
                 {verifying ? t('settings.verifying') : t('settings.verify')}
               </Button>
             </div>
-            <p className="mt-1 text-xs text-muted-foreground">{t('settings.verifyHint')}</p>
+            <p className="mt-1 text-[12px] text-muted-foreground/50">
+              {t('settings.verifyHint')}
+            </p>
           </div>
         </div>
 

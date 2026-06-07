@@ -1,18 +1,21 @@
 import { create } from 'zustand'
 import type { UploadedAsset } from '@shared/generation.js'
-import type { GeneratedImageAsset } from '@shared/image-generation.js'
 import type { SpeechConfig } from '@shared/speech'
+import type {
+  ImageGenerationMessage,
+  InteractionMode,
+  SessionDetailAiPanelMode,
+  SessionDetailChatType,
+  SessionWorkspaceTab
+} from '@renderer/types/session-detail'
 
-export type SessionDetailChatType = 'main' | 'page'
-export type SessionDetailAiPanelMode = 'chat' | 'image'
-export type InteractionMode = 'preview' | 'ai-inspect' | 'edit'
-export type ImageGenerationMessage = {
-  id: string
-  role: 'user' | 'assistant'
-  content: string
-  assets?: GeneratedImageAsset[]
-  createdAt: number
-}
+export type {
+  ImageGenerationMessage,
+  InteractionMode,
+  SessionDetailAiPanelMode,
+  SessionDetailChatType,
+  SessionWorkspaceTab
+} from '@renderer/types/session-detail'
 
 interface SessionDetailUiStore {
   input: string
@@ -36,8 +39,10 @@ interface SessionDetailUiStore {
   isExportingSlidePack: boolean
   isExportingSessionZip: boolean
   interactionMode: InteractionMode
+  workspaceTab: SessionWorkspaceTab
   thumbnailVersions: Record<string, number>
   selectedSelector: string | null
+  editSelectedSelector: string | null
   selectorLabel: string
   elementTag: string
   elementText: string
@@ -45,6 +50,12 @@ interface SessionDetailUiStore {
   assetDragActive: boolean
   isUploadingAssets: boolean
   addPageDialogOpen: boolean
+  blankPageDialogOpen: boolean
+  blankPageSourceId: string
+  historyDialogOpen: boolean
+  pageTitleEditPageId: string | null
+  pageTitleEditDraft: string
+  deleteConfirmPageId: string | null
   isAddingPage: boolean
   isRetryingSinglePage: boolean
   isManagingPages: boolean
@@ -79,12 +90,15 @@ interface SessionDetailUiStore {
   setIsExportingSlidePack: (isExporting: boolean) => void
   setIsExportingSessionZip: (isExporting: boolean) => void
   setInteractionMode: (mode: InteractionMode) => void
+  setWorkspaceTab: (tab: SessionWorkspaceTab) => void
   setSelectedElement: (
     selector: string,
     label: string,
     elementTag?: string,
     elementText?: string
   ) => void
+  setEditSelectedElement: (selector: string | null) => void
+  clearEditSelectedElement: () => void
   clearSelectedElement: () => void
   addPendingAssets: (assets: UploadedAsset[]) => void
   removePendingAsset: (assetId: string) => void
@@ -93,6 +107,14 @@ interface SessionDetailUiStore {
   setIsUploadingAssets: (isUploading: boolean) => void
   bumpThumbnailVersion: (pageId: string) => void
   setAddPageDialogOpen: (open: boolean) => void
+  setBlankPageDialogOpen: (open: boolean) => void
+  setBlankPageSourceId: (pageId: string) => void
+  openBlankPageDialog: (sourcePageId: string) => void
+  setHistoryDialogOpen: (open: boolean) => void
+  openPageTitleEdit: (pageId: string, title: string) => void
+  setPageTitleEditDraft: (title: string) => void
+  closePageTitleEdit: () => void
+  setDeleteConfirmPageId: (pageId: string | null) => void
   setIsAddingPage: (adding: boolean) => void
   setIsRetryingSinglePage: (retrying: boolean) => void
   setIsManagingPages: (managing: boolean) => void
@@ -129,8 +151,10 @@ export const useSessionDetailUiStore = create<SessionDetailUiStore>((set) => ({
   isExportingSlidePack: false,
   isExportingSessionZip: false,
   interactionMode: 'preview' as InteractionMode,
+  workspaceTab: 'preview' as SessionWorkspaceTab,
   thumbnailVersions: {},
   selectedSelector: null,
+  editSelectedSelector: null,
   selectorLabel: '',
   elementTag: '',
   elementText: '',
@@ -138,6 +162,12 @@ export const useSessionDetailUiStore = create<SessionDetailUiStore>((set) => ({
   assetDragActive: false,
   isUploadingAssets: false,
   addPageDialogOpen: false,
+  blankPageDialogOpen: false,
+  blankPageSourceId: '',
+  historyDialogOpen: false,
+  pageTitleEditPageId: null,
+  pageTitleEditDraft: '',
+  deleteConfirmPageId: null,
   isAddingPage: false,
   isRetryingSinglePage: false,
   isManagingPages: false,
@@ -147,7 +177,11 @@ export const useSessionDetailUiStore = create<SessionDetailUiStore>((set) => ({
   isGeneratingSpeechScript: false,
   speechProgress: null,
   speechScriptDialogOpen: false,
-  speechConfig: { scope: 'all' as const, length: 'medium' as const, style: 'conversational' as const },
+  speechConfig: {
+    scope: 'all' as const,
+    length: 'medium' as const,
+    style: 'conversational' as const
+  },
 
   setInput: (input) => set({ input }),
   setAiPanelMode: (aiPanelMode) => set({ aiPanelMode }),
@@ -186,7 +220,8 @@ export const useSessionDetailUiStore = create<SessionDetailUiStore>((set) => ({
         }
       }
     }),
-  setSelectedImageModelConfigId: (selectedImageModelConfigId) => set({ selectedImageModelConfigId }),
+  setSelectedImageModelConfigId: (selectedImageModelConfigId) =>
+    set({ selectedImageModelConfigId }),
   setImageSize: (imageSize) => set({ imageSize }),
   setImageCount: (imageCount) => set({ imageCount: Math.max(1, Math.min(4, imageCount)) }),
   setIsGeneratingImage: (isGeneratingImage) => set({ isGeneratingImage }),
@@ -203,6 +238,7 @@ export const useSessionDetailUiStore = create<SessionDetailUiStore>((set) => ({
   setIsExportingSlidePack: (isExportingSlidePack) => set({ isExportingSlidePack }),
   setIsExportingSessionZip: (isExportingSessionZip) => set({ isExportingSessionZip }),
   setInteractionMode: (interactionMode) => set({ interactionMode }),
+  setWorkspaceTab: (workspaceTab) => set({ workspaceTab }),
   // Fix: only reset to preview when currently in preview mode.
   // In edit/ai-inspect mode, selecting an element should NOT change the mode.
   setSelectedElement: (selectedSelector, selectorLabel, elementTag = '', elementText = '') =>
@@ -214,6 +250,8 @@ export const useSessionDetailUiStore = create<SessionDetailUiStore>((set) => ({
       interactionMode:
         state.interactionMode === 'preview' ? ('preview' as InteractionMode) : state.interactionMode
     })),
+  setEditSelectedElement: (editSelectedSelector) => set({ editSelectedSelector }),
+  clearEditSelectedElement: () => set({ editSelectedSelector: null }),
   clearSelectedElement: () =>
     set({
       selectedSelector: null,
@@ -240,6 +278,22 @@ export const useSessionDetailUiStore = create<SessionDetailUiStore>((set) => ({
       }
     })),
   setAddPageDialogOpen: (addPageDialogOpen) => set({ addPageDialogOpen }),
+  setBlankPageDialogOpen: (blankPageDialogOpen) => set({ blankPageDialogOpen }),
+  setBlankPageSourceId: (blankPageSourceId) => set({ blankPageSourceId }),
+  openBlankPageDialog: (blankPageSourceId) =>
+    set({
+      blankPageSourceId,
+      blankPageDialogOpen: true
+    }),
+  setHistoryDialogOpen: (historyDialogOpen) => set({ historyDialogOpen }),
+  openPageTitleEdit: (pageTitleEditPageId, pageTitleEditDraft) =>
+    set({
+      pageTitleEditPageId,
+      pageTitleEditDraft
+    }),
+  setPageTitleEditDraft: (pageTitleEditDraft) => set({ pageTitleEditDraft }),
+  closePageTitleEdit: () => set({ pageTitleEditPageId: null, pageTitleEditDraft: '' }),
+  setDeleteConfirmPageId: (deleteConfirmPageId) => set({ deleteConfirmPageId }),
   setIsAddingPage: (isAddingPage) => set({ isAddingPage }),
   setIsRetryingSinglePage: (isRetryingSinglePage) => set({ isRetryingSinglePage }),
   setIsManagingPages: (isManagingPages) => set({ isManagingPages }),
@@ -261,7 +315,9 @@ export const useSessionDetailUiStore = create<SessionDetailUiStore>((set) => ({
   resetForPageChange: () =>
     set({
       interactionMode: 'preview' as InteractionMode,
+      workspaceTab: 'preview' as SessionWorkspaceTab,
       selectedSelector: null,
+      editSelectedSelector: null,
       selectorLabel: '',
       elementTag: '',
       elementText: ''
@@ -282,7 +338,9 @@ export const useSessionDetailUiStore = create<SessionDetailUiStore>((set) => ({
       imageProgress: null,
       selectedPageId: null,
       interactionMode: 'preview' as InteractionMode,
+      workspaceTab: 'preview' as SessionWorkspaceTab,
       selectedSelector: null,
+      editSelectedSelector: null,
       selectorLabel: '',
       elementTag: '',
       elementText: '',
@@ -291,6 +349,12 @@ export const useSessionDetailUiStore = create<SessionDetailUiStore>((set) => ({
       isUploadingAssets: false,
       thumbnailVersions: {},
       addPageDialogOpen: false,
+      blankPageDialogOpen: false,
+      blankPageSourceId: '',
+      historyDialogOpen: false,
+      pageTitleEditPageId: null,
+      pageTitleEditDraft: '',
+      deleteConfirmPageId: null,
       isAddingPage: false,
       isRetryingSinglePage: false,
       isManagingPages: false,
@@ -299,6 +363,10 @@ export const useSessionDetailUiStore = create<SessionDetailUiStore>((set) => ({
       isGeneratingSpeechScript: false,
       speechProgress: null,
       speechScriptDialogOpen: false,
-      speechConfig: { scope: 'all' as const, length: 'medium' as const, style: 'conversational' as const }
+      speechConfig: {
+        scope: 'all' as const,
+        length: 'medium' as const,
+        style: 'conversational' as const
+      }
     })
 }))

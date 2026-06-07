@@ -19,6 +19,7 @@ import {
 import { buildInitialContextMd, buildInitialThinkingMd, writeContextMd, writeThinkingMd } from './workspace'
 import {
   createThinkingWorkflowTools,
+  type StagedThinkingFinalizeResult,
   type ThinkingWorkflowState
 } from './thinking-tools'
 import type { ThinkingStage, ThinkingChatResult } from '@shared/thinking'
@@ -26,6 +27,9 @@ import type { ThinkingStage, ThinkingChatResult } from '@shared/thinking'
 interface ThinkingRuntime {
   agent: ReturnType<typeof createDeepAgent>
   workflowState: ThinkingWorkflowState
+  finalizeStagedThinkingDocument: (options?: {
+    discardIncomplete?: boolean
+  }) => Promise<StagedThinkingFinalizeResult>
 }
 
 const THINKING_WORKFLOW_TOOL_NAMES = new Set([
@@ -354,7 +358,8 @@ function buildForcedThinkingUpdateMessage(targetStage: ThinkingStage, fullUserMe
   return [
     `Internal repair task. The previous response did not persist /thinking.md in a form that can enter stage "${targetStage}".`,
     'You must now call update_thinking_document to persist a complete page-by-page thinking brief into /thinking.md.',
-    'Include the full page list. Every page must include title, role, objective, summary, and substantive keyPoints.',
+    'For large outlines, call update_thinking_document in batches with pageStart and 5-10 pages per call; set commit=true on the final batch only.',
+    'Every page must include title, role, objective, summary, and substantive keyPoints.',
     `Then call update_context_document with stage set to "${targetStage}".`,
     'Use read_file/grep first if sources are available and needed.',
     'Do not use write_file or edit_file.',
@@ -376,7 +381,7 @@ function buildCredibilityRepairMessage(
 
   return [
     'Internal repair task. The current /thinking.md contains exact metrics or benchmark claims that are not supported by user-provided text or source files.',
-    'You must call update_thinking_document and include the full page list.',
+    'You must call update_thinking_document. For large outlines, update affected page ranges in batches with pageStart and set commit=true on the final batch only.',
     'Replace unsupported exact numbers with qualitative, source-needed wording. Preserve user-provided structural values such as topic year, duration, and page count.',
     'Do not add new exact metrics, benchmark scores, prices, percentages, rankings, or version-specific claims.',
     'Then call update_context_document to record that unsupported exact metrics were downgraded or marked as needing sources.',
@@ -458,9 +463,38 @@ function getOrCreateRuntime(
     middleware: [createThinkingToolAllowlistMiddleware(allowedToolNames) as any]
   })
 
-  const runtime: ThinkingRuntime = { agent, workflowState: workflowTools.state }
+  const runtime: ThinkingRuntime = {
+    agent,
+    workflowState: workflowTools.state,
+    finalizeStagedThinkingDocument: workflowTools.finalizeStagedThinkingDocument
+  }
   runtimeCache.set(thinkingId, runtime)
   return runtime
+}
+
+async function finalizeStagedThinkingIfNeeded(args: {
+  runtime: ThinkingRuntime
+  thinkingId: string
+  reason: string
+}): Promise<void> {
+  if (!args.runtime.workflowState.thinkingStaged) return
+  const result = await args.runtime.finalizeStagedThinkingDocument()
+  if (result.status === 'committed') {
+    log.info('[thinking:agent] staged thinking auto-committed', {
+      thinkingId: args.thinkingId,
+      reason: args.reason,
+      pageCount: result.pageCount,
+      length: result.length
+    })
+  } else if (result.status === 'discarded') {
+    log.warn('[thinking:agent] staged thinking discarded', {
+      thinkingId: args.thinkingId,
+      reason: args.reason,
+      discardReason: result.reason,
+      pageCount: result.pageCount,
+      expectedPageCount: result.expectedPageCount
+    })
+  }
 }
 
 export interface RunThinkingChatArgs extends ThinkingContextArgs {
@@ -557,6 +591,11 @@ export async function runThinkingChat(args: RunThinkingChatArgs): Promise<Thinki
     })
     replyText = result.replyText
     latestAssistantStateText = result.latestAssistantStateText
+    await finalizeStagedThinkingIfNeeded({
+      runtime,
+      thinkingId,
+      reason: 'main-run-complete'
+    })
   } catch (err) {
     log.error('[thinking:agent] stream error', {
       thinkingId,
@@ -690,6 +729,11 @@ export async function runThinkingChat(args: RunThinkingChatArgs): Promise<Thinki
         modelTimeoutMs,
         onThinkingEvent
       })
+      await finalizeStagedThinkingIfNeeded({
+        runtime,
+        thinkingId,
+        reason: 'forced-thinking-repair-complete'
+      })
       const repairReply = normalizeThinkingAssistantReply(
         repairResult.latestAssistantStateText || repairResult.replyText
       )
@@ -739,6 +783,11 @@ export async function runThinkingChat(args: RunThinkingChatArgs): Promise<Thinki
         message: buildCredibilityRepairMessage(credibilityIssues, fullUserMessage),
         modelTimeoutMs,
         onThinkingEvent
+      })
+      await finalizeStagedThinkingIfNeeded({
+        runtime,
+        thinkingId,
+        reason: 'credibility-repair-complete'
       })
       const repairReply = normalizeThinkingAssistantReply(
         repairResult.latestAssistantStateText || repairResult.replyText

@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 
-interface GenerateProgress {
+export interface GenerateProgress {
   stage: string
   label: string
   currentPage?: number

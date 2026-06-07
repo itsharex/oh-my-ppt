@@ -1,7 +1,9 @@
 import type React from 'react'
 import { CheckCircle2, CircleAlert } from 'lucide-react'
 import { Button } from '@renderer/components/ui/Button'
+import { ModelSplitButton } from '@renderer/components/model/ModelActionButton'
 import { cn } from '@renderer/lib/utils'
+import type { ModelActionState } from '@renderer/hooks/useModelAction'
 import type { GenerationRunStatus, GenerationStageKey } from './types'
 
 export function GenerationStatusPanel({
@@ -21,6 +23,7 @@ export function GenerationStatusPanel({
   hasGeneratedPages,
   canEnterEditor,
   showEditorShortcut,
+  modelAction,
   onEnterEditor,
   onContinueRemaining,
   onRegenerate,
@@ -42,12 +45,13 @@ export function GenerationStatusPanel({
   hasGeneratedPages: boolean
   canEnterEditor: boolean
   showEditorShortcut: boolean
+  modelAction: ModelActionState
   onEnterEditor: () => void
-  onContinueRemaining: () => void
-  onRegenerate: () => void
+  onContinueRemaining: (modelConfigId: string) => void
+  onRegenerate: (modelConfigId: string) => void
   onCancel: () => void
 }): React.JSX.Element {
-  if (status === 'failed') {
+  if (status === 'failed' || status === 'cancelled') {
     return (
       <div className="mb-4 shrink-0 rounded-lg border border-[#d7b5ae]/80 bg-[#fbf1ee]/86 px-4 py-2.5 text-[#93564f] shadow-[0_8px_20px_rgba(120,73,65,0.08)]">
         <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
@@ -69,13 +73,19 @@ export function GenerationStatusPanel({
           </div>
 
           <div className="flex shrink-0 flex-wrap gap-1.5">
-            <Button
+            <ModelSplitButton
+              modelAction={modelAction}
+              label={hasGeneratedPages ? continueRemainingLabel : regenerateLabel}
+              tone="subtle"
               size="sm"
-              className="h-8 px-3 text-xs"
-              onClick={hasGeneratedPages ? onContinueRemaining : onRegenerate}
-            >
-              {hasGeneratedPages ? continueRemainingLabel : regenerateLabel}
-            </Button>
+              onRun={(modelConfigId) => {
+                if (hasGeneratedPages) {
+                  onContinueRemaining(modelConfigId)
+                } else {
+                  onRegenerate(modelConfigId)
+                }
+              }}
+            />
           </div>
         </div>
       </div>
@@ -104,7 +114,7 @@ export function GenerationStatusPanel({
                     )}
                   >
                     {isDone && <CheckCircle2 className="h-3 w-3" />}
-                    {isActive && status === 'running' && (
+                    {isActive && (status === 'queued' || status === 'running') && (
                       <span className="h-1.5 w-1.5 rounded-full bg-[#4f7b3f]" />
                     )}
                     {stage === 'rendering' && completedPageCount > 0
@@ -125,7 +135,7 @@ export function GenerationStatusPanel({
                   {enterEditorLabel}
                 </Button>
               )}
-              {status === 'running' && (
+              {(status === 'queued' || status === 'running') && (
                 <Button
                   size="sm"
                   variant="outline"

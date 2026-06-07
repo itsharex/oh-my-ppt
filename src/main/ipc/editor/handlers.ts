@@ -166,6 +166,18 @@ export function registerEditorHandlers(ctx: IpcContext): void {
         const $ = cheerio.load(html, { scriptingEnabled: false })
         const target = $(selector).first()
         if (target.length > 0) {
+          const artTextBlockId =
+            target.attr('data-ppt-art-text') !== undefined
+              ? (target.attr('data-block-id') || '').trim()
+              : ''
+          if (artTextBlockId) {
+            $('style[data-ppt-art-text-style]').each((_, styleNode) => {
+              const style = $(styleNode)
+              if ((style.attr('data-ppt-art-text-style') || '') === artTextBlockId) {
+                style.remove()
+              }
+            })
+          }
           target.remove()
           html = $.html()
           deleteCount++

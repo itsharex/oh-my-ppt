@@ -32,6 +32,7 @@ export const messages = sqliteTable('messages', {
   toolName: text('tool_name'),
   toolCallId: text('tool_call_id'),
   tokenCount: integer('token_count'),
+  runModel: text('run_model'),
   createdAt: integer('created_at').notNull()
 })
 
@@ -58,9 +59,37 @@ export const generationRuns = sqliteTable('generation_runs', {
   totalPages: integer('total_pages').notNull().default(0),
   error: text('error'),
   metadata: text('metadata'),
+  modelConfigId: text('model_config_id'),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull()
 })
+
+export const generationJobs = sqliteTable(
+  'generation_jobs',
+  {
+    id: text('id')
+      .primaryKey()
+      .references(() => generationRuns.id, { onDelete: 'cascade' }),
+    sessionId: text('session_id')
+      .notNull()
+      .references(() => sessions.id, { onDelete: 'cascade' }),
+    kind: text('kind').notNull(),
+    status: text('status').notNull(),
+    abortReason: text('abort_reason'),
+    createdAt: integer('created_at').notNull(),
+    activatedAt: integer('activated_at'),
+    updatedAt: integer('updated_at').notNull(),
+    finishedAt: integer('finished_at')
+  },
+  (table) => ({
+    generationJobsSessionStatusIdx: index('idx_generation_jobs_session_status').on(
+      table.sessionId,
+      table.status,
+      table.updatedAt
+    ),
+    generationJobsStatusIdx: index('idx_generation_jobs_status').on(table.status, table.updatedAt)
+  })
+)
 
 export const generationPages = sqliteTable('generation_pages', {
   id: text('id').primaryKey(),
@@ -107,6 +136,35 @@ export const sessionPages = sqliteTable(
   })
 )
 
+export const sourcePageSkeletons = sqliteTable(
+  'source_page_skeletons',
+  {
+    id: text('id').primaryKey(),
+    sessionId: text('session_id')
+      .notNull()
+      .references(() => sessions.id, { onDelete: 'cascade' }),
+    pageNumber: integer('page_number').notNull(),
+    title: text('title').notNull(),
+    role: text('role').notNull().default('content'),
+    sourceDocumentPath: text('source_document_path').notNull(),
+    sourceDocumentName: text('source_document_name'),
+    sourceHeading: text('source_heading').notNull(),
+    headingLevel: integer('heading_level').notNull(),
+    lineStart: integer('line_start').notNull(),
+    lineEnd: integer('line_end').notNull(),
+    reason: text('reason'),
+    confidence: text('confidence').notNull().default('high'),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull()
+  },
+  (table) => ({
+    sourcePageSkeletonSessionIdx: index('idx_source_page_skeletons_session').on(
+      table.sessionId,
+      table.pageNumber
+    )
+  })
+)
+
 export const settings = sqliteTable('settings', {
   key: text('key').primaryKey(),
   value: text('value').notNull(),
@@ -121,6 +179,7 @@ export const modelConfigs = sqliteTable('model_configs', {
   apiKey: text('api_key').notNull().default(''),
   baseUrl: text('base_url').notNull().default(''),
   maxTokens: integer('max_tokens').notNull().default(4096),
+  disableTemperature: integer('disable_temperature').notNull().default(0),
   active: integer('active').notNull().default(0),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull()
@@ -259,6 +318,7 @@ export type Project = typeof projects.$inferSelect
 export type GenerationRun = typeof generationRuns.$inferSelect
 export type GenerationPage = typeof generationPages.$inferSelect
 export type SessionPage = typeof sessionPages.$inferSelect
+export type SourcePageSkeleton = typeof sourcePageSkeletons.$inferSelect
 export type ModelConfig = typeof modelConfigs.$inferSelect
 export type ImageGenerationHistory = typeof imageGenerationHistories.$inferSelect
 export type MemorySummary = typeof memorySummaries.$inferSelect

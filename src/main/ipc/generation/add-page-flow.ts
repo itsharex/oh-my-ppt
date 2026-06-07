@@ -6,7 +6,7 @@ import {
   resolvePageHtmlPath,
   uiText
 } from './generation-utils'
-import { resolveCommonContext } from './context'
+import { resolveCommonContext, resolveSourceDocuments } from './context'
 import { finalizeGenerationSuccess } from './finalization'
 import { progressText } from '@shared/progress'
 import path from 'path'
@@ -32,6 +32,9 @@ export type AddPageContext = {
   provider: string
   apiKey: string
   model: string
+  modelConfigId?: string
+  modelConfigName?: string
+  runModel?: string
   providerBaseUrl: string
   maxTokens: number
   modelTimeouts: Record<ModelTimeoutProfile, number>
@@ -48,17 +51,28 @@ export type AddPageContext = {
   messagePageId?: string
   projectId: string
   effectiveMode: 'addPage'
+  sourceDocumentPaths: string[]
 }
 
 export async function resolveAddPageContext(
   ctx: IpcContext,
   sessionId: string,
   userDescription: string,
-  insertAfterPageNumber: number
+  insertAfterPageNumber: number,
+  modelConfigId?: string
 ): Promise<AddPageContext> {
   log.info('[generate:addPage] resolving context', { sessionId, insertAfterPageNumber })
-  const common = await resolveCommonContext(ctx, sessionId)
+  const common = await resolveCommonContext(ctx, sessionId, modelConfigId)
   const { sessionRecord } = common
+  const sourceDocumentPaths = await resolveSourceDocuments(ctx, {
+    sessionId,
+    projectDir: common.projectDir,
+    // Add-page is launched from session state, so use the saved session reference document.
+    // Per-message document attachments are intentionally not consumed by this entry.
+    rawDocPaths: [],
+    mode: 'addPage',
+    sessionRecord
+  })
 
   log.info('[generate:addPage] context resolved', {
     sessionId,
@@ -66,7 +80,8 @@ export async function resolveAddPageContext(
     styleId: common.styleId,
     provider: common.provider,
     model: common.model,
-    insertAfterPageNumber
+    insertAfterPageNumber,
+    sourceDocumentCount: sourceDocumentPaths.length
   })
 
   return {
@@ -77,7 +92,8 @@ export async function resolveAddPageContext(
     sessionRecord,
     messageScope: 'main' as const,
     messagePageId: undefined,
-    effectiveMode: 'addPage' as const
+    effectiveMode: 'addPage' as const,
+    sourceDocumentPaths
   }
 }
 
@@ -161,8 +177,10 @@ export async function executeAddPageGeneration(
       modelTimeoutMs: context.modelTimeouts.planning,
       temperature: DESIGN_CONTRACT_TEMPERATURE,
       appLocale: context.appLocale,
-      userDescription,      topic: context.topic,
+      userDescription,
+      topic: context.topic,
       existingTitles,
+      sourceDocumentPaths: context.sourceDocumentPaths,
       signal: context.abortSignal
     })
   } catch (planError) {
@@ -180,6 +198,7 @@ export async function executeAddPageGeneration(
         userDescription,
         topic: context.topic,
         existingTitles,
+        sourceDocumentPaths: context.sourceDocumentPaths,
         signal: context.abortSignal
       })
     } catch {
@@ -217,10 +236,15 @@ export async function executeAddPageGeneration(
     sessionId: context.sessionId,
     mode: 'addPage',
     totalPages: 1,
+    modelConfigId: context.modelConfigId,
     metadata: {
       addPage: true,
       pageId: newPageId,
-      insertAfterPageNumber
+      insertAfterPageNumber,
+      modelConfigId: context.modelConfigId,
+      modelConfigName: context.modelConfigName,
+      provider: context.provider,
+      model: context.model
     }
   })
   await db.upsertGenerationPage({
@@ -271,7 +295,7 @@ export async function executeAddPageGeneration(
         userMessage: userDescription,
         outlineTitles: [planResult.title],
         outlineItems: [planResult],
-        sourceDocumentPaths: [],
+        sourceDocumentPaths: context.sourceDocumentPaths,
         generationMode: 'generate',
         pageTasks: [
           {
@@ -434,7 +458,8 @@ export async function executeAddPageGeneration(
     role: 'assistant',
     content: assistantContent,
     type: 'text',
-    chat_scope: 'main' as const
+    chat_scope: 'main' as const,
+    run_model: context.runModel
   })
   emitChunk({
     type: 'assistant_message',

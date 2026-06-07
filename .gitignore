@@ -16,6 +16,8 @@ out
 logs
 
 docs/*.md
+docs/.DS_Store
+docs/design/*
 
 doc/*
 doc/*

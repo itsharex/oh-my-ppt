@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useThinkingStore } from '../store/thinkingStore'
 import { useSessionStore, useToastStore } from '../store'
@@ -17,6 +17,7 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/Popover'
 import { useLang, useT, type I18nKey } from '../i18n'
 import { Clock3, FileText, History, Loader2, Plus, Trash2 } from 'lucide-react'
+import type { SourceDocumentPlan } from '@shared/generation'
 import type {
   ThinkingChatMessage,
   ThinkingSource,
@@ -36,17 +37,15 @@ const buildWelcomeMessage = (
 const buildThinkingGenerationPrompt = (args: {
   topic: string
   pageCount: number
-  thinkingMd: string
+  referenceDocumentPath: string
 }): string =>
   [
-    `Create a ${args.pageCount}-slide presentation about "${args.topic}" from the finalized thinking document below.`,
-    'Treat each "## Page N: ..." section as the exact intended page structure.',
-    'For each page, honor Role, Objective, Summary, and key points as the page brief.',
+    `Create a ${args.pageCount}-slide presentation about "${args.topic}" from the finalized thinking document.`,
+    `Use the attached source document at ${args.referenceDocumentPath} as the authoritative thinking brief.`,
+    'Follow the prepared page outline exactly. Each page outline is derived from the matching "## Page N: ..." section.',
+    'Before writing a page, inspect only the relevant source range for that page instead of reading the full document.',
     'If the attached reference document includes image source notes, use the listed ./images/... public paths when relevant.',
-    'Determine the presentation content language from the thinking document and source notes; do not infer it from the application UI language.',
-    '',
-    'Final thinking document:',
-    args.thinkingMd
+    'Determine the presentation content language from the thinking document and source notes; do not infer it from the application UI language.'
   ].join('\n')
 
 const stageKeyByStage: Record<ThinkingStage, I18nKey> = {
@@ -69,7 +68,7 @@ const contextSectionOrder = [
 function readMarkdownSection(markdown: string, heading: string): string {
   const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   const match = markdown.match(
-    new RegExp(`^##\\s*${escaped}\\s*\\n([\\s\\S]*?)(?=^##\\s+|(?![\\s\\S]))`, 'm')
+    new RegExp(`^##\\s*${escaped}\\s*\\n([\\s\\S]*?)(?=^##\\s|\\s*$)`, 'm')
   )
   return match?.[1]?.trim() || ''
 }
@@ -128,7 +127,12 @@ export function ThinkingDetailPage(): ReactElement {
   const [deleteTarget, setDeleteTarget] = useState<ThinkingWorkspaceListItem | null>(null)
   const [deletingThinkingId, setDeletingThinkingId] = useState<string | null>(null)
 
+  const refreshHistoryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const refreshHistory = useCallback(async (): Promise<void> => {
+    if (refreshHistoryTimerRef.current) {
+      clearTimeout(refreshHistoryTimerRef.current)
+      refreshHistoryTimerRef.current = null
+    }
     setHistoryLoading(true)
     try {
       const items = await ipc.thinkingListWorkspaces({ limit: 50 })
@@ -141,6 +145,10 @@ export function ThinkingDetailPage(): ReactElement {
       setHistoryLoading(false)
     }
   }, [t, toastError])
+  const debouncedRefreshHistory = useCallback(() => {
+    if (refreshHistoryTimerRef.current) clearTimeout(refreshHistoryTimerRef.current)
+    refreshHistoryTimerRef.current = setTimeout(() => void refreshHistory(), 300)
+  }, [refreshHistory])
 
   useEffect(() => {
     if (!thinkingId && !loading) {
@@ -157,13 +165,13 @@ export function ThinkingDetailPage(): ReactElement {
   useEffect(() => {
     const unsubscribeEnd = ipc.onThinkingStreamEnd((payload) => {
       if (payload.thinkingId === thinkingId) {
-        void refreshHistory()
+        debouncedRefreshHistory()
       }
     })
     return () => {
       unsubscribeEnd()
     }
-  }, [thinkingId, refreshHistory])
+  }, [thinkingId, debouncedRefreshHistory])
 
   const handleCreateWorkspace = async (): Promise<void> => {
     if (creatingWorkspace) return
@@ -203,10 +211,10 @@ export function ThinkingDetailPage(): ReactElement {
     }
   }
 
-  const handleSend = (content: string): void => {
+  const handleSend = (content: string, modelConfigId: string): void => {
     const attachments = pendingSources.length > 0 ? pendingSources : undefined
     setPendingSources([])
-    void sendMessage(content, attachments)
+    void sendMessage(content, attachments, modelConfigId)
   }
 
   const handleSourcesUploaded = (newSources: ThinkingSource[]): void => {
@@ -253,6 +261,7 @@ export function ThinkingDetailPage(): ReactElement {
     styleId: string
     fontSelection: import('@shared/generation').FontSelection
     referenceDocumentPath: string
+    sourcePlan?: SourceDocumentPlan
     modelConfigId?: string
   }): Promise<void> => {
     if (generating || !prepared) return
@@ -261,9 +270,11 @@ export function ThinkingDetailPage(): ReactElement {
       const sessionId = await createSession({
         topic: params.topic,
         styleId: params.styleId,
+        modelConfigId: params.modelConfigId,
         pageCount: params.pageCount,
         referenceDocumentPath: params.referenceDocumentPath,
-        fontSelection: params.fontSelection
+        fontSelection: params.fontSelection,
+        sourcePlan: params.sourcePlan
       })
       success(t('home.sessionCreated'), {
         description: t('home.generationStarted'),
@@ -271,10 +282,11 @@ export function ThinkingDetailPage(): ReactElement {
       })
       navigate(`/sessions/${sessionId}/generating`, {
         state: {
+          modelConfigId: params.modelConfigId,
           initialPrompt: buildThinkingGenerationPrompt({
             topic: params.topic,
             pageCount: params.pageCount,
-            thinkingMd
+            referenceDocumentPath: params.referenceDocumentPath
           })
         }
       })
@@ -287,18 +299,17 @@ export function ThinkingDetailPage(): ReactElement {
     }
   }
 
-  const restoredContextMessage = useMemo(
-    () => buildContextMessage(contextMd, t),
-    [contextMd, t]
-  )
-  const displayMessages =
-    messages.length > 0
-      ? restoredContextMessage && !loading && !messages.some((message) => message.role === 'assistant')
-        ? [...messages, restoredContextMessage]
-        : messages
-      : restoredContextMessage
-        ? [restoredContextMessage]
-        : [buildWelcomeMessage(t)]
+  const restoredContextMessage = useMemo(() => buildContextMessage(contextMd, t), [contextMd, t])
+
+  const displayMessages: ThinkingChatMessage[] = useMemo(() => {
+    if (messages.length > 0) {
+      const shouldAppendContext =
+        restoredContextMessage && !loading && !messages.some((m) => m.role === 'assistant')
+      return shouldAppendContext ? [...messages, restoredContextMessage] : messages
+    }
+    if (restoredContextMessage) return [restoredContextMessage]
+    return [buildWelcomeMessage(t)]
+  }, [messages, restoredContextMessage, loading, t])
   const showOutlinePanel = Boolean(thinkingId) && stage !== 'collect'
   const dateFormatter = new Intl.DateTimeFormat(lang === 'zh' ? 'zh-CN' : 'en-US', {
     month: '2-digit',

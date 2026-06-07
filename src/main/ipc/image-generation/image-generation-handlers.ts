@@ -13,8 +13,8 @@ import { resolveModelTimeoutMs } from '@shared/model-timeout'
 import type { IpcContext } from '../context'
 import { readAppLocale, uiText, type AppLocale } from '../config/locale-utils'
 import {
-  resolveActiveModelConfig,
   resolveGlobalModelTimeouts,
+  resolveModelConfigForTask,
   type ActiveModelConfig
 } from '../config/model-config-utils'
 import { extractModelText } from '../utils'
@@ -201,41 +201,12 @@ Output one final visual description that can be pasted directly into an image mo
 
 const resolvePromptModelConfig = async (
   ctx: IpcContext,
-  locale: AppLocale,
   modelConfigId?: string
 ): Promise<ActiveModelConfig> => {
-  const id = modelConfigId?.trim()
-  if (!id) return resolveActiveModelConfig(ctx)
-
-  const config = (await ctx.db.listModelConfigs()).find((item) => item.id === id)
-  if (!config) {
-    throw new Error(
-      uiText(locale, '所选模型不存在，请重新选择。', 'The selected model no longer exists.')
-    )
-  }
-
-  const provider = String(config.provider || '').trim()
-  const model = String(config.model || '').trim()
-  const apiKey = ctx.decryptApiKey(config.apiKey).trim()
-  if (!provider || !model || !apiKey) {
-    throw new Error(
-      uiText(
-        locale,
-        '所选模型配置未完成，请到设置页检查。',
-        'The selected model is incomplete. Check Settings.'
-      )
-    )
-  }
-
-  return {
-    id: config.id,
-    name: config.name,
-    provider,
-    model,
-    apiKey,
-    baseUrl: String(config.baseUrl || '').trim(),
-    maxTokens: config.maxTokens || 4096
-  }
+  return resolveModelConfigForTask(ctx, {
+    modelConfigId,
+    purpose: 'images:generatePrompt'
+  })
 }
 
 export function registerImageGenerationHandlers(ctx: IpcContext): void {
@@ -265,7 +236,6 @@ export function registerImageGenerationHandlers(ctx: IpcContext): void {
 
     const activeModel = await resolvePromptModelConfig(
       ctx,
-      locale,
       typeof record.modelConfigId === 'string' ? record.modelConfigId : undefined
     )
     const modelTimeouts = await resolveGlobalModelTimeouts(ctx)
@@ -325,7 +295,11 @@ export function registerImageGenerationHandlers(ctx: IpcContext): void {
 
     const modelConfig = await resolveImageModelConfig(
       ctx,
-      typeof record.modelConfigId === 'string' ? record.modelConfigId : undefined
+      typeof record.imageModelConfigId === 'string'
+        ? record.imageModelConfigId
+        : typeof record.modelConfigId === 'string'
+          ? record.modelConfigId
+          : undefined
     )
     const pageContext = await resolvePageContext(ctx, sessionId, pageId)
     const count =

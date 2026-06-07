@@ -30,14 +30,19 @@ import type { ImageModelForm, ModelForm } from '../components/settings/types'
 
 const createTimeoutSeconds = (
   timeouts?: Partial<Record<ConfigurableModelTimeoutProfile, number>>
-): Record<ConfigurableModelTimeoutProfile, number> =>
+): Record<ConfigurableModelTimeoutProfile, string> =>
   Object.fromEntries(
     CONFIGURABLE_MODEL_TIMEOUT_PROFILES.map((profile) => [
       profile,
-      modelTimeoutMsToSeconds(timeouts?.[profile], profile)
+      String(modelTimeoutMsToSeconds(timeouts?.[profile], profile))
     ])
-  ) as Record<ConfigurableModelTimeoutProfile, number>
+  ) as Record<ConfigurableModelTimeoutProfile, string>
 
+const normalizeModelMaxTokens = (value: string): number => {
+  const parsed = Number(value.trim())
+  if (!Number.isFinite(parsed) || parsed <= 0) return 4096
+  return Math.max(256, Math.min(16384, Math.floor(parsed)))
+}
 
 export function SettingsPage(): React.JSX.Element {
   const {
@@ -68,7 +73,7 @@ export function SettingsPage(): React.JSX.Element {
     createEmptyImageModelForm()
   )
   const [timeoutSeconds, setTimeoutSeconds] = useState<
-    Record<ConfigurableModelTimeoutProfile, number>
+    Record<ConfigurableModelTimeoutProfile, string>
   >(() => createTimeoutSeconds(useSettingsStore.getState().settings?.timeouts))
   const [savingModel, setSavingModel] = useState(false)
   const [savingTimeouts, setSavingTimeouts] = useState(false)
@@ -223,7 +228,8 @@ export function SettingsPage(): React.JSX.Element {
         model: modelForm.model.trim(),
         apiKey: modelForm.apiKey.trim(),
         baseUrl: modelForm.baseUrl.trim(),
-        maxTokens: modelForm.maxTokens,
+        maxTokens: normalizeModelMaxTokens(modelForm.maxTokens),
+        disableTemperature: modelForm.disableTemperature,
         active: modelForm.active
       })
       const saveError = useSettingsStore.getState().verificationMessage
@@ -274,26 +280,33 @@ export function SettingsPage(): React.JSX.Element {
   }
 
   const handleTimeoutChange = (profile: ConfigurableModelTimeoutProfile, value: string): void => {
-    const num = Number(value)
-    if (Number.isFinite(num) && num >= 0) {
-      setTimeoutSeconds((current) => ({
-        ...current,
-        [profile]: num
-      }))
-    }
+    setTimeoutSeconds((current) => ({
+      ...current,
+      [profile]: value
+    }))
     setVerificationMessage(null)
   }
 
   const handleSaveAdvanced = async (): Promise<void> => {
+    const timeoutEntries = timeoutFields.map((field) => {
+      const value = timeoutSeconds[field.profile].trim()
+      const num = Number(value)
+      return { field, num, value }
+    })
+    const invalidTimeout = timeoutEntries.find(({ field, num, value }) => {
+      return !value || !Number.isFinite(num) || num < field.min || num > 3600
+    })
+    if (invalidTimeout) {
+      warning(`${invalidTimeout.field.label}: ${t('settings.timeoutPlaceholder')}`)
+      return
+    }
+
     setSavingTimeouts(true)
     setVerificationMessage(null)
     try {
       await saveSettings({
         timeouts: Object.fromEntries(
-          CONFIGURABLE_MODEL_TIMEOUT_PROFILES.map((profile) => [
-            profile,
-            timeoutSeconds[profile] * 1000
-          ])
+          timeoutEntries.map(({ field, num }) => [field.profile, Math.round(num) * 1000])
         ) as Record<ConfigurableModelTimeoutProfile, number>,
         proxyUrl: proxyUrl.trim()
       })
@@ -328,7 +341,8 @@ export function SettingsPage(): React.JSX.Element {
         modelForm.apiKey,
         modelForm.model,
         modelForm.baseUrl,
-        modelForm.maxTokens,
+        normalizeModelMaxTokens(modelForm.maxTokens),
+        modelForm.disableTemperature,
         resolveModelTimeoutMs(undefined, 'verify')
       )
       const verifyMessage = useSettingsStore.getState().verificationMessage

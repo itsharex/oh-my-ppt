@@ -1,6 +1,11 @@
 import { create } from 'zustand'
 import { ipc } from '@renderer/lib/ipc'
-import type { ThinkingStage, ThinkingSource, ThinkingChatMessage } from '@shared/thinking'
+import type {
+  ThinkingStage,
+  ThinkingSource,
+  ThinkingChatMessage,
+  ThinkingPageOutlineUpdate
+} from '@shared/thinking'
 
 interface ThinkingStep {
   type: 'tool_call' | 'tool_result'
@@ -23,8 +28,9 @@ interface ThinkingStore {
   createWorkspace: () => Promise<string>
   loadWorkspace: (thinkingId: string) => Promise<void>
   loadLatestWorkspace: () => Promise<string | null>
+  updatePageOutline: (page: ThinkingPageOutlineUpdate) => Promise<void>
   addMessage: (message: ThinkingChatMessage) => void
-  sendMessage: (content: string, attachments?: ThinkingSource[]) => void
+  sendMessage: (content: string, attachments?: ThinkingSource[], modelConfigId?: string) => void
   addThinkingStep: (step: ThinkingStep) => void
   setAnimatingText: (text: string) => void
   setLoading: (loading: boolean) => void
@@ -33,6 +39,30 @@ interface ThinkingStore {
 }
 
 let streamListenersReady = false
+
+const readStoredLocale = (): 'zh' | 'en' => {
+  if (typeof window === 'undefined') return 'zh'
+  return window.localStorage.getItem('oh-my-ppt:lang') === 'en' ? 'en' : 'zh'
+}
+
+function formatChatFailureMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error || '')
+  const compactMessage = message.trim().replace(/\s+/g, ' ').slice(0, 500)
+  if (readStoredLocale() === 'en') {
+    return [
+      'LLM reply failed. Please try again.',
+      compactMessage ? `Error: ${compactMessage}` : ''
+    ]
+      .filter(Boolean)
+      .join('\n\n')
+  }
+  return [
+    'LLM 回复失败了，请重试一次。',
+    compactMessage ? `错误：${compactMessage}` : ''
+  ]
+    .filter(Boolean)
+    .join('\n\n')
+}
 
 function hasAssistantReply(messages: ThinkingChatMessage[], reply: string): boolean {
   const normalized = reply.trim()
@@ -210,6 +240,20 @@ export const useThinkingStore = create<ThinkingStore>((set, get) => {
     }
     },
 
+    updatePageOutline: async (page) => {
+    const { thinkingId, loading } = get()
+    if (!thinkingId) throw new Error('Thinking workspace is not ready')
+    if (loading) throw new Error('Thinking workspace is busy')
+    const result = await ipc.thinkingUpdatePageOutline({ thinkingId, page })
+    set((state) =>
+      state.thinkingId === thinkingId
+        ? {
+            thinkingMd: result.thinkingMd
+          }
+        : state
+    )
+    },
+
     addMessage: (message) =>
     set((state) => ({ messages: [...state.messages, message] })),
 
@@ -240,7 +284,7 @@ export const useThinkingStore = create<ThinkingStore>((set, get) => {
     setAnimatingText: (text) =>
     set({ animatingText: text }),
 
-    sendMessage: (content, attachments) => {
+    sendMessage: (content, attachments, modelConfigId) => {
     ensureThinkingStreamListeners(set, get)
     const { thinkingId, messages } = get()
     if (!thinkingId) return
@@ -259,14 +303,28 @@ export const useThinkingStore = create<ThinkingStore>((set, get) => {
     // but we show thinking events and animate the reply via stream listeners.
     ipc.thinkingChat({
       thinkingId,
+      modelConfigId,
       userMessage: content,
       recentMessages,
       ...(attachments && attachments.length > 0 ? { attachments } : {})
     }).catch((err) => {
-      set({
-        error: err instanceof Error ? err.message : 'Chat failed',
-        animatingText: '',
-        loading: false
+      const errorMessage = err instanceof Error ? err.message : 'Chat failed'
+      set((state) => {
+        if (state.thinkingId !== thinkingId) return state
+        return {
+          error: errorMessage,
+          animatingText: '',
+          loading: false,
+          thinkingSteps: [],
+          messages: [
+            ...state.messages,
+            {
+              role: 'assistant',
+              content: formatChatFailureMessage(err),
+              timestamp: Date.now()
+            }
+          ]
+        }
       })
     })
     },

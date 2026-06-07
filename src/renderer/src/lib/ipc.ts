@@ -10,6 +10,7 @@ import type {
   ParsedDocumentPlanResult,
   PrepareReferenceDocumentPayload,
   PreparedReferenceDocumentResult,
+  SourceDocumentPlan,
   PptxImportPayload,
   PptxImportProgressPayload,
   PptxImportResult,
@@ -100,14 +101,17 @@ export interface StyleParseResult {
 export interface GenerateRunStateSnapshot {
   sessionId: string
   runId: string | null
-  status: 'idle' | 'running' | 'completed' | 'failed'
+  status: 'idle' | 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
   hasActiveRun: boolean
   progress: number
   totalPages: number
+  completedPageCount?: number
+  failedPageCount?: number
   events: GenerateChunkEvent[]
   error: string | null
   startedAt: number | null
   updatedAt: number | null
+  kind?: 'standard' | 'template' | 'retry'
 }
 
 export interface ExportDeckResult {
@@ -213,9 +217,20 @@ export interface UpdateElementPropertiesPayload {
 export interface CreateSessionPayload {
   topic: string
   styleId: string
+  modelConfigId?: string
   pageCount?: number
   referenceDocumentPath?: string
   fontSelection?: FontSelection
+  sourcePlan?: SourceDocumentPlan
+}
+
+export interface SaveSessionAsNewPayload {
+  sessionId: string
+  title: string
+}
+
+export interface SaveSessionAsNewResult {
+  sessionId: string
 }
 
 export interface ModelConfig {
@@ -226,6 +241,7 @@ export interface ModelConfig {
   apiKey: string
   baseUrl: string
   maxTokens: number
+  disableTemperature: boolean
   active: boolean
   createdAt: number
   updatedAt: number
@@ -283,6 +299,8 @@ export const ipc = {
   createSession: (payload: CreateSessionPayload) =>
     getIpc().invoke('session:create', payload) as Promise<{ sessionId: string }>,
   listSessions: () => getIpc().invoke('session:list') as Promise<unknown[]>,
+  saveSessionAsNew: (payload: SaveSessionAsNewPayload): Promise<SaveSessionAsNewResult> =>
+    getIpc().invoke('session:saveAsNew', payload) as Promise<SaveSessionAsNewResult>,
   getSession: (sessionId: string) =>
     getIpc().invoke('session:get', sessionId) as Promise<{
       session: unknown
@@ -299,6 +317,12 @@ export const ipc = {
         status?: string
         error?: string | null
       }>
+    }>,
+  migratePageOutlinesToSourceSkeletons: (payload: { sessionId: string }) =>
+    getIpc().invoke('session:migratePageOutlinesToSourceSkeletons', payload) as Promise<{
+      migrated: boolean
+      migratedCount: number
+      existingCount: number
     }>,
   reorderSessionPages: (payload: {
     sessionId: string
@@ -425,8 +449,10 @@ export const ipc = {
   createSessionFromTemplate: (payload: {
     templateId: string
     title?: string
+    modelConfigId?: string
     pageCount?: number
     referenceDocumentPath?: string
+    sourcePlan?: SourceDocumentPlan
   }) =>
     getIpc().invoke('templates:createSession', payload) as Promise<{
       success: true
@@ -435,6 +461,7 @@ export const ipc = {
   createEditableSessionFromTemplate: (payload: {
     templateId: string
     title?: string
+    modelConfigId?: string
   }) =>
     getIpc().invoke('templates:createEditableSession', payload) as Promise<{
       success: true
@@ -443,6 +470,7 @@ export const ipc = {
   importPptxAsTemplate: (payload: {
     filePath: string
     name?: string
+    modelConfigId?: string
   }) =>
     getIpc().invoke('templates:importPptx', payload) as Promise<{
       success: true
@@ -470,18 +498,21 @@ export const ipc = {
       success: boolean
       runId?: string
       alreadyRunning?: boolean
+      queued?: boolean
     }>,
   startTemplateGenerate: (payload: GenerateStartPayload & { retry?: boolean }) =>
     getIpc().invoke('generate:startTemplate', payload) as Promise<{
       success: boolean
       runId?: string
       alreadyRunning?: boolean
+      queued?: boolean
     }>,
   retryFailedPages: (payload: GenerateRetryFailedPayload) =>
     getIpc().invoke('generate:retryFailedPages', payload) as Promise<{
       success: boolean
       runId?: string
       alreadyRunning?: boolean
+      queued?: boolean
     }>,
   addPage: (payload: GenerateAddPagePayload) =>
     getIpc().invoke('generate:addPage', payload) as Promise<{
@@ -496,6 +527,8 @@ export const ipc = {
     }>,
   getGenerateState: (sessionId: string) =>
     getIpc().invoke('generate:state', sessionId) as Promise<GenerateRunStateSnapshot>,
+  listActiveGenerateRuns: () =>
+    getIpc().invoke('generate:listActive') as Promise<GenerateRunStateSnapshot[]>,
   cancelGenerate: (sessionId: string) =>
     getIpc().invoke('generate:cancel', sessionId) as Promise<{ success: boolean }>,
   listHistoryVersions: (payload: { sessionId: string; limit?: number }) =>
@@ -534,13 +567,19 @@ export const ipc = {
     getIpc().invoke('export:png', { sessionId }) as Promise<ExportDeckResult>,
   exportPptx: (
     sessionId: string,
-    options?: { imageOnly?: boolean; embedFonts?: boolean | 'auto' | 'always' | 'never' }
+    options?: {
+      imageOnly?: boolean
+      embedFonts?: boolean | 'auto' | 'always' | 'never'
+      pageId?: string
+    }
   ) =>
     getIpc().invoke('export:pptx', { sessionId, ...options }) as Promise<ExportDeckResult>,
   exportSlidePack: (sessionId: string) =>
     getIpc().invoke('export:slidePack', { sessionId }) as Promise<ExportDeckResult>,
   exportSessionZip: (sessionId: string) =>
     getIpc().invoke('export:sessionZip', { sessionId }) as Promise<ExportDeckResult>,
+  exportOutlinesMarkdown: (sessionId: string) =>
+    getIpc().invoke('export:outlinesMarkdown', { sessionId }) as Promise<ExportDeckResult>,
   getSettings: () => getIpc().invoke('settings:get') as Promise<Record<string, unknown>>,
   listModelConfigs: () => getIpc().invoke('settings:listModelConfigs') as Promise<ModelConfig[]>,
   listImageModelConfigs: () =>
@@ -573,6 +612,7 @@ export const ipc = {
     apiKey: string
     baseUrl: string
     maxTokens?: number
+    disableTemperature?: boolean
     active?: boolean
   }) =>
     getIpc().invoke('settings:upsertModelConfig', payload) as Promise<{
@@ -612,6 +652,7 @@ export const ipc = {
     model: string
     baseUrl: string
     maxTokens?: number
+    disableTemperature?: boolean
     timeoutMs: number
   }) =>
     getIpc().invoke('settings:verifyApiKey', payload) as Promise<{
@@ -660,11 +701,11 @@ export const ipc = {
   getStyleDetail: (styleId: string) =>
     getIpc().invoke('styles:getDetail', styleId) as Promise<StyleDetail>,
   listStyles: () => getIpc().invoke('styles:list') as Promise<{ items: StyleListItem[] }>,
-  parseStyleFile: (payload: { filePath: string }) =>
+  parseStyleFile: (payload: { filePath: string; modelConfigId?: string }) =>
     getIpc().invoke('styles:parseFile', payload) as Promise<StyleParseResult>,
-  parseStylePptx: (payload: { filePath: string }) =>
+  parseStylePptx: (payload: { filePath: string; modelConfigId?: string }) =>
     getIpc().invoke('styles:parsePptx', payload) as Promise<StyleParseResult>,
-  parseStyleImage: (payload: { imageBase64: string; mimeType: string }) =>
+  parseStyleImage: (payload: { imageBase64: string; mimeType: string; modelConfigId?: string }) =>
     getIpc().invoke('styles:parseImage', payload) as Promise<StyleParseResult>,
   createStyle: (payload: {
     label: string
@@ -831,6 +872,14 @@ export const ipc = {
     getIpc().invoke('thinking:deleteWorkspace', thinkingId) as Promise<{ success: boolean }>,
   thinkingRevealWorkspace: (thinkingId: string) =>
     getIpc().invoke('thinking:revealWorkspace', thinkingId) as Promise<{ success: boolean }>,
+  thinkingUpdatePageOutline: (payload: {
+    thinkingId: string
+    page: import('@shared/thinking').ThinkingPageOutlineUpdate
+  }) =>
+    getIpc().invoke('thinking:updatePageOutline', payload) as Promise<{
+      success: boolean
+      thinkingMd: string
+    }>,
   thinkingUploadSources: (payload: {
     thinkingId: string
     files: Array<{ path: string; name?: string }>
@@ -845,6 +894,7 @@ export const ipc = {
     }>,
   thinkingChat: (payload: {
     thinkingId: string
+    modelConfigId?: string
     userMessage: string
     recentMessages?: ThinkingChatMessage[]
     attachments?: ThinkingChatMessage['attachments']

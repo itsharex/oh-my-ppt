@@ -8,6 +8,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../com
 import { FileArchive, FileText, FileUp, FolderOpen, LayoutTemplate, MessageSquare, MessagesSquare, Pencil, Sparkles, Trash2, X, type LucideIcon } from 'lucide-react'
 import { type Session, useSessionStore, useTemplateStore } from '../store'
 import { useToastStore } from '../store'
+import { ipc, type GenerateRunStateSnapshot } from '../lib/ipc'
 import { getEditorGate, parseSessionMetadata } from '../lib/sessionMetadata'
 import { useT } from '../i18n'
 import { SaveTemplateDialog } from '../components/templates/SaveTemplateDialog'
@@ -16,51 +17,76 @@ import duration from 'dayjs/plugin/duration'
 
 dayjs.extend(duration)
 
+type ActiveGenerateRun = GenerateRunStateSnapshot & {
+  status: 'queued' | 'running'
+}
+
 const getSourceTag = (
   session: Session,
-  labels: { pptx: string; sessionFile: string; document: string; ai: string; thinking: string; template: string }
-): { label: string; Icon: LucideIcon; className: string } => {
+  labels: { pptx: string; sessionFile: string; saveAsNew: string; document: string; ai: string; thinking: string; template: string }
+): { label: string; Icon: LucideIcon; className: string; iconClassName: string } => {
   const metadata = parseSessionMetadata(session.metadata)
   const source = typeof metadata.source === 'string' ? metadata.source : ''
-  if (source === 'template') {
+  if (source === 'session-save-as-new') {
+    return {
+      label: labels.saveAsNew,
+      Icon: FileArchive,
+      className:
+        'border-[#6fc2aa]/50 bg-[#e8f8f3] text-[#1f6f5f] shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]',
+      iconClassName: 'text-[#189072]'
+    }
+  }
+  if (source === 'template' || source === 'template-direct-edit' || session.model === 'template-direct-edit') {
     return {
       label: labels.template,
       Icon: LayoutTemplate,
-      className: 'border-[#e5bec7]/80 bg-[#fff1f4] text-[#80505c]'
+      className:
+        'border-[#e48aa5]/50 bg-[#fff0f5] text-[#8b3352] shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]',
+      iconClassName: 'text-[#c94672]'
     }
   }
   if (source === 'session-file-import' || session.model === 'session-file-import') {
     return {
       label: labels.sessionFile,
       Icon: FileArchive,
-      className: 'border-[#c7c2df]/80 bg-[#f3f0ff] text-[#5d5684]'
+      className:
+        'border-[#a798ee]/55 bg-[#f3f0ff] text-[#5642a2] shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]',
+      iconClassName: 'text-[#765ee0]'
     }
   }
   if (source === 'pptx-import' || session.provider === 'import' || session.model === 'pptx-import') {
     return {
       label: labels.pptx,
       Icon: FileUp,
-      className: 'border-[#bdd2e6]/80 bg-[#eef6ff] text-[#3e6685]'
+      className:
+        'border-[#74b6e5]/55 bg-[#eef8ff] text-[#286a9a] shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]',
+      iconClassName: 'text-[#2582c3]'
     }
   }
   if (source === 'thinking') {
     return {
       label: labels.thinking,
       Icon: MessagesSquare,
-      className: 'border-[#c7d9b7]/80 bg-[#f0f9e4] text-[#4a6b2e]'
+      className:
+        'border-[#82c86a]/55 bg-[#effbe9] text-[#38702c] shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]',
+      iconClassName: 'text-[#4a9e39]'
     }
   }
   if (session.referenceDocumentPath || session.reference_document_path) {
     return {
       label: labels.document,
       Icon: FileText,
-      className: 'border-[#cbd9b7]/80 bg-[#f3fae9] text-[#526f35]'
+      className:
+        'border-[#d0b157]/55 bg-[#fff8df] text-[#7b5d13] shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]',
+      iconClassName: 'text-[#ad7d10]'
     }
   }
   return {
     label: labels.ai,
     Icon: Sparkles,
-    className: 'border-[#e1d1b7]/80 bg-[#fff7e8] text-[#7c6a4c]'
+    className:
+      'border-[#f0a96b]/55 bg-[#fff3e6] text-[#8a5425] shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]',
+    iconClassName: 'text-[#d87721]'
   }
 }
 
@@ -78,9 +104,85 @@ export function SessionsPage(): React.JSX.Element {
   const [importingSession, setImportingSession] = useState(false)
   const [saveTemplateTarget, setSaveTemplateTarget] = useState<Session | null>(null)
   const [savingTemplate, setSavingTemplate] = useState(false)
+  const [activeRuns, setActiveRuns] = useState<Record<string, ActiveGenerateRun>>({})
 
   useEffect(() => {
     void fetchSessions()
+  }, [fetchSessions])
+
+  useEffect(() => {
+    let mounted = true
+    void ipc
+      .listActiveGenerateRuns()
+      .then((runs) => {
+        if (!mounted) return
+        setActiveRuns(
+          Object.fromEntries(
+            runs
+              .filter((run): run is ActiveGenerateRun => run.status === 'queued' || run.status === 'running')
+              .map((run) => [run.sessionId, run])
+          )
+        )
+      })
+      .catch(() => {})
+
+    const unsubscribe = ipc.onGenerateChunk((chunk) => {
+      const sessionId = chunk.payload.sessionId
+      if (!sessionId) return
+      if (chunk.type === 'run_completed' || chunk.type === 'run_error') {
+        void fetchSessions()
+      }
+      setActiveRuns((prev) => {
+        if (chunk.type === 'run_completed' || chunk.type === 'run_error') {
+          const previous = prev[sessionId]
+          if (!previous || previous.runId !== chunk.payload.runId) return prev
+          const next = { ...prev }
+          delete next[sessionId]
+          return next
+        }
+        const previous = prev[sessionId]
+        if (previous?.runId && previous.runId !== chunk.payload.runId) return prev
+        const stage = 'stage' in chunk.payload ? chunk.payload.stage : ''
+        const completedPageCount =
+          'completedPageCount' in chunk.payload &&
+          typeof chunk.payload.completedPageCount === 'number'
+            ? chunk.payload.completedPageCount
+            : previous?.completedPageCount || 0
+        const failedPageCount =
+          'failedPageCount' in chunk.payload && typeof chunk.payload.failedPageCount === 'number'
+            ? chunk.payload.failedPageCount
+            : previous?.failedPageCount || 0
+        return {
+          ...prev,
+          [sessionId]: {
+            sessionId,
+            runId: chunk.payload.runId,
+            status: stage === 'queued' ? 'queued' : 'running',
+            hasActiveRun: true,
+            progress:
+              'progress' in chunk.payload && typeof chunk.payload.progress === 'number'
+                ? Math.max(0, Math.min(90, Math.floor(chunk.payload.progress)))
+                : previous?.progress || 0,
+            totalPages:
+              'totalPages' in chunk.payload && typeof chunk.payload.totalPages === 'number'
+                ? Math.max(1, Math.floor(chunk.payload.totalPages))
+                : previous?.totalPages || 1,
+            events: previous?.events || [],
+            error: null,
+            startedAt: previous?.startedAt || Date.now(),
+            updatedAt: Date.now(),
+            kind: previous?.kind,
+            completedPageCount,
+            failedPageCount
+          }
+        }
+      })
+    })
+
+    return () => {
+      mounted = false
+      unsubscribe?.()
+    }
   }, [fetchSessions])
 
   const sortedSessions = sessions
@@ -92,8 +194,14 @@ export function SessionsPage(): React.JSX.Element {
   }): boolean => getEditorGate(session, 0.68).canEdit
 
   const getSessionRoute = (session: { id: string; status: string; metadata: string | null; page_count: number | null }): string => {
-    if (canEnterEditor(session)) return `/sessions/${session.id}`
+    const activeRun = activeRuns[session.id]
     const metadata = parseSessionMetadata(session.metadata)
+    if (activeRun) {
+      return activeRun.kind === 'template' || metadata.source === 'template'
+        ? `/sessions/${session.id}/template-generating`
+        : `/sessions/${session.id}/generating`
+    }
+    if (canEnterEditor(session)) return `/sessions/${session.id}`
     return metadata.source === 'template'
       ? `/sessions/${session.id}/template-generating`
       : `/sessions/${session.id}/generating`
@@ -189,15 +297,15 @@ export function SessionsPage(): React.JSX.Element {
         sessionId: saveTemplateTarget.id,
         ...payload
       })
-      success('已保存为模板', {
+      success(t('sessionDetail.templateSaved'), {
         action: {
-          label: '查看模板',
+          label: t('sessionDetail.viewTemplates'),
           onClick: () => navigate('/templates')
         }
       })
       setSaveTemplateTarget(null)
     } catch (err) {
-      error('保存模板失败', {
+      error(t('sessionDetail.templateSaveFailed'), {
         description: err instanceof Error ? err.message : t('common.retryLater')
       })
     } finally {
@@ -248,18 +356,36 @@ export function SessionsPage(): React.JSX.Element {
         <div className="grid gap-3">
           {sortedSessions.map((session) => {
             const editorGate = getEditorGate(session)
+            const activeRun = activeRuns[session.id]
+            const displayGeneratedCount = activeRun
+              ? Math.max(editorGate.generatedCount, activeRun.completedPageCount || 0)
+              : editorGate.generatedCount
+            const displayFailedCount = activeRun
+              ? activeRun.failedPageCount || 0
+              : editorGate.failedCount
+            const displayTotalCount = activeRun
+              ? Math.max(editorGate.totalCount, activeRun.totalPages, displayGeneratedCount + displayFailedCount)
+              : editorGate.totalCount
             const hasCompletedPages = editorGate.generatedCount > 0
             const isFullyComplete = canEnterEditor(session) && editorGate.generatedCount >= editorGate.totalCount && editorGate.failedCount === 0
             const isPartialComplete = !isFullyComplete && canEnterEditor(session)
             const isContinuable = !isFullyComplete && !isPartialComplete && hasCompletedPages
-            const statusText = isFullyComplete
+            const statusText = activeRun
+              ? activeRun.status === 'queued'
+                ? t('sessions.statusQueued')
+                : activeRun.progress > 0
+                  ? t('sessions.statusGeneratingProgress', { progress: activeRun.progress })
+                  : t('sessions.statusGenerating')
+              : isFullyComplete
               ? t('sessions.statusComplete')
               : isPartialComplete
                 ? t('sessions.statusPartialComplete')
                 : isContinuable
                   ? t('sessions.statusContinuable')
                   : t('sessions.statusRegenerate')
-            const actionText = isFullyComplete || isPartialComplete
+            const actionText = activeRun
+              ? t('sessions.actionViewProgress')
+              : isFullyComplete || isPartialComplete
               ? t('sessions.actionEnter')
               : isContinuable
                 ? t('sessions.actionContinue')
@@ -267,13 +393,18 @@ export function SessionsPage(): React.JSX.Element {
             const sourceTag = getSourceTag(session, {
               pptx: t('sessions.sourcePptx'),
               sessionFile: t('sessions.sourceSessionFile'),
+              saveAsNew: t('sessions.sourceSaveAsNew'),
               document: t('sessions.sourceDocument'),
               ai: t('sessions.sourceAi'),
               thinking: t('sessions.sourceThinking'),
               template: t('sessions.sourceTemplate')
             })
             const SourceIcon = sourceTag.Icon
-            const statusClassName = isFullyComplete
+            const sourceTagBaseClass =
+              'inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-[11px] font-semibold leading-none'
+            const statusClassName = activeRun
+              ? 'border-[#9fc7df]/80 bg-[#edf8ff] text-[#286a9a] shadow-[0_0_0_1px_rgba(116,182,229,0.14)]'
+              : isFullyComplete
               ? 'border-[#bad8b7]/80 bg-[#eef9ec] text-[#4a7a46]'
               : isPartialComplete
                 ? 'border-[#b5c9a8]/80 bg-[#eef5e8] text-[#4f7b3f]'
@@ -291,17 +422,25 @@ export function SessionsPage(): React.JSX.Element {
                 <div className="flex items-start justify-between">
                   <CardTitle className="truncate text-base">{session.title}</CardTitle>
                   <div className="flex items-center gap-1">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      title={t('sessions.editTitle')}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        openRenameDialog(session)
-                      }}
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </Button>
+                    <TooltipProvider delayDuration={180}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              openRenameDialog(session)
+                            }}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom" align="end">
+                          {t('sessions.editTitleTooltip')}
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
                     <TooltipProvider delayDuration={180}>
                       <Tooltip>
                         <TooltipTrigger asChild>
@@ -324,8 +463,8 @@ export function SessionsPage(): React.JSX.Element {
                         </TooltipTrigger>
                         <TooltipContent side="bottom" align="end">
                           {editorGate.generatedCount <= 0
-                            ? '至少生成 1 页后才能保存为模板'
-                            : '保存为模板'}
+                            ? t('sessions.saveTemplateTooltipDisabled')
+                            : t('sessions.saveTemplateTooltip')}
                         </TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
@@ -351,12 +490,12 @@ export function SessionsPage(): React.JSX.Element {
                   <span className={`rounded-lg border px-2 py-1 font-semibold ${statusClassName}`}>
                     {statusText}
                   </span>
-                  <span className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 font-semibold ${sourceTag.className}`}>
-                    <SourceIcon className="h-3 w-3" />
+                  <span className={`${sourceTagBaseClass} ${sourceTag.className}`}>
+                    <SourceIcon className={`h-3.5 w-3.5 ${sourceTag.iconClassName}`} />
                     {sourceTag.label}
                   </span>
                   <span className="rounded-lg border border-[#e1d1b7]/80 bg-[#fff7e8]/75 px-2 py-1 text-[#7c6a4c]">
-                    {t('sessions.pagesCount', { generated: editorGate.generatedCount, total: editorGate.totalCount })}
+                    {t('sessions.pagesCount', { generated: displayGeneratedCount, total: displayTotalCount })}
                   </span>
                   {session.generation_duration_sec ? (
                     <span className="rounded-lg border border-[#d5cfc5]/60 bg-[#f9f6f1] px-2 py-1 text-[#6b6560]">
@@ -371,9 +510,9 @@ export function SessionsPage(): React.JSX.Element {
                   <span className="rounded-lg border border-[#d5cfc5]/60 bg-[#f9f6f1] px-2 py-1 text-[#6b6560]">
                     {dayjs.unix(session.updated_at).format('YYYY/MM/DD HH:mm')}
                   </span>
-                  {!isFullyComplete && editorGate.failedCount > 0 && (
+                  {!isFullyComplete && displayFailedCount > 0 && (
                     <span className="rounded-lg border border-[#d7b5ae]/70 bg-[#fff7f2]/80 px-2 py-1 text-[#93564f]">
-                      {t('sessions.failedCount', { count: editorGate.failedCount })}
+                      {t('sessions.failedCount', { count: displayFailedCount })}
                     </span>
                   )}
                 </div>

@@ -1,8 +1,19 @@
 import { useState, type ReactElement } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { useT } from '@renderer/i18n'
+import { useThinkingStore, useToastStore } from '@renderer/store'
 import type { ThinkingStage } from '@shared/thinking'
-import { CheckCircle2, FileText, LayoutList, Loader2, Sparkles } from 'lucide-react'
+import {
+  CheckCircle2,
+  FileText,
+  LayoutList,
+  Loader2,
+  Pencil,
+  Save,
+  Sparkles,
+  X
+} from 'lucide-react'
+import { Input, Textarea } from '../ui/Input'
 
 interface PageCard {
   pageNumber: number
@@ -11,6 +22,13 @@ interface PageCard {
   objective: string
   summary: string
   keyPoints: string[]
+}
+
+interface PageCardDraft {
+  title: string
+  objective: string
+  summary: string
+  keyPoints: string
 }
 
 interface ThinkingPageCardsProps {
@@ -89,11 +107,72 @@ export function ThinkingPageCards({
   loading
 }: ThinkingPageCardsProps): ReactElement {
   const t = useT()
+  const updatePageOutline = useThinkingStore((state) => state.updatePageOutline)
+  const { success, error: toastError } = useToastStore()
   const [viewMode, setViewMode] = useState<'outline' | 'document'>('outline')
+  const [editingPageNumber, setEditingPageNumber] = useState<number | null>(null)
+  const [savingPageNumber, setSavingPageNumber] = useState<number | null>(null)
+  const [draft, setDraft] = useState<PageCardDraft | null>(null)
   const cards = parsePageCards(thinkingMd)
   const colors = STAGE_COLORS[stage]
   const canGenerate = cards.length > 0 && stage !== 'collect'
   const hasDocument = thinkingMd.trim().length > 0
+  const busy = loading || savingPageNumber !== null
+
+  const startEditing = (card: PageCard): void => {
+    if (busy) return
+    setEditingPageNumber(card.pageNumber)
+    setDraft({
+      title: card.title,
+      objective: card.objective,
+      summary: card.summary,
+      keyPoints: card.keyPoints.join('\n')
+    })
+  }
+
+  const cancelEditing = (): void => {
+    if (savingPageNumber !== null) return
+    setEditingPageNumber(null)
+    setDraft(null)
+  }
+
+  const savePage = async (card: PageCard): Promise<void> => {
+    if (!draft || savingPageNumber !== null) return
+    const keyPoints = draft.keyPoints
+      .split('\n')
+      .map((point) => point.trim().replace(/^[-*]\s+/, ''))
+      .filter(Boolean)
+    if (
+      !draft.title.trim() ||
+      !draft.objective.trim() ||
+      !draft.summary.trim() ||
+      keyPoints.length === 0
+    ) {
+      toastError(t('thinking.outlineRequired'))
+      return
+    }
+
+    setSavingPageNumber(card.pageNumber)
+    try {
+      await updatePageOutline({
+        pageNumber: card.pageNumber,
+        title: draft.title,
+        role: card.role,
+        objective: draft.objective,
+        summary: draft.summary,
+        keyPoints
+      })
+      setEditingPageNumber(null)
+      setDraft(null)
+      success(t('thinking.outlineSaved'))
+    } catch (error) {
+      toastError(t('thinking.outlineSaveFailed'), {
+        description: error instanceof Error ? error.message : t('common.retryLater')
+      })
+    } finally {
+      setSavingPageNumber(null)
+    }
+  }
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -104,10 +183,14 @@ export function ThinkingPageCards({
               {t('thinking.pageCardsTitle')}
             </h3>
             <p className="mt-1 text-[11px] text-[#5d6b4d]">
-              {cards.length > 0 ? t('thinking.pageCountLabel', { count: cards.length }) : t('thinking.noPagesYet')}
+              {cards.length > 0
+                ? t('thinking.pageCountLabel', { count: cards.length })
+                : t('thinking.noPagesYet')}
             </p>
           </div>
-          <span className={`rounded-full border px-3 py-1 text-[10px] font-semibold ${colors.bg} ${colors.text} ${colors.border}`}>
+          <span
+            className={`rounded-full border px-3 py-1 text-[10px] font-semibold ${colors.bg} ${colors.text} ${colors.border}`}
+          >
             {t(STAGE_I18N_KEYS[stage] as Parameters<typeof t>[0])}
           </span>
         </div>
@@ -207,7 +290,9 @@ export function ThinkingPageCards({
               <div className="flex h-12 w-12 items-center justify-center rounded-[5%_95%_10%_90%/85%_15%_85%_15%] bg-[#8fbc8f] text-white">
                 <FileText className="h-5 w-5" />
               </div>
-              <p className="mt-3 text-xs leading-relaxed text-[#7a806c]">{t('thinking.noDocumentYet')}</p>
+              <p className="mt-3 text-xs leading-relaxed text-[#7a806c]">
+                {t('thinking.noDocumentYet')}
+              </p>
             </div>
           )
         ) : cards.length === 0 ? (
@@ -215,7 +300,9 @@ export function ThinkingPageCards({
             <div className="flex h-12 w-12 items-center justify-center rounded-[5%_95%_10%_90%/85%_15%_85%_15%] bg-[#8fbc8f] text-white">
               <FileText className="h-5 w-5" />
             </div>
-            <p className="mt-3 text-xs leading-relaxed text-[#7a806c]">{t('thinking.noPagesYet')}</p>
+            <p className="mt-3 text-xs leading-relaxed text-[#7a806c]">
+              {t('thinking.noPagesYet')}
+            </p>
           </div>
         ) : (
           <div className="space-y-2.5">
@@ -229,31 +316,138 @@ export function ThinkingPageCards({
                     {card.pageNumber}
                   </span>
                   <div className="min-w-0 flex-1">
-                    <div className="flex min-w-0 items-start justify-between gap-2">
-                      <div className="line-clamp-2 min-w-0 text-[13px] font-semibold leading-snug text-[#2f3329]">
-                        {card.title}
+                    {editingPageNumber === card.pageNumber && draft ? (
+                      <div className="space-y-2.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="rounded-full border border-[#c8d6ba] bg-[#fffdf8] px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.04em] text-[#5d6b4d]">
+                            {card.role}
+                          </span>
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={cancelEditing}
+                              disabled={savingPageNumber !== null}
+                              className="inline-flex h-7 w-7 items-center justify-center rounded-full text-[#7a806c] transition-colors hover:bg-[#e8e0d0] hover:text-[#3e4a32] disabled:opacity-40"
+                              title={t('common.cancel')}
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void savePage(card)}
+                              disabled={savingPageNumber !== null}
+                              className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-[#3e4a32] text-white transition-colors hover:bg-[#5d6b4d] disabled:opacity-50"
+                              title={t('thinking.saveOutline')}
+                            >
+                              {savingPageNumber === card.pageNumber ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <Save className="h-3.5 w-3.5" />
+                              )}
+                            </button>
+                          </div>
+                        </div>
+                        <label className="block">
+                          <span className="mb-1 block text-[10px] font-semibold text-[#5d6b4d]">
+                            {t('thinking.outlineTitle')}
+                          </span>
+                          <Input
+                            value={draft.title}
+                            onChange={(event) =>
+                              setDraft((current) =>
+                                current ? { ...current, title: event.target.value } : current
+                              )
+                            }
+                            className="h-8 rounded-lg border-[#c8d6ba] bg-[#fffdf8] px-2.5 text-[12px]"
+                          />
+                        </label>
+                        <label className="block">
+                          <span className="mb-1 block text-[10px] font-semibold text-[#5d6b4d]">
+                            {t('thinking.outlineObjective')}
+                          </span>
+                          <Textarea
+                            value={draft.objective}
+                            onChange={(event) =>
+                              setDraft((current) =>
+                                current ? { ...current, objective: event.target.value } : current
+                              )
+                            }
+                            rows={2}
+                            className="min-h-14 resize-y rounded-lg border-[#c8d6ba] bg-[#fffdf8] px-2.5 py-2 text-[12px]"
+                          />
+                        </label>
+                        <label className="block">
+                          <span className="mb-1 block text-[10px] font-semibold text-[#5d6b4d]">
+                            {t('thinking.outlineSummary')}
+                          </span>
+                          <Textarea
+                            value={draft.summary}
+                            onChange={(event) =>
+                              setDraft((current) =>
+                                current ? { ...current, summary: event.target.value } : current
+                              )
+                            }
+                            rows={3}
+                            className="min-h-20 resize-y rounded-lg border-[#c8d6ba] bg-[#fffdf8] px-2.5 py-2 text-[12px]"
+                          />
+                        </label>
+                        <label className="block">
+                          <span className="mb-1 block text-[10px] font-semibold text-[#5d6b4d]">
+                            {t('thinking.outlineKeyPoints')}
+                          </span>
+                          <Textarea
+                            value={draft.keyPoints}
+                            onChange={(event) =>
+                              setDraft((current) =>
+                                current ? { ...current, keyPoints: event.target.value } : current
+                              )
+                            }
+                            rows={4}
+                            placeholder={t('thinking.outlineKeyPointsHint')}
+                            className="min-h-24 resize-y rounded-lg border-[#c8d6ba] bg-[#fffdf8] px-2.5 py-2 text-[12px]"
+                          />
+                        </label>
                       </div>
-                      <span className="shrink-0 rounded-full border border-[#c8d6ba] bg-[#fffdf8] px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.04em] text-[#5d6b4d]">
-                        {card.role}
-                      </span>
-                    </div>
-                    <p className="mt-1.5 text-[11px] font-medium leading-relaxed text-[#4f6340]">
-                      {card.objective}
-                    </p>
-                    {card.summary ? (
-                      <p className="mt-1.5 line-clamp-3 text-[11px] leading-relaxed text-[#747968]">
-                        {card.summary}
-                      </p>
-                    ) : null}
-                    {card.keyPoints.length > 0 && (
-                      <ul className="mt-2 space-y-1 text-[11px] leading-relaxed text-[#747968]">
-                        {card.keyPoints.slice(0, 3).map((point, pointIndex) => (
-                          <li key={pointIndex} className="flex gap-1.5">
-                            <span className="mt-[0.55em] h-1 w-1 shrink-0 rounded-full bg-[#8fbc8f]" />
-                            <span className="line-clamp-2">{point}</span>
-                          </li>
-                        ))}
-                      </ul>
+                    ) : (
+                      <>
+                        <div className="flex min-w-0 items-start justify-between gap-2">
+                          <div className="line-clamp-2 min-w-0 text-[13px] font-semibold leading-snug text-[#2f3329]">
+                            {card.title}
+                          </div>
+                          <div className="flex shrink-0 items-center gap-1">
+                            <span className="rounded-full border border-[#c8d6ba] bg-[#fffdf8] px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.04em] text-[#5d6b4d]">
+                              {card.role}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => startEditing(card)}
+                              disabled={busy || editingPageNumber !== null}
+                              className="inline-flex h-6 w-6 items-center justify-center rounded-full text-[#7a806c] opacity-70 transition-colors hover:bg-[#e8e0d0] hover:text-[#3e4a32] hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-30"
+                              title={t('thinking.editOutline')}
+                            >
+                              <Pencil className="h-3 w-3" />
+                            </button>
+                          </div>
+                        </div>
+                        <p className="mt-1.5 text-[11px] font-medium leading-relaxed text-[#4f6340]">
+                          {card.objective}
+                        </p>
+                        {card.summary ? (
+                          <p className="mt-1.5 line-clamp-3 text-[11px] leading-relaxed text-[#747968]">
+                            {card.summary}
+                          </p>
+                        ) : null}
+                        {card.keyPoints.length > 0 && (
+                          <ul className="mt-2 space-y-1 text-[11px] leading-relaxed text-[#747968]">
+                            {card.keyPoints.slice(0, 3).map((point, pointIndex) => (
+                              <li key={pointIndex} className="flex gap-1.5">
+                                <span className="mt-[0.55em] h-1 w-1 shrink-0 rounded-full bg-[#8fbc8f]" />
+                                <span className="line-clamp-2">{point}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </>
                     )}
                   </div>
                 </div>
@@ -267,17 +461,17 @@ export function ThinkingPageCards({
         <button
           type="button"
           onClick={onConfirmGenerate}
-          disabled={loading || !canGenerate}
+          disabled={busy || editingPageNumber !== null || !canGenerate}
           className="flex h-11 w-full items-center justify-center gap-2 rounded-full bg-[#3e4a32] text-[13px] font-semibold text-white shadow-sm transition-colors hover:bg-[#5d6b4d] disabled:opacity-40 disabled:hover:bg-[#3e4a32]"
         >
-          {loading ? (
+          {busy ? (
             <Loader2 className="h-4 w-4 animate-spin" />
           ) : canGenerate ? (
             <Sparkles className="h-4 w-4" />
           ) : (
             <CheckCircle2 className="h-4 w-4" />
           )}
-          {loading ? t('thinking.thinking') : t('thinking.confirmAndGenerate')}
+          {busy ? t('thinking.thinking') : t('thinking.confirmAndGenerate')}
         </button>
         {!canGenerate && (
           <p className="mt-2 text-center text-[10px] text-[#7a806c]">

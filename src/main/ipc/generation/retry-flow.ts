@@ -28,7 +28,7 @@ export async function resolveRetryContext(
   const input = normalizeGeneratePayload(payload)
   if (!input.sessionId) throw new Error('sessionId 不能为空')
 
-  const common = await resolveCommonContext(ctx, input.sessionId)
+  const common = await resolveCommonContext(ctx, input.sessionId, input.modelConfigId)
   const userMessage = buildRetryUserMessage(input.rawUserMessage)
   const sourceDocumentPaths = await resolveSourceDocuments(ctx, {
     sessionId: input.sessionId,
@@ -60,6 +60,9 @@ export async function resolveRetryContext(
     provider: common.provider,
     apiKey: common.apiKey,
     model: common.model,
+    modelConfigId: common.modelConfigId,
+    modelConfigName: common.modelConfigName,
+    runModel: common.runModel,
     modelTimeouts: common.modelTimeouts,
     providerBaseUrl: common.providerBaseUrl,
     maxTokens: common.maxTokens,
@@ -69,6 +72,7 @@ export async function resolveRetryContext(
     imagePaths: [],
     videoPaths: [],
     sourceDocumentPaths,
+    sourcePlan: common.sourcePlan,
     topic: common.topic,
     deckTitle: common.deckTitle,
     appLocale: common.appLocale,
@@ -224,10 +228,15 @@ export async function executeRetryFailedPages(
     sessionId: context.sessionId,
     mode: 'retry',
     totalPages: retryPages.length,
+    modelConfigId: context.modelConfigId,
     metadata: {
       retryOnly: true,
       source: 'session_pages',
-      pageIds: retryPages.map((page) => page.pageId)
+      pageIds: retryPages.map((page) => page.pageId),
+      modelConfigId: context.modelConfigId,
+      modelConfigName: context.modelConfigName,
+      provider: context.provider,
+      model: context.model
     }
   })
   for (const page of retryPages) {

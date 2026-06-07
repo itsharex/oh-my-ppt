@@ -1,4 +1,5 @@
 import type { PPTDatabase } from "./db/database";
+import path from "path";
 import { ChatAnthropic } from "@langchain/anthropic";
 import { ChatOpenAI } from "@langchain/openai";
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
@@ -14,6 +15,12 @@ import {
   type WriteResult,
 } from "deepagents";
 import log from "electron-log/main.js";
+import {
+  DEFAULT_MODEL_TEMPERATURE,
+  getCurrentModelTemperatureControl,
+  isCurrentModelTemperatureEnabled,
+  resolveCurrentModelTemperatureOptions,
+} from "./model-runtime";
 import { createSessionBoundDeckTools, type SessionDeckGenerationContext } from "./tools";
 import {
   buildDeckAgentSystemPrompt,
@@ -22,6 +29,7 @@ import {
 import {
   PRODUCT_SKILLS_ROUTE,
   REQUIRED_PRODUCT_SKILL_NAMES,
+  type RequiredProductSkillName,
   getInstalledSkillsPath,
   getSystemSkillsSourcePath,
   waitForSkillsReady,
@@ -98,6 +106,32 @@ class ReadOnlyFilesystemBackend extends FilesystemBackend {
   }
 }
 
+class FilteredReadOnlySkillsBackend extends ReadOnlyFilesystemBackend {
+  constructor(
+    options: { rootDir?: string; virtualMode?: boolean; maxFileSizeMb?: number } & {
+      allowedSkillNames: readonly string[];
+    }
+  ) {
+    super(options);
+    this.allowedSkillNames = new Set(options.allowedSkillNames);
+  }
+
+  private readonly allowedSkillNames: Set<string>;
+
+  async ls(dirPath: string) {
+    const result = await super.ls(dirPath);
+    if (result.error || !result.files) return result;
+    return {
+      ...result,
+      files: result.files.filter((file) => {
+        const normalized = file.path.replace(/\\/g, "/").replace(/\/$/, "");
+        const name = normalized.split("/").filter(Boolean).pop() || "";
+        return !file.is_dir || this.allowedSkillNames.has(name);
+      }),
+    };
+  }
+}
+
 function shouldBlockNativeEditFile(context: SessionDeckGenerationContext): boolean {
   if (context.editScope === "presentation-container") return true;
   return !Boolean(context.selectedSelector?.trim());
@@ -114,7 +148,12 @@ function waitWithTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T |
   ]);
 }
 
-function createSkillsReadyMiddleware(backend: CompositeBackend, skillSource: string, scope: string) {
+function createSkillsReadyMiddleware(
+  backend: CompositeBackend,
+  skillSource: string,
+  scope: string,
+  requiredSkillNames: readonly RequiredProductSkillName[] = REQUIRED_PRODUCT_SKILL_NAMES
+) {
   let hasLoggedReadySkills = false;
   return createMiddleware({
     name: "OhMyPptSkillsReadyMiddleware",
@@ -125,7 +164,7 @@ function createSkillsReadyMiddleware(backend: CompositeBackend, skillSource: str
       }
 
       const readySkillNames: string[] = [];
-      for (const skillName of REQUIRED_PRODUCT_SKILL_NAMES) {
+      for (const skillName of requiredSkillNames) {
         const skillPath = `${skillSource}${skillName}/SKILL.md`;
         const readResult = await backend.read(skillPath, 0, 20);
         if (readResult.error) {
@@ -150,10 +189,11 @@ function createSkillsReadyMiddleware(backend: CompositeBackend, skillSource: str
 function createProductSkillsMiddlewareSet(
   backend: CompositeBackend,
   skillSource: string,
-  scope: string
+  scope: string,
+  requiredSkillNames: readonly RequiredProductSkillName[] = REQUIRED_PRODUCT_SKILL_NAMES
 ): any[] {
   return [
-    createSkillsReadyMiddleware(backend, skillSource, scope),
+    createSkillsReadyMiddleware(backend, skillSource, scope, requiredSkillNames),
     createSkillsMiddleware({
       backend,
       sources: [skillSource],
@@ -161,8 +201,12 @@ function createProductSkillsMiddlewareSet(
   ];
 }
 
-function attachProductSkillsBackend(projectBackend: GuardedFilesystemBackend): {
-  backend: GuardedFilesystemBackend | CompositeBackend;
+export function attachProductSkillsBackend(
+  projectBackend: FilesystemBackend,
+  scope = "main",
+  requiredSkillNames: readonly RequiredProductSkillName[] = REQUIRED_PRODUCT_SKILL_NAMES
+): {
+  backend: FilesystemBackend | CompositeBackend;
   middleware: any[];
   skillSource: string;
   enabled: boolean;
@@ -172,17 +216,27 @@ function attachProductSkillsBackend(projectBackend: GuardedFilesystemBackend): {
     throw new Error("产品 skill 运行时路径未初始化，无法创建生成/编辑 Agent。");
   }
 
+  const usesAllProductSkills = requiredSkillNames.length === REQUIRED_PRODUCT_SKILL_NAMES.length;
+  const skillRoute = usesAllProductSkills ? PRODUCT_SKILLS_ROUTE : `${PRODUCT_SKILLS_ROUTE}${scope}/`;
   const backend = new CompositeBackend(projectBackend, {
-    [PRODUCT_SKILLS_ROUTE]: new ReadOnlyFilesystemBackend({
-      rootDir: installedSkillsPath,
-      virtualMode: true,
-    }),
+    [skillRoute]: usesAllProductSkills
+      ? new ReadOnlyFilesystemBackend({
+          rootDir: installedSkillsPath,
+          virtualMode: true,
+        })
+      : new FilteredReadOnlySkillsBackend({
+          rootDir: path.join(installedSkillsPath, getSystemSkillsSourcePath().replace(/^\/|\/$/g, "")),
+          virtualMode: true,
+          allowedSkillNames: requiredSkillNames,
+        }),
   });
-  const skillSource = `${PRODUCT_SKILLS_ROUTE}${getSystemSkillsSourcePath().replace(/^\//, "")}`;
+  const skillSource = usesAllProductSkills
+    ? `${PRODUCT_SKILLS_ROUTE}${getSystemSkillsSourcePath().replace(/^\//, "")}`
+    : skillRoute;
 
   return {
     backend,
-    middleware: createProductSkillsMiddlewareSet(backend, skillSource, "main"),
+    middleware: createProductSkillsMiddlewareSet(backend, skillSource, scope, requiredSkillNames),
     skillSource,
     enabled: true,
   };
@@ -191,7 +245,7 @@ function attachProductSkillsBackend(projectBackend: GuardedFilesystemBackend): {
 function createProductGeneralPurposeSubagent(args: {
   model: BaseLanguageModel;
   tools: unknown[];
-  backend: GuardedFilesystemBackend | CompositeBackend;
+  backend: FilesystemBackend | CompositeBackend;
   skillSource: string;
 }): any[] {
   if (!(args.backend instanceof CompositeBackend)) return [];
@@ -341,7 +395,7 @@ export function createSessionDeckAgent(args: {
 
 // ── Model resolution ──
 
-export const DEFAULT_MODEL_TEMPERATURE = 0.7;
+export { DEFAULT_MODEL_TEMPERATURE, isCurrentModelTemperatureEnabled };
 
 const resolveOpenAICompatibilityModelKwargs = (
   baseUrl?: string
@@ -368,10 +422,9 @@ export function resolveModel(
   if (!resolvedModel) {
     throw new Error("model 不能为空，请先在系统设置中配置模型。");
   }
-  const resolvedTemperature =
-    Number.isFinite(temperature) && typeof temperature === "number"
-      ? Math.max(0, Math.min(2, temperature))
-      : DEFAULT_MODEL_TEMPERATURE;
+  const temperatureOptions = resolveCurrentModelTemperatureOptions(temperature);
+  const resolvedTemperature = temperatureOptions.temperature;
+  const temperatureControl = getCurrentModelTemperatureControl();
   const resolvedBaseUrl = typeof baseUrl === "string" ? baseUrl.trim() : "";
   const resolvedMaxTokens = maxTokens && maxTokens > 0 ? maxTokens : 4096;
   const { modelKwargs, compatibilityFlags } = resolveOpenAICompatibilityModelKwargs(resolvedBaseUrl);
@@ -381,6 +434,9 @@ export function resolveModel(
     model: resolvedModel,
     baseUrl: resolvedBaseUrl,
     temperature: resolvedTemperature ?? null,
+    temperatureEnabled: isCurrentModelTemperatureEnabled(),
+    temperatureControlBound: temperatureControl !== undefined,
+    modelConfigId: temperatureControl?.modelConfigId ?? null,
     maxTokens: resolvedMaxTokens,
     openAICompatibility: compatibilityFlags,
   });
@@ -390,7 +446,7 @@ export function resolveModel(
       return new ChatOpenAI({
         model: resolvedModel,
         apiKey,
-        temperature: resolvedTemperature,
+        ...temperatureOptions,
         maxTokens: resolvedMaxTokens,
         configuration: resolvedBaseUrl ? { baseURL: resolvedBaseUrl } : undefined,
         modelKwargs,
@@ -399,7 +455,7 @@ export function resolveModel(
       return new ChatAnthropic({
         model: resolvedModel,
         apiKey,
-        temperature: resolvedTemperature,
+        ...temperatureOptions,
         maxTokens: resolvedMaxTokens,
         anthropicApiUrl: resolvedBaseUrl || undefined,
       });
@@ -407,7 +463,7 @@ export function resolveModel(
       return new ChatGoogleGenerativeAI({
         model: resolvedModel,
         apiKey,
-        temperature: resolvedTemperature ?? undefined,
+        ...temperatureOptions,
         maxOutputTokens: resolvedMaxTokens,
         baseUrl: resolvedBaseUrl || undefined,
       });

@@ -28,6 +28,7 @@ interface SettingsStore {
     apiKey: string
     baseUrl: string
     maxTokens?: number
+    disableTemperature?: boolean
     active?: boolean
   }) => Promise<string | null>
   upsertImageModelConfig: (config: {
@@ -48,6 +49,7 @@ interface SettingsStore {
     model: string,
     baseUrl: string,
     maxTokens: number,
+    disableTemperature: boolean,
     timeoutMs: number
   ) => Promise<boolean>
   verifyImageModel: (
@@ -206,7 +208,15 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
 
   setVerificationMessage: (message) => set({ verificationMessage: message }),
 
-  verifyApiKey: async (provider, apiKey, model, baseUrl, maxTokens, timeoutMs) => {
+  verifyApiKey: async (
+    provider,
+    apiKey,
+    model,
+    baseUrl,
+    maxTokens,
+    disableTemperature,
+    timeoutMs
+  ) => {
     try {
       const { valid, message } = await ipc.verifyApiKey({
         provider,
@@ -214,6 +224,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
         model,
         baseUrl,
         maxTokens,
+        disableTemperature,
         timeoutMs
       })
       set({ verificationMessage: message || null })

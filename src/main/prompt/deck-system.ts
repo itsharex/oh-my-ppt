@@ -6,6 +6,8 @@ import {
   FRONTEND_CAPABILITIES,
   LAYOUT_COLLISION_RULES,
   PAGE_SEMANTIC_STRUCTURE,
+  SOURCE_DOCUMENT_FACT_RULE,
+  SOURCE_DOCUMENT_READ_STRATEGY,
   STABLE_HTML_FRAGMENT_PROTOCOL,
   buildOutlinePageList,
   formatDesignContract,
@@ -49,18 +51,15 @@ export function buildDeckAgentSystemPrompt(
           '',
           '## Source documents (highest-priority content evidence)',
           'This session comes from user-uploaded documents. Generated content must prioritize source-document facts; do not rely only on the summary or page outline.',
-          'Single-page prompts may include program-side retrieved snippets. If snippets cover the current slide points, prioritize them and avoid rereading the whole document.',
-          'If there are no retrieved snippets, or snippets are insufficient, conflicting, or missing key facts, use read_file to confirm these source documents:',
+          'Single-page prompts may include program-side retrieved snippets.',
+          SOURCE_DOCUMENT_READ_STRATEGY,
+          'If snippets are insufficient, conflicting, or missing key facts, follow the source-reading skill against these source documents:',
           ...sourceDocumentPaths.map((docPath) => `- ${docPath}`),
-          'Reading strategy:',
-          '1. Extract keywords, business objects, time points, system names, and metrics from the current slide title, contentOutline, and additional user requirements.',
-          '2. Locate the most relevant source paragraphs, tables, or lists. For long documents, read in sections.',
-          '3. For each slide, use only facts and wording that match that slide outline. Do not move material for other slides into the current slide.',
+          SOURCE_DOCUMENT_FACT_RULE,
           isRetryMode
-            ? '4. This is a failed-slide retry. Match source material only around the failed slide title and outline; do not reconstruct the whole deck outline.'
-            : "4. This is initial page generation. Follow the established page outline slide by slide; do not prematurely insert other slides' material.",
-          'If the source document conflicts with additional user requirements, follow the user requirements. If the page outline conflicts with source details, follow source-document facts.',
-          'Do not invent exact numbers, dates, system names, or status claims not present in the source document.'
+            ? '- This is a failed-slide retry. Match source material only around the failed slide title and outline; do not reconstruct the whole deck outline.'
+            : "- This is initial page generation. Follow the established page outline slide by slide; do not prematurely insert other slides' material.",
+          'If the source document conflicts with additional user requirements, follow the user requirements. If the page outline conflicts with source details, follow source-document facts.'
         ]
       : []
 
@@ -141,14 +140,14 @@ export function buildDeckAgentSystemPrompt(
             '   Background/decorative assets are template skeleton, not stale business content; replacing facts and text must not remove the visual shell.',
             `   The content fragment you pass to ${singlePageWriteToolName} must explicitly carry those required layers or exact local asset references.`,
             sourceDocumentPaths.length > 0
-              ? `3. If retrieved source-document snippets are insufficient, use read_file to confirm source documents (${sourceDocumentPaths.join(', ')}).`
+              ? `3. Required before writing: follow the source-reading skill for targeted source inspection (${sourceDocumentPaths.join(', ')}).`
               : '3. Analyze the new slide content requirements from the context provided.',
             step3Instruction,
             '4. Send a short summary as your final response.'
           ].join('\n')
         : [
             sourceDocumentPaths.length > 0
-              ? `1. If retrieved source-document snippets are insufficient, use read_file to confirm source documents (${sourceDocumentPaths.join(', ')}).`
+              ? `1. Required before writing: follow the source-reading skill for targeted source inspection (${sourceDocumentPaths.join(', ')}).`
               : '1. Analyze the slide requirements from the context provided.',
             step3Instruction,
             '3. Send a short summary as your final response.'
@@ -156,7 +155,7 @@ export function buildDeckAgentSystemPrompt(
       : [
           '1. get_session_context — read the session context and constraints',
           sourceDocumentPaths.length > 0
-            ? `2. Prefer retrieved source-document snippets in the single-page prompt. If snippets are insufficient, use read_file to confirm source documents (${sourceDocumentPaths.join(', ')}), then call report_generation_status('Analyzing request', ...)`
+            ? `2. Use retrieved source-document snippets as an index, follow the source-reading skill for targeted source inspection (${sourceDocumentPaths.join(', ')}), then call report_generation_status('Analyzing request', ...)`
             : "2. report_generation_status('Analyzing request', ...) — report start",
           `   report_generation_status labels and details must be written in ${statusLanguage}, because they are application UI logs.`,
           '   This status/log language is independent from deck content language. Deck content must still follow the Content language rules.',

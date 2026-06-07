@@ -1,6 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { CircleAlert, FileText, LayoutTemplate, Loader2, Sparkles, X } from 'lucide-react'
+import {
+  CircleAlert,
+  Eye,
+  FileText,
+  LayoutTemplate,
+  Loader2,
+  Pencil,
+  Sparkles,
+  X
+} from 'lucide-react'
 import { Button } from '../ui/Button'
 import {
   Dialog,
@@ -11,6 +20,7 @@ import {
   DialogTitle
 } from '../ui/Dialog'
 import { Input, Textarea } from '../ui/Input'
+import { ScrollArea } from '../ui/ScrollArea'
 import { ModelSplitButton } from '../model/ModelActionButton'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/Tooltip'
 import { useModelAction } from '@renderer/hooks/useModelAction'
@@ -18,14 +28,21 @@ import { useT } from '@renderer/i18n'
 import { ipc, type TemplateListItem } from '@renderer/lib/ipc'
 import { useTemplateStore, useToastStore } from '@renderer/store'
 import type { ParsedDocumentPlanResult } from '@shared/generation'
+import ReactMarkdown from 'react-markdown'
+import {
+  buildSuggestionDraft,
+  formatSourceOutlineBriefText,
+  SessionCreateSuggestionDialog,
+  type DocumentPlanSuggestion,
+  type DocumentPlanSuggestionDraft
+} from '../session-create/SessionCreateSuggestionDialog'
 
 const MIN_PAGE_COUNT = 1
-const MAX_PAGE_COUNT = 40
+const MAX_PAGE_COUNT = 500
 const MAX_DOCUMENT_SIZE_MB = 10
 const MAX_DOCUMENT_SIZE_BYTES = MAX_DOCUMENT_SIZE_MB * 1024 * 1024
 
 type AttachedReferenceFile = ParsedDocumentPlanResult['files'][number]
-type DocumentPlanSuggestion = Pick<ParsedDocumentPlanResult, 'topic' | 'pageCount' | 'briefText'>
 
 const resolvePageCount = (raw: string, fallback: number): number => {
   const parsed = Number.parseInt(raw, 10)
@@ -65,6 +82,7 @@ export function TemplateUseDialog({
   const { selectedModelConfigId, ensureModelActive } = modelAction
   const [title, setTitle] = useState('')
   const [brief, setBrief] = useState('')
+  const [briefMode, setBriefMode] = useState<'edit' | 'preview'>('edit')
   const [pageCount, setPageCount] = useState('5')
   const [attachedReferenceFile, setAttachedReferenceFile] = useState<AttachedReferenceFile | null>(
     null
@@ -73,8 +91,9 @@ export function TemplateUseDialog({
   const [parsingDocument, setParsingDocument] = useState(false)
   const [documentParseError, setDocumentParseError] = useState<string | null>(null)
   const [hasParsedSource, setHasParsedSource] = useState(false)
-  const [documentPlanSuggestion, setDocumentPlanSuggestion] =
-    useState<DocumentPlanSuggestion | null>(null)
+  const [suggestionDraft, setSuggestionDraft] = useState<DocumentPlanSuggestionDraft | null>(null)
+  const [acceptedSourcePlan, setAcceptedSourcePlan] =
+    useState<DocumentPlanSuggestion['sourcePlan']>(undefined)
   const [suggestionDialogOpen, setSuggestionDialogOpen] = useState(false)
   const [applyTitleSuggestion, setApplyTitleSuggestion] = useState(false)
   const [applyPageCountSuggestion, setApplyPageCountSuggestion] = useState(false)
@@ -87,12 +106,14 @@ export function TemplateUseDialog({
     if (!template) return
     setTitle(template.name)
     setBrief('')
+    setBriefMode('edit')
     setPageCount(String(resolvePageCount(String(template.pageCount || 5), 5)))
     setAttachedReferenceFile(null)
     setReferenceDocumentPath(null)
     setDocumentParseError(null)
     setHasParsedSource(false)
-    setDocumentPlanSuggestion(null)
+    setSuggestionDraft(null)
+    setAcceptedSourcePlan(undefined)
     setSuggestionDialogOpen(false)
   }, [template])
 
@@ -163,7 +184,8 @@ export function TemplateUseDialog({
       setReferenceDocumentPath(
         referenceFile && referenceFile.type !== 'image' ? referenceFile.path : null
       )
-      setDocumentPlanSuggestion(null)
+      setSuggestionDraft(null)
+      setAcceptedSourcePlan(undefined)
       setSuggestionDialogOpen(false)
       success(t('templates.referenceAttached'), {
         description: referenceFile?.name || selectedFile.name
@@ -182,13 +204,15 @@ export function TemplateUseDialog({
     setReferenceDocumentPath(null)
     setDocumentParseError(null)
     setHasParsedSource(false)
-    setDocumentPlanSuggestion(null)
+    setSuggestionDraft(null)
+    setAcceptedSourcePlan(undefined)
     setSuggestionDialogOpen(false)
   }
 
   const handleAnalyzeDocument = async (modelConfigId = selectedModelConfigId): Promise<void> => {
     if (!template || !attachedReferenceFile || parsingDocument) return
-    if (!(await ensureModelActive(modelConfigId))) return
+    const resolvedModelConfigId = await ensureModelActive(modelConfigId)
+    if (!resolvedModelConfigId) return
 
     setParsingDocument(true)
     setDocumentParseError(null)
@@ -196,19 +220,23 @@ export function TemplateUseDialog({
       const result = await ipc.parseDocumentPlan({
         files: [{ path: attachedReferenceFile.path, name: attachedReferenceFile.name }],
         topic: title.trim() || template.name,
-        existingBrief: brief.trim()
+        existingBrief: brief.trim(),
+        modelConfigId: resolvedModelConfigId
       })
       const referenceFile = result.files[0] || attachedReferenceFile
       setAttachedReferenceFile(referenceFile)
       setReferenceDocumentPath(referenceFile.type !== 'image' ? referenceFile.path : null)
-      setDocumentPlanSuggestion({
+      const nextSuggestion = {
         topic: result.topic || title || template.name,
         pageCount: resolvePageCount(String(result.pageCount), 5),
-        briefText: result.briefText
-      })
+        briefText: result.briefText,
+        sourcePlan: result.sourcePlan
+      }
+      setSuggestionDraft(buildSuggestionDraft(nextSuggestion))
+      setAcceptedSourcePlan(undefined)
       setApplyTitleSuggestion(!title.trim() || title.trim() === template.name)
-      setApplyPageCountSuggestion(true)
-      setApplyBriefSuggestion(!brief.trim())
+      setApplyPageCountSuggestion(!result.sourcePlan?.pageSkeleton.length)
+      setApplyBriefSuggestion(Boolean(result.sourcePlan?.pageSkeleton.length) || !brief.trim())
       setSuggestionDialogOpen(true)
       setHasParsedSource(true)
       success(t('templates.documentParsed'), {
@@ -223,23 +251,34 @@ export function TemplateUseDialog({
     }
   }
 
-  const applyDocumentSuggestion = (mode: 'empty' | 'selected'): void => {
-    if (!documentPlanSuggestion) return
-    const shouldApplyTitle = mode === 'empty' ? !title.trim() : applyTitleSuggestion
-    const shouldApplyPageCount = mode === 'empty' ? !pageCount.trim() : applyPageCountSuggestion
-    const shouldApplyBrief = mode === 'empty' ? !brief.trim() : applyBriefSuggestion
+  const applyDocumentSuggestion = (): void => {
+    const draft = suggestionDraft
+    if (!draft) return
+    const sourceOutlinePageCount = draft.sourcePlan?.pageSkeleton.length || 0
+    const hasSourceOutline = sourceOutlinePageCount > 0
+    const shouldApplySourceOutline = hasSourceOutline && applyBriefSuggestion
 
-    if (shouldApplyTitle) setTitle(documentPlanSuggestion.topic)
-    if (shouldApplyPageCount) {
-      setPageCount(String(resolvePageCount(String(documentPlanSuggestion.pageCount), 5)))
+    if (applyTitleSuggestion) setTitle(draft.topic)
+    if (shouldApplySourceOutline) {
+      setPageCount(String(resolvePageCount(String(sourceOutlinePageCount), 5)))
+    } else if (applyPageCountSuggestion) {
+      setPageCount(String(resolvePageCount(draft.pageCount, 5)))
     }
-    if (shouldApplyBrief) setBrief(documentPlanSuggestion.briefText)
+    if (applyBriefSuggestion) {
+      setBrief(
+        draft.sourcePlan?.pageSkeleton.length
+          ? formatSourceOutlineBriefText(draft.sourcePlan.pageSkeleton)
+          : draft.briefText
+      )
+    }
+    setAcceptedSourcePlan(shouldApplySourceOutline ? draft.sourcePlan : undefined)
     setSuggestionDialogOpen(false)
   }
 
   const handleCreate = async (modelConfigId = selectedModelConfigId): Promise<void> => {
     if (!template || creating) return
-    if (!(await ensureModelActive(modelConfigId))) return
+    const resolvedModelConfigId = await ensureModelActive(modelConfigId)
+    if (!resolvedModelConfigId) return
     const deckTitle = title.trim() || template.name
     const briefText = brief.trim()
     if (!briefText) {
@@ -252,8 +291,10 @@ export function TemplateUseDialog({
       const sessionId = await createSessionFromTemplate({
         templateId: template.id,
         title: deckTitle,
+        modelConfigId: resolvedModelConfigId,
         pageCount: safePageCount,
-        referenceDocumentPath: referenceDocumentPath || undefined
+        referenceDocumentPath: referenceDocumentPath || undefined,
+        sourcePlan: acceptedSourcePlan
       })
       const initialPrompt = buildTemplateInitialPrompt({
         templateName: template.name,
@@ -261,10 +302,12 @@ export function TemplateUseDialog({
         pageCount: safePageCount,
         brief: briefText
       })
-      success(t('templates.sessionCreated'), { description: t('templates.sessionCreatedDescription') })
+      success(t('templates.sessionCreated'), {
+        description: t('templates.sessionCreatedDescription')
+      })
       onOpenChange(false)
       navigate(`/sessions/${sessionId}/template-generating`, {
-        state: { initialPrompt }
+        state: { initialPrompt, modelConfigId: resolvedModelConfigId }
       })
     } catch (err) {
       error(t('templates.createFailed'), {
@@ -277,345 +320,269 @@ export function TemplateUseDialog({
 
   return (
     <>
-    <Dialog open={open} onOpenChange={(next) => !next && close()}>
-      <DialogContent className="max-w-2xl">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <LayoutTemplate className="h-4 w-4" />
-            {t('templates.useDialogTitle')}
-          </DialogTitle>
-          <DialogDescription className="text-xs leading-5">
-            {t('templates.useDialogDescription')}
-          </DialogDescription>
-        </DialogHeader>
-        <div className="space-y-3">
-          <div className="flex flex-col gap-3 sm:flex-row">
-            <div className="min-w-0 flex-1">
-              <label className="mb-1 block text-xs font-medium text-[#5f6b50]">
-                {t('templates.sessionTitleLabel')}
-              </label>
-              <Input value={title} onChange={(event) => setTitle(event.target.value)} />
+      <Dialog open={open} onOpenChange={(next) => !next && close()}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <LayoutTemplate className="h-4 w-4" />
+              {t('templates.useDialogTitle')}
+            </DialogTitle>
+            <DialogDescription className="text-xs leading-5">
+              {t('templates.useDialogDescription')}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <div className="min-w-0 flex-1">
+                <label className="mb-1 block text-xs font-medium text-[#5f6b50]">
+                  {t('templates.sessionTitleLabel')}
+                </label>
+                <Input value={title} onChange={(event) => setTitle(event.target.value)} />
+              </div>
+              <div className="w-full sm:w-28">
+                <label className="mb-1 block text-xs font-medium text-[#5f6b50]">
+                  {t('templates.pageCountLabel')}
+                </label>
+                <Input
+                  value={pageCount}
+                  inputMode="numeric"
+                  onChange={(event) => {
+                    setAcceptedSourcePlan(undefined)
+                    setPageCount(event.target.value)
+                  }}
+                />
+              </div>
             </div>
-            <div className="w-full sm:w-28">
-              <label className="mb-1 block text-xs font-medium text-[#5f6b50]">
-                {t('templates.pageCountLabel')}
-              </label>
-              <Input
-                value={pageCount}
-                inputMode="numeric"
-                onChange={(event) => setPageCount(event.target.value)}
-              />
-            </div>
-          </div>
-          <div>
-            <div className="mb-1 flex items-center justify-between gap-2">
-              <label className="block text-xs font-medium text-[#5f6b50]">
-                {t('templates.briefLabel')}
-              </label>
-              {hasParsedSource && !parsingDocument ? (
-                <span className="rounded-full bg-[#e8f0df] px-2 py-0.5 text-[11px] text-[#4f6340]">
-                  {t('templates.parsed')}
-                </span>
-              ) : null}
-            </div>
-            <Textarea
-              value={brief}
-              onChange={(event) => setBrief(event.target.value)}
-              className="min-h-[160px]"
-              placeholder={t('templates.briefPlaceholder')}
-            />
-          </div>
-          {attachedReferenceFile ? (
-            <div className="flex min-w-0">
-              <span
-                className="inline-flex h-6 max-w-[260px] items-center gap-1 rounded-full border border-[#c7d9b4]/70 bg-[#e6f1dc]/80 px-2 text-[10px] text-[#405333]"
-                title={attachedReferenceFile.path}
-              >
-                <FileText className="h-3 w-3 shrink-0" />
-                <span className="min-w-0 truncate">{attachedReferenceFile.name}</span>
-                <button
-                  type="button"
-                  onClick={handleRemoveReferenceFile}
-                  className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full text-[#657552] hover:bg-[#c8ddb2]"
-                  aria-label={t('templates.removeReference')}
-                >
-                  <X className="h-2.5 w-2.5" />
-                </button>
-              </span>
-            </div>
-          ) : null}
-          <input
-            ref={documentInputRef}
-            type="file"
-            accept=".md,.txt,.text,.csv,.docx"
-            multiple={false}
-            className="hidden"
-            onChange={(event) => void handleDocumentFilesSelected(event.target.files)}
-          />
-          <TooltipProvider delayDuration={180}>
-            <div className="flex flex-wrap items-center gap-2">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span className="inline-flex">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => void handleChooseDocumentClick()}
-                      disabled={parsingDocument || creating}
-                      className="h-8 shrink-0 rounded-lg border border-[#d8ccb5]/80 bg-[#fffdf8]/76 px-2.5 text-xs font-medium text-[#405333] shadow-none hover:bg-[#f3f7ed] hover:text-[#2f3b28]"
-                    >
-                      {parsingDocument ? (
-                        <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <FileText className="mr-1.5 h-3.5 w-3.5" />
-                      )}
-                      {parsingDocument
-                        ? t('templates.processingDocument')
-                        : t('templates.uploadDocument')}
-                    </Button>
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent side="bottom" align="start">
-                  {t('templates.uploadDocumentTooltip', { maxSize: MAX_DOCUMENT_SIZE_MB })}
-                </TooltipContent>
-              </Tooltip>
-              {attachedReferenceFile ? (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span>
-                      <ModelSplitButton
-                        modelAction={modelAction}
-                        label={t('templates.analyzeDocument')}
-                        loadingLabel={t('templates.analyzingDocument')}
-                        loading={parsingDocument}
-                        disabled={creating || !attachedReferenceFile}
-                        icon={Sparkles}
-                        tone="primary"
-                        dropdownAlign="start"
-                        className="h-8 rounded-lg border-0 bg-gradient-to-r from-[#7f965f] to-[#5f7448] shadow-[0_8px_18px_rgba(93,107,77,0.18)]"
-                        mainClassName="h-full bg-transparent px-2.5 text-xs text-white shadow-none hover:bg-white/10 hover:text-white hover:shadow-none"
-                        triggerClassName="h-full w-8 px-0"
-                        onRun={handleAnalyzeDocument}
-                      />
+            <div>
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <label className="block text-xs font-medium text-[#5f6b50]">
+                  {t('templates.briefLabel')}
+                </label>
+                <div className="flex items-center gap-2">
+                  {hasParsedSource && !parsingDocument ? (
+                    <span className="rounded-full bg-[#e8f0df] px-2 py-0.5 text-[11px] text-[#4f6340]">
+                      {t('templates.parsed')}
                     </span>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom" align="start" className="max-w-xs">
-                    {t('templates.analyzeDocumentTooltip')}
-                  </TooltipContent>
-                </Tooltip>
-              ) : null}
-              <span className="text-xs text-muted-foreground">
-                {t('templates.supportedDocuments', { maxSize: MAX_DOCUMENT_SIZE_MB })}
-              </span>
+                  ) : null}
+                  <div className="flex items-center gap-1 rounded-lg border border-border p-0.5">
+                    <button
+                      type="button"
+                      onClick={() => setBriefMode('edit')}
+                      className={`flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-medium transition-colors ${
+                        briefMode === 'edit'
+                          ? 'bg-foreground text-background'
+                          : 'text-muted-foreground hover:text-foreground'
+                      }`}
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                      {t('common.edit')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setBriefMode('preview')}
+                      className={`flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-medium transition-colors ${
+                        briefMode === 'preview'
+                          ? 'bg-foreground text-background'
+                          : 'text-muted-foreground hover:text-foreground'
+                      }`}
+                    >
+                      <Eye className="h-3.5 w-3.5" />
+                      {t('common.preview')}
+                    </button>
+                  </div>
+                </div>
+              </div>
+              {briefMode === 'edit' ? (
+                <Textarea
+                  value={brief}
+                  onChange={(event) => {
+                    setAcceptedSourcePlan(undefined)
+                    setBrief(event.target.value)
+                  }}
+                  className="min-h-[150px] resize-y px-3 py-2 text-xs leading-5"
+                  placeholder={t('templates.briefPlaceholder')}
+                />
+              ) : (
+                <ScrollArea
+                  className="h-[180px] rounded-lg border border-border/70 bg-background/70"
+                  viewportClassName="p-4"
+                >
+                  <ReactMarkdown
+                    components={{
+                      h1: ({ children }) => (
+                        <h1 className="mb-2 text-lg font-semibold text-foreground">{children}</h1>
+                      ),
+                      h2: ({ children }) => (
+                        <h2 className="mb-2 mt-3 text-base font-semibold text-foreground">
+                          {children}
+                        </h2>
+                      ),
+                      h3: ({ children }) => (
+                        <h3 className="mb-1.5 mt-2.5 text-sm font-semibold text-foreground">
+                          {children}
+                        </h3>
+                      ),
+                      p: ({ children }) => (
+                        <p className="mb-2 text-xs leading-5 text-muted-foreground">{children}</p>
+                      ),
+                      ul: ({ children }) => (
+                        <ul className="mb-2 list-disc space-y-0.5 pl-5 text-xs text-muted-foreground">
+                          {children}
+                        </ul>
+                      ),
+                      ol: ({ children }) => (
+                        <ol className="mb-2 list-decimal space-y-0.5 pl-5 text-xs text-muted-foreground">
+                          {children}
+                        </ol>
+                      ),
+                      li: ({ children }) => <li>{children}</li>,
+                      code: ({ children }) => (
+                        <code className="rounded bg-muted px-1.5 py-0.5 text-xs text-foreground">
+                          {children}
+                        </code>
+                      ),
+                      blockquote: ({ children }) => (
+                        <blockquote className="mb-2 border-l-2 border-border pl-3 text-xs text-muted-foreground">
+                          {children}
+                        </blockquote>
+                      )
+                    }}
+                  >
+                    {brief || t('templates.briefPlaceholder')}
+                  </ReactMarkdown>
+                </ScrollArea>
+              )}
             </div>
-          </TooltipProvider>
-          {documentParseError ? (
-            <div className="flex items-start gap-2 rounded-md border border-[#d58b7f]/45 bg-[#fff2ef] px-3 py-2 text-xs text-[#8a3d33]">
-              <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
-              <span>{documentParseError}</span>
-            </div>
-          ) : null}
-        </div>
-        <DialogFooter className="gap-2">
-          <Button type="button" variant="outline" size="sm" onClick={close} disabled={creating || parsingDocument}>
-            {t('common.cancel')}
-          </Button>
-          <ModelSplitButton
-            modelAction={modelAction}
-            label={t('templates.createAndGenerate')}
-            loadingLabel={t('templates.creating')}
-            loading={creating}
-            disabled={parsingDocument}
-            icon={Sparkles}
-            tone="primary"
-            onRun={handleCreate}
-          />
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-
-    <Dialog open={suggestionDialogOpen} onOpenChange={setSuggestionDialogOpen}>
-      <DialogContent className="max-w-4xl gap-0 overflow-hidden border-[#d8ccb5]/85 bg-[#f7f1e8] p-0">
-        <DialogHeader className="border-b border-[#ded4c1] bg-[#fffaf1] px-5 py-4 pr-12">
-          <div className="flex items-start gap-3">
-            <span className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[#b9cda7]/75 bg-[#e6f1dc] text-[#405333] shadow-[0_4px_10px_rgba(93,107,77,0.08)]">
-              <Sparkles className="h-4 w-4" />
-            </span>
-            <div className="min-w-0">
-              <DialogTitle className="text-sm">{t('home.analysisSuggestionTitle')}</DialogTitle>
-              <DialogDescription className="mt-1 max-w-2xl text-xs leading-5">
-                {t('home.analysisSuggestionDescription')}
-              </DialogDescription>
-              {attachedReferenceFile ? (
+            {attachedReferenceFile ? (
+              <div className="flex min-w-0">
                 <span
-                  className="mt-2 inline-flex max-w-full items-center gap-1.5 rounded-full border border-[#d8ccb5]/72 bg-[#fff9ef]/86 px-2 py-1 text-[11px] font-medium text-[#5d6b4d]"
+                  className="inline-flex h-6 max-w-[260px] items-center gap-1 rounded-full border border-[#c7d9b4]/70 bg-[#e6f1dc]/80 px-2 text-[10px] text-[#405333]"
                   title={attachedReferenceFile.path}
                 >
                   <FileText className="h-3 w-3 shrink-0" />
                   <span className="min-w-0 truncate">{attachedReferenceFile.name}</span>
+                  <button
+                    type="button"
+                    onClick={handleRemoveReferenceFile}
+                    className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full text-[#657552] hover:bg-[#c8ddb2]"
+                    aria-label={t('templates.removeReference')}
+                  >
+                    <X className="h-2.5 w-2.5" />
+                  </button>
                 </span>
-              ) : null}
-            </div>
+              </div>
+            ) : null}
+            <input
+              ref={documentInputRef}
+              type="file"
+              accept=".md,.txt,.text,.csv,.docx"
+              multiple={false}
+              className="hidden"
+              onChange={(event) => void handleDocumentFilesSelected(event.target.files)}
+            />
+            <TooltipProvider delayDuration={180}>
+              <div className="flex flex-wrap items-center gap-2">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="inline-flex">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => void handleChooseDocumentClick()}
+                        disabled={parsingDocument || creating}
+                        className="h-8 shrink-0 rounded-lg border border-[#d8ccb5]/80 bg-[#fffdf8]/76 px-2.5 text-xs font-medium text-[#405333] shadow-none hover:bg-[#f3f7ed] hover:text-[#2f3b28]"
+                      >
+                        {parsingDocument ? (
+                          <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <FileText className="mr-1.5 h-3.5 w-3.5" />
+                        )}
+                        {parsingDocument
+                          ? t('templates.processingDocument')
+                          : t('templates.uploadDocument')}
+                      </Button>
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" align="start">
+                    {t('templates.uploadDocumentTooltip', { maxSize: MAX_DOCUMENT_SIZE_MB })}
+                  </TooltipContent>
+                </Tooltip>
+                {attachedReferenceFile ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span>
+                        <ModelSplitButton
+                          modelAction={modelAction}
+                          label={t('templates.analyzeDocument')}
+                          loadingLabel={t('templates.analyzingDocument')}
+                          loading={parsingDocument}
+                          disabled={creating || !attachedReferenceFile}
+                          icon={Sparkles}
+                          tone="primary"
+                          dropdownAlign="start"
+                          className="h-8 rounded-lg border-0 bg-gradient-to-r from-[#7f965f] to-[#5f7448] shadow-[0_8px_18px_rgba(93,107,77,0.18)]"
+                          mainClassName="h-full bg-transparent px-2.5 text-xs text-white shadow-none hover:bg-white/10 hover:text-white hover:shadow-none"
+                          triggerClassName="h-full w-8 px-0"
+                          onRun={handleAnalyzeDocument}
+                        />
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom" align="start" className="max-w-xs">
+                      {t('templates.analyzeDocumentTooltip')}
+                    </TooltipContent>
+                  </Tooltip>
+                ) : null}
+                <span className="text-xs text-muted-foreground">
+                  {t('templates.supportedDocuments', { maxSize: MAX_DOCUMENT_SIZE_MB })}
+                </span>
+              </div>
+            </TooltipProvider>
+            {documentParseError ? (
+              <div className="flex items-start gap-2 rounded-md border border-[#d58b7f]/45 bg-[#fff2ef] px-3 py-2 text-xs text-[#8a3d33]">
+                <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>{documentParseError}</span>
+              </div>
+            ) : null}
           </div>
-        </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={close}
+              disabled={creating || parsingDocument}
+            >
+              {t('common.cancel')}
+            </Button>
+            <ModelSplitButton
+              modelAction={modelAction}
+              label={t('templates.createAndGenerate')}
+              loadingLabel={t('templates.creating')}
+              loading={creating}
+              disabled={parsingDocument}
+              icon={Sparkles}
+              tone="primary"
+              onRun={handleCreate}
+            />
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
-        {documentPlanSuggestion ? (
-          <div className="max-h-[64vh] overflow-y-auto px-5 py-4">
-            <div className="space-y-2.5">
-              <section
-                className={`overflow-hidden rounded-xl border bg-[#fffdf8] shadow-[0_8px_18px_rgba(74,59,42,0.06)] transition-colors ${
-                  applyTitleSuggestion
-                    ? 'border-[#a9c693] ring-1 ring-[#cfe2c1]'
-                    : 'border-[#e1d7c6]'
-                }`}
-              >
-                <div className="grid gap-3 p-3 md:grid-cols-[120px_1fr] md:items-center">
-                  <label className="flex cursor-pointer items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={applyTitleSuggestion}
-                      onChange={(event) => setApplyTitleSuggestion(event.target.checked)}
-                      className="h-4 w-4 accent-[#6f8f64]"
-                    />
-                    <span className="text-sm font-semibold text-[#34402c]">
-                      {t('templates.sessionTitleLabel')}
-                    </span>
-                  </label>
-                  <div className="grid gap-2 md:grid-cols-[1fr_auto_1fr] md:items-stretch">
-                    <div className="rounded-lg bg-[#f5efe4]/76 px-3 py-2">
-                      <p className="mb-1 text-[10px] font-medium uppercase text-[#8a7d69]">
-                        {t('home.currentValue')}
-                      </p>
-                      <p className="min-h-5 whitespace-pre-wrap text-xs leading-5 text-[#6d604d]">
-                        {title.trim() || t('home.emptyValue')}
-                      </p>
-                    </div>
-                    <div className="hidden items-center text-[#b5aa95] md:flex">→</div>
-                    <div className="rounded-lg bg-[#eef6e8] px-3 py-2">
-                      <p className="mb-1 text-[10px] font-medium uppercase text-[#6a8054]">
-                        {t('home.suggestedValue')}
-                      </p>
-                      <p className="min-h-5 whitespace-pre-wrap text-xs leading-5 text-[#405333]">
-                        {documentPlanSuggestion.topic}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </section>
-
-              <section
-                className={`overflow-hidden rounded-xl border bg-[#fffdf8] shadow-[0_8px_18px_rgba(74,59,42,0.06)] transition-colors ${
-                  applyPageCountSuggestion
-                    ? 'border-[#a9c693] ring-1 ring-[#cfe2c1]'
-                    : 'border-[#e1d7c6]'
-                }`}
-              >
-                <div className="grid gap-3 p-3 md:grid-cols-[120px_1fr] md:items-center">
-                  <label className="flex cursor-pointer items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={applyPageCountSuggestion}
-                      onChange={(event) => setApplyPageCountSuggestion(event.target.checked)}
-                      className="h-4 w-4 accent-[#6f8f64]"
-                    />
-                    <span className="text-sm font-semibold text-[#34402c]">
-                      {t('templates.pageCountLabel')}
-                    </span>
-                  </label>
-                  <div className="grid gap-2 md:grid-cols-[1fr_auto_1fr] md:items-stretch">
-                    <div className="rounded-lg bg-[#f5efe4]/76 px-3 py-2">
-                      <p className="mb-1 text-[10px] font-medium uppercase text-[#8a7d69]">
-                        {t('home.currentValue')}
-                      </p>
-                      <p className="min-h-5 text-xs leading-5 text-[#6d604d]">
-                        {pageCount.trim() || t('home.emptyValue')}
-                      </p>
-                    </div>
-                    <div className="hidden items-center text-[#b5aa95] md:flex">→</div>
-                    <div className="rounded-lg bg-[#eef6e8] px-3 py-2">
-                      <p className="mb-1 text-[10px] font-medium uppercase text-[#6a8054]">
-                        {t('home.suggestedValue')}
-                      </p>
-                      <p className="min-h-5 text-xs leading-5 text-[#405333]">
-                        {documentPlanSuggestion.pageCount}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </section>
-
-              <section
-                className={`overflow-hidden rounded-xl border bg-[#fffdf8] shadow-[0_8px_18px_rgba(74,59,42,0.06)] transition-colors ${
-                  applyBriefSuggestion
-                    ? 'border-[#a9c693] ring-1 ring-[#cfe2c1]'
-                    : 'border-[#e1d7c6]'
-                }`}
-              >
-                <div className="grid gap-3 p-3 md:grid-cols-[120px_1fr] md:items-start">
-                  <label className="flex cursor-pointer items-center gap-2 pt-1">
-                    <input
-                      type="checkbox"
-                      checked={applyBriefSuggestion}
-                      onChange={(event) => setApplyBriefSuggestion(event.target.checked)}
-                      className="h-4 w-4 accent-[#6f8f64]"
-                    />
-                    <span className="truncate text-sm font-semibold text-[#34402c]">
-                      {t('templates.briefLabel')}
-                    </span>
-                  </label>
-                  <div className="grid gap-2 md:grid-cols-[1fr_auto_1fr] md:items-stretch">
-                    <div className="rounded-lg bg-[#f5efe4]/76 px-3 py-2.5">
-                      <p className="mb-1 text-[10px] font-medium uppercase text-[#8a7d69]">
-                        {t('home.currentValue')}
-                      </p>
-                      <div className="max-h-40 min-h-24 overflow-y-auto whitespace-pre-wrap text-xs leading-5 text-[#6d604d]">
-                        {brief.trim() || t('home.emptyValue')}
-                      </div>
-                    </div>
-                    <div className="hidden items-center text-[#b5aa95] md:flex">→</div>
-                    <div className="rounded-lg bg-[#eef6e8] px-3 py-2.5">
-                      <p className="mb-1 text-[10px] font-medium uppercase text-[#6a8054]">
-                        {t('home.suggestedValue')}
-                      </p>
-                      <div className="max-h-40 min-h-24 overflow-y-auto whitespace-pre-wrap text-xs leading-5 text-[#405333]">
-                        {documentPlanSuggestion.briefText}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </section>
-            </div>
-          </div>
-        ) : null}
-
-        <DialogFooter className="flex-col-reverse gap-1.5 border-t border-[#ded4c1] bg-[#fffaf1] px-5 py-2.5 sm:flex-row">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-8 px-3 text-xs"
-            onClick={() => setSuggestionDialogOpen(false)}
-          >
-            {t('common.cancel')}
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-8 px-3 text-xs"
-            onClick={() => applyDocumentSuggestion('empty')}
-          >
-            {t('home.applyEmptyFields')}
-          </Button>
-          <Button
-            size="sm"
-            className="h-8 px-3 text-xs"
-            onClick={() => applyDocumentSuggestion('selected')}
-          >
-            {t('home.applySelectedFields')}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      <SessionCreateSuggestionDialog
+        open={suggestionDialogOpen}
+        onOpenChange={setSuggestionDialogOpen}
+        attachedReferenceFile={attachedReferenceFile}
+        suggestionDraft={suggestionDraft}
+        setSuggestionDraft={setSuggestionDraft}
+        applyTopicSuggestion={applyTitleSuggestion}
+        setApplyTopicSuggestion={setApplyTitleSuggestion}
+        applyPageCountSuggestion={applyPageCountSuggestion}
+        setApplyPageCountSuggestion={setApplyPageCountSuggestion}
+        applyBriefSuggestion={applyBriefSuggestion}
+        setApplyBriefSuggestion={setApplyBriefSuggestion}
+        onApplySelected={applyDocumentSuggestion}
+      />
     </>
   )
 }

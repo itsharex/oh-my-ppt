@@ -4,6 +4,7 @@ import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
 import { Textarea } from '../components/ui/Input'
 import { Card, CardContent } from '../components/ui/Card'
+import { ScrollArea } from '../components/ui/ScrollArea'
 import {
   Select,
   SelectContent,
@@ -12,15 +13,7 @@ import {
   SelectValue
 } from '../components/ui/Select'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../components/ui/Tooltip'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle
-} from '../components/ui/Dialog'
-import { CircleAlert, FileText, Loader2, Sparkles, X } from 'lucide-react'
+import { CircleAlert, Eye, FileText, Loader2, Pencil, Sparkles, X } from 'lucide-react'
 import { useSessionStore } from '../store'
 import { useSettingsStore } from '../store'
 import { useToastStore } from '../store'
@@ -29,10 +22,18 @@ import { useModelAction } from '../hooks/useModelAction'
 import { ipc, type FontListItem } from '@renderer/lib/ipc'
 import type { FontSelection, ParsedDocumentPlanResult } from '@shared/generation'
 import { useT } from '../i18n'
+import ReactMarkdown from 'react-markdown'
 import { isSupportedImageMimeType } from '@shared/image-mime'
+import {
+  buildSuggestionDraft,
+  formatSourceOutlineBriefText,
+  SessionCreateSuggestionDialog,
+  type DocumentPlanSuggestion,
+  type DocumentPlanSuggestionDraft
+} from '../components/session-create/SessionCreateSuggestionDialog'
 
 const MIN_PAGE_COUNT = 1
-const MAX_PAGE_COUNT = 40
+const MAX_PAGE_COUNT = 500
 const DEFAULT_PAGE_COUNT = 5
 const MAX_DOCUMENT_SIZE_MB = 10
 const MAX_DOCUMENT_SIZE_BYTES = MAX_DOCUMENT_SIZE_MB * 1024 * 1024
@@ -44,8 +45,6 @@ const isSupportedImageFile = (file: File): boolean =>
   isSupportedImageMimeType(file.type) || isImageFileName(file.name || '')
 
 type AttachedReferenceFile = ParsedDocumentPlanResult['files'][number]
-
-type DocumentPlanSuggestion = Pick<ParsedDocumentPlanResult, 'topic' | 'pageCount' | 'briefText'>
 
 const compactInputClass = 'h-8 px-3 py-1.5 text-xs'
 const compactSelectTriggerClass = 'h-8 px-2.5 py-1.5 text-xs'
@@ -82,6 +81,7 @@ export function SessionCreatePage(): ReactElement {
   const [submitting, setSubmitting] = useState(false)
   const [topic, setTopic] = useState('')
   const [brief, setBrief] = useState('')
+  const [briefMode, setBriefMode] = useState<'edit' | 'preview'>('edit')
   const [pageCount, setPageCount] = useState(String(DEFAULT_PAGE_COUNT))
   const [selectedStyleId, setSelectedStyleId] = useState('')
   const [selectedTitleFontId, setSelectedTitleFontId] = useState('auto')
@@ -96,8 +96,9 @@ export function SessionCreatePage(): ReactElement {
   const [parsingDocument, setParsingDocument] = useState(false)
   const [documentParseError, setDocumentParseError] = useState<string | null>(null)
   const [referenceDocumentPath, setReferenceDocumentPath] = useState<string | null>(null)
-  const [documentPlanSuggestion, setDocumentPlanSuggestion] =
-    useState<DocumentPlanSuggestion | null>(null)
+  const [suggestionDraft, setSuggestionDraft] = useState<DocumentPlanSuggestionDraft | null>(null)
+  const [acceptedSourcePlan, setAcceptedSourcePlan] =
+    useState<DocumentPlanSuggestion['sourcePlan']>(undefined)
   const [suggestionDialogOpen, setSuggestionDialogOpen] = useState(false)
   const [applyTopicSuggestion, setApplyTopicSuggestion] = useState(false)
   const [applyPageCountSuggestion, setApplyPageCountSuggestion] = useState(false)
@@ -261,12 +262,15 @@ export function SessionCreatePage(): ReactElement {
 
     setSubmitting(true)
     try {
-      if (!(await ensureModelActive(modelConfigId))) return
+      const resolvedModelConfigId = await ensureModelActive(modelConfigId)
+      if (!resolvedModelConfigId) return
       const sessionId = await createSession({
         topic: topicText,
         styleId: selectedStyleId,
+        modelConfigId: resolvedModelConfigId,
         pageCount: safePageCount,
         referenceDocumentPath: referenceDocumentPath || undefined,
+        sourcePlan: acceptedSourcePlan,
         fontSelection
       })
       success(t('home.sessionCreated'), {
@@ -277,7 +281,8 @@ export function SessionCreatePage(): ReactElement {
       await delay(500)
       navigate(`/sessions/${sessionId}/generating`, {
         state: {
-          initialPrompt
+          initialPrompt,
+          modelConfigId: resolvedModelConfigId
         }
       })
     } catch (err) {
@@ -345,7 +350,8 @@ export function SessionCreatePage(): ReactElement {
       setReferenceDocumentPath(
         referenceFile && referenceFile.type !== 'image' ? referenceFile.path : null
       )
-      setDocumentPlanSuggestion(null)
+      setSuggestionDraft(null)
+      setAcceptedSourcePlan(undefined)
       success(isImage ? t('home.imageReferenceAttachedNeedsParse') : t('home.referenceAttached'), {
         description: referenceFile?.name || selectedFile.name
       })
@@ -363,7 +369,8 @@ export function SessionCreatePage(): ReactElement {
   const handleRemoveReferenceFile = (): void => {
     setAttachedReferenceFile(null)
     setReferenceDocumentPath(null)
-    setDocumentPlanSuggestion(null)
+    setSuggestionDraft(null)
+    setAcceptedSourcePlan(undefined)
     setDocumentParseError(null)
   }
 
@@ -378,21 +385,26 @@ export function SessionCreatePage(): ReactElement {
     }
   }
 
-  const handleParseImageReference = async (modelConfigId = selectedModelConfigId): Promise<void> => {
+  const handleParseImageReference = async (
+    modelConfigId = selectedModelConfigId
+  ): Promise<void> => {
     if (!attachedReferenceFile || attachedReferenceFile.type !== 'image' || parsingDocument) return
-    if (!(await ensureModelActive(modelConfigId))) return
+    const resolvedModelConfigId = await ensureModelActive(modelConfigId)
+    if (!resolvedModelConfigId) return
 
     setParsingDocument(true)
     setDocumentParseError(null)
     try {
       const result = await ipc.parseImageReferenceDocument({
-        file: { path: attachedReferenceFile.path, name: attachedReferenceFile.name }
+        file: { path: attachedReferenceFile.path, name: attachedReferenceFile.name },
+        modelConfigId: resolvedModelConfigId
       })
       const referenceFile = result.files[0]
       if (!referenceFile) throw new Error(t('common.retryLater'))
       setAttachedReferenceFile(referenceFile)
       setReferenceDocumentPath(referenceFile.path)
-      setDocumentPlanSuggestion(null)
+      setSuggestionDraft(null)
+      setAcceptedSourcePlan(undefined)
       setSuggestionDialogOpen(false)
       success(t('home.imageReferenceParsed'), { description: referenceFile.name })
     } catch (err) {
@@ -406,7 +418,8 @@ export function SessionCreatePage(): ReactElement {
 
   const handleAnalyzeReference = async (modelConfigId: string): Promise<void> => {
     if (!attachedReferenceFile || parsingDocument) return
-    if (!(await ensureModelActive(modelConfigId))) return
+    const resolvedModelConfigId = await ensureModelActive(modelConfigId)
+    if (!resolvedModelConfigId) return
 
     setParsingDocument(true)
     setDocumentParseError(null)
@@ -414,20 +427,23 @@ export function SessionCreatePage(): ReactElement {
       const result = await ipc.parseDocumentPlan({
         files: [{ path: attachedReferenceFile.path, name: attachedReferenceFile.name }],
         topic: topic.trim(),
-        existingBrief: brief.trim()
+        existingBrief: brief.trim(),
+        modelConfigId: resolvedModelConfigId
       })
       const nextSuggestion = {
         topic: result.topic,
         pageCount: result.pageCount,
-        briefText: result.briefText
+        briefText: result.briefText,
+        sourcePlan: result.sourcePlan
       }
       const referenceFile = result.files[0] || attachedReferenceFile
       setAttachedReferenceFile(referenceFile)
       setReferenceDocumentPath(referenceFile.type !== 'image' ? referenceFile.path : null)
-      setDocumentPlanSuggestion(nextSuggestion)
+      setSuggestionDraft(buildSuggestionDraft(nextSuggestion))
+      setAcceptedSourcePlan(undefined)
       setApplyTopicSuggestion(!topic.trim())
-      setApplyPageCountSuggestion(!pageCount.trim())
-      setApplyBriefSuggestion(!brief.trim())
+      setApplyPageCountSuggestion(!result.sourcePlan?.pageSkeleton.length && !pageCount.trim())
+      setApplyBriefSuggestion(Boolean(result.sourcePlan?.pageSkeleton.length) || !brief.trim())
       setSuggestionDialogOpen(true)
       success(t('home.documentParsed'))
     } catch (err) {
@@ -441,16 +457,27 @@ export function SessionCreatePage(): ReactElement {
     }
   }
 
-  const applyDocumentSuggestion = (mode: 'empty' | 'selected'): void => {
-    if (!documentPlanSuggestion) return
-    const shouldApplyTopic = mode === 'empty' ? !topic.trim() : applyTopicSuggestion
-    const shouldApplyPageCount = mode === 'empty' ? !pageCount.trim() : applyPageCountSuggestion
-    const shouldApplyBrief = mode === 'empty' ? !brief.trim() : applyBriefSuggestion
+  const applyDocumentSuggestion = (): void => {
+    const draft = suggestionDraft
+    if (!draft) return
+    const sourceOutlinePageCount = draft.sourcePlan?.pageSkeleton.length || 0
+    const hasSourceOutline = sourceOutlinePageCount > 0
+    const shouldApplySourceOutline = hasSourceOutline && applyBriefSuggestion
 
-    if (shouldApplyTopic) setTopic(documentPlanSuggestion.topic)
-    if (shouldApplyPageCount)
-      setPageCount(String(resolvePageCount(String(documentPlanSuggestion.pageCount))))
-    if (shouldApplyBrief) setBrief(documentPlanSuggestion.briefText)
+    if (applyTopicSuggestion) setTopic(draft.topic)
+    if (shouldApplySourceOutline) {
+      setPageCount(String(resolvePageCount(String(sourceOutlinePageCount))))
+    } else if (applyPageCountSuggestion) {
+      setPageCount(String(resolvePageCount(draft.pageCount)))
+    }
+    if (applyBriefSuggestion) {
+      setBrief(
+        draft.sourcePlan?.pageSkeleton.length
+          ? formatSourceOutlineBriefText(draft.sourcePlan.pageSkeleton)
+          : draft.briefText
+      )
+    }
+    setAcceptedSourcePlan(shouldApplySourceOutline ? draft.sourcePlan : undefined)
     setSuggestionDialogOpen(false)
   }
 
@@ -545,6 +572,7 @@ export function SessionCreatePage(): ReactElement {
                   required
                   onChange={(e) => {
                     const next = e.target.value
+                    setAcceptedSourcePlan(undefined)
                     if (next === '') {
                       setPageCount('')
                       return
@@ -644,16 +672,98 @@ export function SessionCreatePage(): ReactElement {
             </div>
 
             <div>
-              <label className="block font-medium">{t('home.brief')}</label>
+              <div className="mb-2 flex items-center justify-between">
+                <label className="block font-medium">{t('home.brief')}</label>
+                <div className="flex items-center gap-1 rounded-lg border border-border p-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setBriefMode('edit')}
+                    className={`flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-medium transition-colors ${
+                      briefMode === 'edit'
+                        ? 'bg-foreground text-background'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                    {t('common.edit')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setBriefMode('preview')}
+                    className={`flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-medium transition-colors ${
+                      briefMode === 'preview'
+                        ? 'bg-foreground text-background'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    <Eye className="h-3.5 w-3.5" />
+                    {t('common.preview')}
+                  </button>
+                </div>
+              </div>
               <div className="rounded-lg border border-[#d8ccb5]/80 bg-[#fff9ef]/40 p-2">
-                <Textarea
-                  placeholder={t('home.briefPlaceholder')}
-                  rows={7}
-                  value={brief}
-                  required
-                  onChange={(e) => setBrief(e.target.value)}
-                  className="min-h-[150px] resize-y border-0 bg-transparent shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
-                />
+                {briefMode === 'edit' ? (
+                  <Textarea
+                    placeholder={t('home.briefPlaceholder')}
+                    rows={6}
+                    value={brief}
+                    required
+                    onChange={(e) => {
+                      setAcceptedSourcePlan(undefined)
+                      setBrief(e.target.value)
+                    }}
+                    className="min-h-[150px] resize-y border-0 bg-transparent px-3 py-2 text-xs leading-5 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+                  />
+                ) : (
+                  <ScrollArea
+                    className="h-[180px] rounded-lg border border-border/70 bg-background/70"
+                    viewportClassName="p-4"
+                  >
+                    <ReactMarkdown
+                      components={{
+                        h1: ({ children }) => (
+                          <h1 className="mb-2 text-lg font-semibold text-foreground">{children}</h1>
+                        ),
+                        h2: ({ children }) => (
+                          <h2 className="mb-2 mt-3 text-base font-semibold text-foreground">
+                            {children}
+                          </h2>
+                        ),
+                        h3: ({ children }) => (
+                          <h3 className="mb-1.5 mt-2.5 text-sm font-semibold text-foreground">
+                            {children}
+                          </h3>
+                        ),
+                        p: ({ children }) => (
+                          <p className="mb-2 text-xs leading-5 text-muted-foreground">{children}</p>
+                        ),
+                        ul: ({ children }) => (
+                          <ul className="mb-2 list-disc space-y-0.5 pl-5 text-xs text-muted-foreground">
+                            {children}
+                          </ul>
+                        ),
+                        ol: ({ children }) => (
+                          <ol className="mb-2 list-decimal space-y-0.5 pl-5 text-xs text-muted-foreground">
+                            {children}
+                          </ol>
+                        ),
+                        li: ({ children }) => <li>{children}</li>,
+                        code: ({ children }) => (
+                          <code className="rounded bg-muted px-1.5 py-0.5 text-xs text-foreground">
+                            {children}
+                          </code>
+                        ),
+                        blockquote: ({ children }) => (
+                          <blockquote className="mb-2 border-l-2 border-border pl-3 text-xs text-muted-foreground">
+                            {children}
+                          </blockquote>
+                        )
+                      }}
+                    >
+                      {brief || t('home.briefPlaceholder')}
+                    </ReactMarkdown>
+                  </ScrollArea>
+                )}
                 <div className="mt-2 flex flex-col gap-2 border-t border-[#e5dccb] pt-2">
                   {attachedReferenceFile && (
                     <div className="flex min-w-0">
@@ -766,7 +876,7 @@ export function SessionCreatePage(): ReactElement {
                               />
                             </span>
                           </TooltipTrigger>
-                          <TooltipContent side="bottom" align="start" className="max-w-xs">
+                          <TooltipContent side="top" align="start" className="max-w-xs">
                             {t('home.analyzeReferenceTooltip')}
                           </TooltipContent>
                         </Tooltip>
@@ -796,185 +906,20 @@ export function SessionCreatePage(): ReactElement {
         </div>
       </div>
 
-      <Dialog open={suggestionDialogOpen} onOpenChange={setSuggestionDialogOpen}>
-        <DialogContent className="max-w-4xl gap-0 overflow-hidden border-[#d8ccb5]/85 bg-[#f7f1e8] p-0">
-          <DialogHeader className="border-b border-[#ded4c1] bg-[#fffaf1] px-5 py-4 pr-12">
-            <div className="flex items-start gap-3">
-              <span className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[#b9cda7]/75 bg-[#e6f1dc] text-[#405333] shadow-[0_4px_10px_rgba(93,107,77,0.08)]">
-                <Sparkles className="h-4 w-4" />
-              </span>
-              <div className="min-w-0">
-                <DialogTitle className="text-sm">{t('home.analysisSuggestionTitle')}</DialogTitle>
-                <DialogDescription className="mt-1 max-w-2xl text-xs leading-5">
-                  {t('home.analysisSuggestionDescription')}
-                </DialogDescription>
-                {attachedReferenceFile && (
-                  <span
-                    className="mt-2 inline-flex max-w-full items-center gap-1.5 rounded-full border border-[#d8ccb5]/72 bg-[#fff9ef]/86 px-2 py-1 text-[11px] font-medium text-[#5d6b4d]"
-                    title={attachedReferenceFile.path}
-                  >
-                    <FileText className="h-3 w-3 shrink-0" />
-                    <span className="min-w-0 truncate">{attachedReferenceFile.name}</span>
-                  </span>
-                )}
-              </div>
-            </div>
-          </DialogHeader>
-
-          {documentPlanSuggestion && (
-            <div className="max-h-[64vh] overflow-y-auto px-5 py-4">
-              <div className="space-y-2.5">
-                <section
-                  className={`overflow-hidden rounded-xl border bg-[#fffdf8] shadow-[0_8px_18px_rgba(74,59,42,0.06)] transition-colors ${
-                    applyTopicSuggestion
-                      ? 'border-[#a9c693] ring-1 ring-[#cfe2c1]'
-                      : 'border-[#e1d7c6]'
-                  }`}
-                >
-                  <div className="grid gap-3 p-3 md:grid-cols-[120px_1fr] md:items-center">
-                    <label className="flex cursor-pointer items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={applyTopicSuggestion}
-                        onChange={(event) => setApplyTopicSuggestion(event.target.checked)}
-                        className="h-4 w-4 accent-[#6f8f64]"
-                      />
-                      <span className="text-sm font-semibold text-[#34402c]">{t('home.topic')}</span>
-                    </label>
-                    <div className="grid gap-2 md:grid-cols-[1fr_auto_1fr] md:items-stretch">
-                      <div className="rounded-lg bg-[#f5efe4]/76 px-3 py-2">
-                        <p className="mb-1 text-[10px] font-medium uppercase text-[#8a7d69]">
-                          {t('home.currentValue')}
-                        </p>
-                        <p className="min-h-5 whitespace-pre-wrap text-xs leading-5 text-[#6d604d]">
-                          {topic.trim() || t('home.emptyValue')}
-                        </p>
-                      </div>
-                      <div className="hidden items-center text-[#b5aa95] md:flex">→</div>
-                      <div className="rounded-lg bg-[#eef6e8] px-3 py-2">
-                        <p className="mb-1 text-[10px] font-medium uppercase text-[#6a8054]">
-                          {t('home.suggestedValue')}
-                        </p>
-                        <p className="min-h-5 whitespace-pre-wrap text-xs leading-5 text-[#405333]">
-                          {documentPlanSuggestion.topic}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </section>
-
-                <section
-                  className={`overflow-hidden rounded-xl border bg-[#fffdf8] shadow-[0_8px_18px_rgba(74,59,42,0.06)] transition-colors ${
-                    applyPageCountSuggestion
-                      ? 'border-[#a9c693] ring-1 ring-[#cfe2c1]'
-                      : 'border-[#e1d7c6]'
-                  }`}
-                >
-                  <div className="grid gap-3 p-3 md:grid-cols-[120px_1fr] md:items-center">
-                    <label className="flex cursor-pointer items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={applyPageCountSuggestion}
-                        onChange={(event) => setApplyPageCountSuggestion(event.target.checked)}
-                        className="h-4 w-4 accent-[#6f8f64]"
-                      />
-                      <span className="text-sm font-semibold text-[#34402c]">
-                        {t('home.pageCount')}
-                      </span>
-                    </label>
-                    <div className="grid gap-2 md:grid-cols-[1fr_auto_1fr] md:items-stretch">
-                      <div className="rounded-lg bg-[#f5efe4]/76 px-3 py-2">
-                        <p className="mb-1 text-[10px] font-medium uppercase text-[#8a7d69]">
-                          {t('home.currentValue')}
-                        </p>
-                        <p className="min-h-5 text-xs leading-5 text-[#6d604d]">
-                          {pageCount.trim() || t('home.emptyValue')}
-                        </p>
-                      </div>
-                      <div className="hidden items-center text-[#b5aa95] md:flex">→</div>
-                      <div className="rounded-lg bg-[#eef6e8] px-3 py-2">
-                        <p className="mb-1 text-[10px] font-medium uppercase text-[#6a8054]">
-                          {t('home.suggestedValue')}
-                        </p>
-                        <p className="min-h-5 text-xs leading-5 text-[#405333]">
-                          {documentPlanSuggestion.pageCount}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </section>
-
-                <section
-                  className={`overflow-hidden rounded-xl border bg-[#fffdf8] shadow-[0_8px_18px_rgba(74,59,42,0.06)] transition-colors ${
-                    applyBriefSuggestion
-                      ? 'border-[#a9c693] ring-1 ring-[#cfe2c1]'
-                      : 'border-[#e1d7c6]'
-                  }`}
-                >
-                  <div className="grid gap-3 p-3 md:grid-cols-[120px_1fr] md:items-start">
-                    <label className="flex cursor-pointer items-center gap-2 pt-1">
-                      <input
-                        type="checkbox"
-                        checked={applyBriefSuggestion}
-                        onChange={(event) => setApplyBriefSuggestion(event.target.checked)}
-                        className="h-4 w-4 accent-[#6f8f64]"
-                      />
-                      <span className="truncate text-sm font-semibold text-[#34402c]">
-                        {t('home.brief')}
-                      </span>
-                    </label>
-                    <div className="grid gap-2 md:grid-cols-[1fr_auto_1fr] md:items-stretch">
-                      <div className="rounded-lg bg-[#f5efe4]/76 px-3 py-2.5">
-                        <p className="mb-1 text-[10px] font-medium uppercase text-[#8a7d69]">
-                          {t('home.currentValue')}
-                        </p>
-                        <div className="max-h-40 min-h-24 overflow-y-auto whitespace-pre-wrap text-xs leading-5 text-[#6d604d]">
-                          {brief.trim() || t('home.emptyValue')}
-                        </div>
-                      </div>
-                      <div className="hidden items-center text-[#b5aa95] md:flex">→</div>
-                      <div className="rounded-lg bg-[#eef6e8] px-3 py-2.5">
-                        <p className="mb-1 text-[10px] font-medium uppercase text-[#6a8054]">
-                          {t('home.suggestedValue')}
-                        </p>
-                        <div className="max-h-40 min-h-24 overflow-y-auto whitespace-pre-wrap text-xs leading-5 text-[#405333]">
-                          {documentPlanSuggestion.briefText}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </section>
-              </div>
-            </div>
-          )}
-
-          <DialogFooter className="flex-col-reverse gap-1.5 border-t border-[#ded4c1] bg-[#fffaf1] px-5 py-2.5 sm:flex-row">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-8 px-3 text-xs"
-              onClick={() => setSuggestionDialogOpen(false)}
-            >
-              {t('common.cancel')}
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8 px-3 text-xs"
-              onClick={() => applyDocumentSuggestion('empty')}
-            >
-              {t('home.applyEmptyFields')}
-            </Button>
-            <Button
-              size="sm"
-              className="h-8 px-3 text-xs"
-              onClick={() => applyDocumentSuggestion('selected')}
-            >
-              {t('home.applySelectedFields')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <SessionCreateSuggestionDialog
+        open={suggestionDialogOpen}
+        onOpenChange={setSuggestionDialogOpen}
+        attachedReferenceFile={attachedReferenceFile}
+        suggestionDraft={suggestionDraft}
+        setSuggestionDraft={setSuggestionDraft}
+        applyTopicSuggestion={applyTopicSuggestion}
+        setApplyTopicSuggestion={setApplyTopicSuggestion}
+        applyPageCountSuggestion={applyPageCountSuggestion}
+        setApplyPageCountSuggestion={setApplyPageCountSuggestion}
+        applyBriefSuggestion={applyBriefSuggestion}
+        setApplyBriefSuggestion={setApplyBriefSuggestion}
+        onApplySelected={applyDocumentSuggestion}
+      />
     </div>
   )
 }

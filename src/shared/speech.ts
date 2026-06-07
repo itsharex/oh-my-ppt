@@ -7,4 +7,5 @@ export interface SpeechConfig {
   length: SpeechLength
   style: SpeechStyle
   customStyle?: string
+  modelConfigId?: string
 }

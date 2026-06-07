@@ -8,6 +8,8 @@ import type { IpcContext } from '../ipc/context'
 import { buildProjectIndexHtml, extractPagesDataFromIndex, type DeckPageFile } from '../ipc/engine/template'
 import { recordHistoryOperationStrict } from '../history/git-history-service'
 import { createDefaultDesignContract } from '../utils/design-contract'
+import { resolveUsableStyleId } from '../utils/style-skills'
+import { findSlidePackResourceZipInsideZip } from './slide-pack-archive'
 
 const MAX_IMPORT_FILE_BYTES = 300 * 1024 * 1024
 const MAX_EXTRACTED_BYTES = 600 * 1024 * 1024
@@ -247,6 +249,22 @@ const prepareImportSource = async (sourceBuffer: Buffer, tempDir: string): Promi
     return {
       importKind: 'slide-pack',
       sessionRoot: await extractZipToDirectory(directSlidePackZip, path.join(tempDir, 'slide-pack'), 'deck-root'),
+      warnings: []
+    }
+  }
+
+  const appBundleSlidePackZip = findSlidePackResourceZipInsideZip(sourceBuffer)
+  if (appBundleSlidePackZip) {
+    log.info('[session-import] detected macOS app slide-pack', {
+      zipBytes: appBundleSlidePackZip.byteLength
+    })
+    return {
+      importKind: 'slide-pack',
+      sessionRoot: await extractZipToDirectory(
+        appBundleSlidePackZip,
+        path.join(tempDir, 'slide-pack-app'),
+        'deck-root'
+      ),
       warnings: []
     }
   }
@@ -527,6 +545,7 @@ export async function importSessionFile(
 
     const importedPages = buildImportedPages(projectDir, sourcePages)
     await rewriteIndexHtml(projectDir, title, importedPages)
+    const styleId = resolveUsableStyleId()
 
     const metadata: Record<string, unknown> = {
       source: 'session-file-import',
@@ -548,6 +567,7 @@ export async function importSessionFile(
       id: sessionId,
       title,
       topic: title,
+      styleId,
       pageCount: importedPages.length,
       provider: 'import',
       model: 'session-file-import'

@@ -13,13 +13,14 @@ import {
   Sparkles
 } from 'lucide-react'
 
-const MAX_PPTX_SIZE_MB = 100
+const MAX_PPTX_SIZE_MB = 500
 const MAX_PPTX_SIZE_BYTES = MAX_PPTX_SIZE_MB * 1024 * 1024
 
 export function HomePage(): ReactElement {
   const navigate = useNavigate()
   const { success, error, warning } = useToastStore()
-  const { ensureModelActive } = useModelAction()
+  const modelAction = useModelAction()
+  const { ensureModelActive } = modelAction
   const t = useT()
   const [importingPptx, setImportingPptx] = useState(false)
   const [pptxImportProgress, setPptxImportProgress] = useState<string | null>(null)
@@ -94,10 +95,13 @@ export function HomePage(): ReactElement {
       setImportingPptx(true)
       setPptxImportProgress(t('home.pptxPreparing'))
       try {
+        const modelConfigId = await ensureModelActive()
+        if (!modelConfigId) return
         const result = await ipc.importPptx({
           filePath,
           title: selectedFile.name.replace(/\.pptx$/i, ''),
-          styleId: null
+          styleId: null,
+          modelConfigId
         })
         success(t('home.pptxImportDone'), {
           description:
@@ -118,7 +122,7 @@ export function HomePage(): ReactElement {
         setPptxImportProgress(null)
       }
     },
-    [error, navigate, success, t]
+    [ensureModelActive, error, navigate, success, t]
   )
 
   useEffect(() => {
