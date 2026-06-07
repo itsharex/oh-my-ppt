@@ -5,6 +5,7 @@ import {
 } from '@shared/model-timeout'
 import type { IpcContext } from '../context'
 import { readAppLocale, uiText } from '../config/locale-utils'
+import { bindCurrentModelTemperatureControl } from '../../model-runtime'
 
 export interface ActiveModelConfig {
   id: string
@@ -14,6 +15,7 @@ export interface ActiveModelConfig {
   apiKey: string
   baseUrl: string
   maxTokens: number
+  disableTemperature: boolean
 }
 
 export type ResolvedModelConfig = ActiveModelConfig
@@ -61,6 +63,7 @@ const resolveModelConfigRow = (
     apiKey: string
     baseUrl: string
     maxTokens?: number | null
+    disableTemperature?: number | boolean | null
   },
   options: {
     locale: 'zh' | 'en'
@@ -99,15 +102,18 @@ const resolveModelConfigRow = (
     )
   }
 
-  return {
+  const resolved = {
     id: config.id,
     name: config.name,
     provider,
     model,
     apiKey,
     baseUrl: String(config.baseUrl || '').trim(),
-    maxTokens: config.maxTokens || 4096
+    maxTokens: config.maxTokens || 4096,
+    disableTemperature: config.disableTemperature === 1 || config.disableTemperature === true
   }
+  bindCurrentModelTemperatureControl(resolved)
+  return resolved
 }
 
 export async function resolveModelConfigById(

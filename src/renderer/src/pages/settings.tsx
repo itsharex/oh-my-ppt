@@ -229,6 +229,7 @@ export function SettingsPage(): React.JSX.Element {
         apiKey: modelForm.apiKey.trim(),
         baseUrl: modelForm.baseUrl.trim(),
         maxTokens: normalizeModelMaxTokens(modelForm.maxTokens),
+        disableTemperature: modelForm.disableTemperature,
         active: modelForm.active
       })
       const saveError = useSettingsStore.getState().verificationMessage
@@ -341,6 +342,7 @@ export function SettingsPage(): React.JSX.Element {
         modelForm.model,
         modelForm.baseUrl,
         normalizeModelMaxTokens(modelForm.maxTokens),
+        modelForm.disableTemperature,
         resolveModelTimeoutMs(undefined, 'verify')
       )
       const verifyMessage = useSettingsStore.getState().verificationMessage

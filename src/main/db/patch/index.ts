@@ -7,6 +7,7 @@ import * as schema from '../schema'
 import type { GenerationPageStatus, GenerationRunStatus } from '../schema'
 import { defaultModelTimeoutMs } from '@shared/model-timeout'
 import { patchModelConfigMaxTokens } from './add-model-max-tokens'
+import { patchModelConfigDisableTemperature } from './add-model-disable-temperature'
 import { patchStylesColumns } from './add-styles-columns'
 import { patchDesignContractFonts } from './backfill-design-contract-fonts'
 
@@ -89,6 +90,7 @@ CREATE TABLE IF NOT EXISTS model_configs (
   api_key TEXT NOT NULL DEFAULT '',
   base_url TEXT NOT NULL DEFAULT '',
   max_tokens INTEGER NOT NULL DEFAULT 4096,
+  disable_temperature INTEGER NOT NULL DEFAULT 0,
   active INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
@@ -1256,4 +1258,5 @@ export const runDatabasePatches = async (args: {
   await patchSessionPagesFromLegacy({ client, db, resolveStoragePath })
   await patchSessionPagesFromGenerationPages({ client, db, resolveStoragePath })
   await patchModelConfigMaxTokens(client)
+  await patchModelConfigDisableTemperature(client)
 }

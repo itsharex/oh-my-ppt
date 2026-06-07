@@ -15,6 +15,12 @@ import {
   type WriteResult,
 } from "deepagents";
 import log from "electron-log/main.js";
+import {
+  DEFAULT_MODEL_TEMPERATURE,
+  getCurrentModelTemperatureControl,
+  isCurrentModelTemperatureEnabled,
+  resolveCurrentModelTemperatureOptions,
+} from "./model-runtime";
 import { createSessionBoundDeckTools, type SessionDeckGenerationContext } from "./tools";
 import {
   buildDeckAgentSystemPrompt,
@@ -389,7 +395,7 @@ export function createSessionDeckAgent(args: {
 
 // ── Model resolution ──
 
-export const DEFAULT_MODEL_TEMPERATURE = 0.7;
+export { DEFAULT_MODEL_TEMPERATURE, isCurrentModelTemperatureEnabled };
 
 const resolveOpenAICompatibilityModelKwargs = (
   baseUrl?: string
@@ -416,10 +422,9 @@ export function resolveModel(
   if (!resolvedModel) {
     throw new Error("model 不能为空，请先在系统设置中配置模型。");
   }
-  const resolvedTemperature =
-    Number.isFinite(temperature) && typeof temperature === "number"
-      ? Math.max(0, Math.min(2, temperature))
-      : DEFAULT_MODEL_TEMPERATURE;
+  const temperatureOptions = resolveCurrentModelTemperatureOptions(temperature);
+  const resolvedTemperature = temperatureOptions.temperature;
+  const temperatureControl = getCurrentModelTemperatureControl();
   const resolvedBaseUrl = typeof baseUrl === "string" ? baseUrl.trim() : "";
   const resolvedMaxTokens = maxTokens && maxTokens > 0 ? maxTokens : 4096;
   const { modelKwargs, compatibilityFlags } = resolveOpenAICompatibilityModelKwargs(resolvedBaseUrl);
@@ -429,6 +434,9 @@ export function resolveModel(
     model: resolvedModel,
     baseUrl: resolvedBaseUrl,
     temperature: resolvedTemperature ?? null,
+    temperatureEnabled: isCurrentModelTemperatureEnabled(),
+    temperatureControlBound: temperatureControl !== undefined,
+    modelConfigId: temperatureControl?.modelConfigId ?? null,
     maxTokens: resolvedMaxTokens,
     openAICompatibility: compatibilityFlags,
   });
@@ -438,7 +446,7 @@ export function resolveModel(
       return new ChatOpenAI({
         model: resolvedModel,
         apiKey,
-        temperature: resolvedTemperature,
+        ...temperatureOptions,
         maxTokens: resolvedMaxTokens,
         configuration: resolvedBaseUrl ? { baseURL: resolvedBaseUrl } : undefined,
         modelKwargs,
@@ -447,7 +455,7 @@ export function resolveModel(
       return new ChatAnthropic({
         model: resolvedModel,
         apiKey,
-        temperature: resolvedTemperature,
+        ...temperatureOptions,
         maxTokens: resolvedMaxTokens,
         anthropicApiUrl: resolvedBaseUrl || undefined,
       });
@@ -455,7 +463,7 @@ export function resolveModel(
       return new ChatGoogleGenerativeAI({
         model: resolvedModel,
         apiKey,
-        temperature: resolvedTemperature ?? undefined,
+        ...temperatureOptions,
         maxOutputTokens: resolvedMaxTokens,
         baseUrl: resolvedBaseUrl || undefined,
       });

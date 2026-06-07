@@ -9,6 +9,7 @@ import {
   resolveModelTimeoutMs
 } from '@shared/model-timeout'
 import { readAppLocale, uiText } from '../config/locale-utils'
+import { runWithModelTemperatureControl } from '../../model-runtime'
 
 const readGlobalTimeouts = (
   settings: Record<string, unknown>
@@ -65,6 +66,7 @@ export function registerSettingsHandlers(ctx: IpcContext): void {
       apiKey: decryptApiKey(config.apiKey),
       baseUrl: config.baseUrl,
       maxTokens: config.maxTokens || 4096,
+      disableTemperature: config.disableTemperature === 1,
       active: config.active === 1,
       createdAt: config.createdAt,
       updatedAt: config.updatedAt
@@ -171,6 +173,7 @@ export function registerSettingsHandlers(ctx: IpcContext): void {
       apiKey: encryptApiKey(apiKey),
       baseUrl,
       maxTokens,
+      disableTemperature: record.disableTemperature === true,
       active: record.active === true
     })
     return { success: true, id: savedId }
@@ -211,7 +214,10 @@ export function registerSettingsHandlers(ctx: IpcContext): void {
 
   ipcMain.handle(
     'settings:verifyApiKey',
-    async (_event, { provider, apiKey, model, baseUrl, maxTokens, timeoutMs }) => {
+    async (
+      _event,
+      { provider, apiKey, model, baseUrl, maxTokens, disableTemperature, timeoutMs }
+    ) => {
       const locale = await readAppLocale(ctx)
       const resolvedTimeoutMs = resolveModelTimeoutMs(timeoutMs, 'verify')
       const resolvedMaxTokens = normalizeMaxTokens(maxTokens)
@@ -235,13 +241,17 @@ export function registerSettingsHandlers(ctx: IpcContext): void {
       }
 
       try {
-        const client = resolveModel(
-          provider,
-          apiKey.trim(),
-          model.trim(),
-          typeof baseUrl === 'string' ? baseUrl.trim() : '',
-          undefined,
-          resolvedMaxTokens
+        const client = runWithModelTemperatureControl(
+          { disableTemperature: disableTemperature === true },
+          () =>
+            resolveModel(
+              provider,
+              apiKey.trim(),
+              model.trim(),
+              typeof baseUrl === 'string' ? baseUrl.trim() : '',
+              undefined,
+              resolvedMaxTokens
+            )
         )
         await client.invoke('Reply with OK.', {
           signal: AbortSignal.timeout(resolvedTimeoutMs)

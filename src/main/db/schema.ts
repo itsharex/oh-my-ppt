@@ -179,6 +179,7 @@ export const modelConfigs = sqliteTable('model_configs', {
   apiKey: text('api_key').notNull().default(''),
   baseUrl: text('base_url').notNull().default(''),
   maxTokens: integer('max_tokens').notNull().default(4096),
+  disableTemperature: integer('disable_temperature').notNull().default(0),
   active: integer('active').notNull().default(0),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull()

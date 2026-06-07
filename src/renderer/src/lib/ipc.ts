@@ -241,6 +241,7 @@ export interface ModelConfig {
   apiKey: string
   baseUrl: string
   maxTokens: number
+  disableTemperature: boolean
   active: boolean
   createdAt: number
   updatedAt: number
@@ -611,6 +612,7 @@ export const ipc = {
     apiKey: string
     baseUrl: string
     maxTokens?: number
+    disableTemperature?: boolean
     active?: boolean
   }) =>
     getIpc().invoke('settings:upsertModelConfig', payload) as Promise<{
@@ -650,6 +652,7 @@ export const ipc = {
     model: string
     baseUrl: string
     maxTokens?: number
+    disableTemperature?: boolean
     timeoutMs: number
   }) =>
     getIpc().invoke('settings:verifyApiKey', payload) as Promise<{

@@ -323,10 +323,10 @@ export const en = {
     chinese: 'Simplified Chinese',
     english: 'English',
     generalTab: 'General',
-    modelTab: 'Model access',
+    modelTab: 'Base model configuration',
     imageModelTab: 'Image models',
     advancedTab: 'Advanced',
-    modelAccess: 'Model access',
+    modelAccess: 'Base model configuration',
     imageModelAccess: 'Image models',
     modelHelpTitle: 'Recommended cloud models',
     addModel: 'Add model',
@@ -376,6 +376,9 @@ export const en = {
     baseUrlHintGoogle: 'Leave empty for official Google API. Fill only if using a proxy.',
     maxTokensHint:
       'Max output tokens, default 4096. Generally no need to change. Adjust based on model limits.',
+    disableTemperature: 'Disable temperature',
+    disableTemperatureHint:
+      'Keeping temperature enabled is recommended. Disable it only when unsupported, as this may affect generation results.',
     timeoutSection: 'Model timeouts (seconds)',
     timeoutPlanning: 'Outline planning',
     timeoutDesign: 'Design contract',
@@ -395,7 +398,7 @@ export const en = {
       'Uses the current provider preset, model, api_key, and base_url for a real connectivity check. Local Ollama can use any value.',
     imageVerifyHint:
       'Image verification only checks basic fields. The real endpoint is verified on first generation to avoid unnecessary cost.',
-    modelPlaceholder: 'Example: deepseek-v4/gpt-5.4',
+    modelPlaceholder: 'Example: deepseek-v4-flash',
     imageModelPlaceholder:
       'Example: Jimeng 3.0 / Jimeng 4.0 / Agnes AI / SiliconFlow / OpenAI compatible / Gemini',
     imageModelNamePlaceholder: 'Model alias, anything you like',
