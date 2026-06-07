@@ -20,9 +20,10 @@
     Local-first · Works offline, works for you.
   </p>
 
+  [Website](https://www.ohmyppt.cc) | [Download](https://github.com/arcsin1/oh-my-ppt/releases)
+
   <img src="https://arcsin1.github.io/ppt2.gif" alt="Oh My PPT" width="600" />
 
-  [Watch full demo video](https://arcsin1.github.io/ohmyppt2.mp4) | [Download release package](https://github.com/arcsin1/oh-my-ppt/releases)
 </div>
 
 ---
@@ -60,14 +61,15 @@ Every time I needed to prepare a talk, report, pitch, or defense, most of the ti
 
 There are many AI PPT tools, but most output fixed-format files. Fine-tuning styles or adding custom animation demos is still painful.
 
-So I built my own HTML-based PPT generator, originally as a personal tool (and it turns out it also works well for resume templates).
+So I built my own HTML-based PPT generator, originally as a personal tool.
 
 Output is pure HTML slides: instant browser preview, no extra software, easy to tweak styles, add motion, embed code, and export to PDF / PNG / editable PPTX.
 
 <a id="features"></a>
 ## ✅ What It Can Do
 
-- 💬 **One-prompt generation** — Enter topic + requirements, AI plans outline + palette + layout, then generates a complete deck  
+- 💬 **One-prompt generation** — Enter topic + requirements, AI plans outline + palette + layout, then generates a complete deck
+- 🔀 **Multi-task generation** — Submit multiple generation tasks in parallel without waiting for one to finish before starting another, with automatic notifications on completion
 - 📄 **Document-based creation** — Upload txt, md, csv, or docx files to prepare topic, page count, and description automatically, then keep using the source document during generation
 - 📥 **Import PPTX for editing** — Convert local PPTX files into in-app HTML pages, then continue previewing, adjusting positions, and chat-based editing
 - 🧱 **Template library and template creation** — Save generated or edited decks as templates, import PPTX files as templates, and reuse templates to create new PPT sessions

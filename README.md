@@ -20,9 +20,10 @@
     Local-first · Works offline, works for you.
   </p>
 
+   [官网](https://www.ohmyppt.cc) | [下载安装包](https://github.com/arcsin1/oh-my-ppt/releases)
+
   <img src="https://arcsin1.github.io/ppt2.gif" alt="Oh My PPT" width="600" />
 
-  [观看完整演示视频](https://arcsin1.github.io/ohmyppt2.mp4) | [下载安装包](https://github.com/arcsin1/oh-my-ppt/releases)
 </div>
 
 ---
@@ -60,7 +61,7 @@
 
 市面上AI PPT工具虽然多，但大多生成的是固定格式文件，想微调样式或加入自己想要的动画演示都很麻烦
 
-所以自己写了一个Html版的PPT生成器——初衷是给自己做个工具使用（其实发现写简历模版也可以用）
+所以自己写了一个Html版的PPT生成器——初衷是给自己做个工具使用
 
 生成的是HTML版PPT：打开即预览、无需软件、一个浏览器搞定，还能随心改样式/加动效/插代码/导出分享
 
@@ -68,6 +69,7 @@
 ## ✅ 能做什么
 
 - 💬 **一句话生成** — 输入主题和需求，AI 自动规划大纲 + 配色 + 排版，直接出完整 PPT
+- 🔀 **多任务生成** — 可同时提交多个生成任务并行执行，不用等一个完成再创建下一个，后台生成完成时自动弹出通知
 - 📄 **从文档创建** — 也支持上传 txt、md、csv、docx 文档，自动整理主题、页数和详细描述，生成时**继续参考原文件内容生成创意PPT**
 - 📥 **导入 PPTX 编辑** — 可把本地 PPTX 转成应用内 HTML 页面，继续预览、调整位置和对话修改（也会提取pptx风格到系统中复用）
 - 🧱 **模板库与模板创建** — 可将已生成或已编辑的演示保存为模板，也支持 PPTX 导入为模板，并可复用模板创建新的 PPT 会话
