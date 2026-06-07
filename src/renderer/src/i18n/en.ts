@@ -12,6 +12,13 @@ export const en = {
     copy: 'Copy',
     retryLater: 'Please try again later'
   },
+  generationNotifications: {
+    untitled: 'Untitled presentation',
+    view: 'View',
+    completed: '"{title}" generation completed',
+    partial: '"{title}" completed with {count} failed page(s)',
+    failed: '"{title}" generation failed'
+  },
   templateDialog: {
     createTitle: 'Save as Template',
     editTitle: 'Edit Template',

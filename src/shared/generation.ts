@@ -263,6 +263,8 @@ export type GenerateChunkEvent =
         runId: string
         sessionId?: string
         totalPages: number
+        completedPageCount?: number
+        failedPageCount?: number
         timestamp?: string
       }
     }
@@ -272,6 +274,9 @@ export type GenerateChunkEvent =
         runId: string
         sessionId?: string
         message: string
+        cancelled?: boolean
+        completedPageCount?: number
+        failedPageCount?: number
         timestamp?: string
       }
     }

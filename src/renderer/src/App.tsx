@@ -18,9 +18,11 @@ import { UpdateAvailableDialog } from './components/UpdateAvailableDialog'
 import { ScrollArea } from './components/ui/ScrollArea'
 import { ipc } from './lib/ipc'
 import type { UpdateAvailablePayload } from '@shared/app-update.js'
+import { useGenerationNotifications } from './hooks/useGenerationNotifications'
 
 function App(): React.JSX.Element {
   const location = useLocation()
+  useGenerationNotifications()
   const isSessionDetailRoute = Boolean(matchPath('/sessions/:id/*', location.pathname))
   const isThinkingRoute = Boolean(matchPath('/thinking', location.pathname))
   const [availableUpdate, setAvailableUpdate] = useState<UpdateAvailablePayload | null>(null)

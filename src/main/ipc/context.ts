@@ -19,6 +19,7 @@ import {
   type DeckPageFile
 } from './engine/template'
 import { FREEZE_PAGE_FOR_EXPORT_SCRIPT } from '../utils/html-pptx/browser-scripts'
+import { isCancellationMessage } from './generation/status-utils'
 
 export type SessionRunState = {
   sessionId: string
@@ -521,6 +522,17 @@ export function createIpcContext(
         timestamp: new Date().toISOString()
       }
     } as GenerateChunkEvent
+    if (enrichedChunk.type === 'run_error') {
+      enrichedChunk = {
+        ...enrichedChunk,
+        payload: {
+          ...enrichedChunk.payload,
+          cancelled:
+            enrichedChunk.payload.cancelled ??
+            isCancellationMessage(enrichedChunk.payload.message || '')
+        }
+      }
+    }
 
     if (
       enrichedChunk.type === 'stage_started' ||

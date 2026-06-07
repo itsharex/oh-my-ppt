@@ -9,6 +9,13 @@ export const zh = {
     copy: '复制',
     retryLater: '请稍后重试'
   },
+  generationNotifications: {
+    untitled: '未命名演示',
+    view: '查看',
+    completed: '“{title}”生成完成',
+    partial: '“{title}”生成完成，{count} 页失败',
+    failed: '“{title}”生成失败'
+  },
   templateDialog: {
     createTitle: '保存为模板',
     editTitle: '编辑模板信息',
