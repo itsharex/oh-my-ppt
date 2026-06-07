@@ -171,7 +171,7 @@ export const zh = {
     importPptx: '导入 PPTX 直接AI编辑',
     importingPptx: '导入解析中',
     importPptxTooltip:
-      '支持导入 .pptx 文件，单个不超过 {maxSize}MB。导入后会转换成可编辑页面，并自动解析为新的模版风格 style。',
+      '导入现有 PPTX，自动转成可编辑页面，同时提取为可复用的风格模板。',
     parsed: '已解析',
     localOnly: '你的文档/图片只会作为当前任务素材解析为 AI 可读上下文。',
     topic: '主题',
@@ -973,14 +973,14 @@ export const zh = {
     homeDescription: '已有主题或素材，可以马上生成初稿；还没想清楚，就先用对话创作梳理大纲。',
     quickCreate: '快速创建',
     quickCreateDescription:
-      '输入主题，上传文档/图片或导入 PPTX，选择风格和页数，快速生成一份可继续编辑的演示初稿。',
+      '已有大纲或明确方向，选好风格和页数，直接生成可编辑的演示初稿。',
     quickCreateBadge: '直接出稿',
     quickCreatePointOne: '填写主题、页数、风格，也可以上传素材辅助生成。',
     quickCreatePointTwo: '适合已经有方向，想尽快拿到可编辑初稿的任务。',
     startQuickCreate: '开始生成',
     exploreProject: '对话创作',
     exploreProjectDescription:
-      '适合还在整理想法、资料或图片的任务，先和 AI 对话梳理出生成大纲，再进入生成。',
+      '想法还没成型，先和 AI 聊一聊。梳理大纲、确认页结构，满意后再生成。',
     exploreProjectBadge: '先想清楚',
     explorePointOne: '多轮对话沉淀大纲、页结构和风格判断。',
     explorePointTwo: '支持上传文档和图片作为分析素材。',

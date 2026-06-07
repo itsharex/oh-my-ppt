@@ -3,8 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import {
   FileUp,
   LayoutTemplate,
-  Loader2,
-  RefreshCw
+  Loader2
 } from 'lucide-react'
 import { Button } from '../components/ui/Button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../components/ui/Dialog'
@@ -250,10 +249,6 @@ export function TemplatesPage(): React.JSX.Element {
               tone="subtle"
               onRun={(modelConfigId) => handleImportPptxTemplateClick(modelConfigId)}
             />
-            <Button size="sm" variant="outline" onClick={() => void load()} disabled={loading}>
-              <RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-              {t('templates.refresh')}
-            </Button>
           </div>
         </div>
       </div>

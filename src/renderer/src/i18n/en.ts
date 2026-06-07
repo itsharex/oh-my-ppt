@@ -184,7 +184,7 @@ export const en = {
     importPptx: 'Import PPTX for AI editing',
     importingPptx: 'Importing and parsing...',
     importPptxTooltip:
-      'Import a .pptx file up to {maxSize}MB, convert it into editable pages, and automatically parse it into a new template style.',
+      'Import an existing PPTX — it converts to editable pages and extracts a reusable style template.',
     parsed: 'Parsed',
     localOnly: 'Documents/images are parsed into AI-readable context for the current task.',
     topic: 'Topic',
@@ -1021,14 +1021,14 @@ Business presentations, product introductions, project summaries — formal but 
       'Have a topic or source material ready? Generate a first draft now. Still shaping the idea? Chat first to build the outline.',
     quickCreate: 'Quick Create',
     quickCreateDescription:
-      'Enter a topic, upload documents/images or import a PPTX, choose style and page count, then generate an editable first draft.',
+      'Already have an outline or clear direction — pick a style, set the page count, and generate an editable draft right away.',
     quickCreateBadge: 'Draft fast',
     quickCreatePointOne: 'Set topic, pages, and style, with optional source material.',
     quickCreatePointTwo: 'Best when you have a direction and want an editable draft quickly.',
     startQuickCreate: 'Start generating',
     exploreProject: 'Chat to Create',
     exploreProjectDescription:
-      'Best when ideas, files, or images still need to be organized. Chat with AI to shape a generation outline, then generate.',
+      'Still shaping the idea? Chat with AI to refine the outline and page structure, then generate when ready.',
     exploreProjectBadge: 'Plan first',
     explorePointOne: 'Turn conversation into outline, page structure, and style direction.',
     explorePointTwo: 'Upload documents and images as source material.',
