@@ -126,8 +126,7 @@ export const en = {
     currentVersion: 'Current version',
     latestVersion: 'Latest version',
     download: 'Download',
-    downloadZh: 'Cloud download',
-    githubRelease: 'GitHub download',
+    downloadHome: 'Official download',
     changeLog: 'Changelog',
     later: 'Later',
     open: 'Open'

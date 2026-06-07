@@ -33,7 +33,7 @@ const BASE_MIN_HEIGHT = 680
 const TITLEBAR_HEIGHT = 48
 const TITLEBAR_BACKGROUND = '#f4eddf'
 const TITLEBAR_SYMBOL_COLOR = '#5d6b4d'
-const UPDATE_MANIFEST_URL = 'https://arcsin1.github.io/version.json'
+const UPDATE_MANIFEST_URL = 'https://www.ohmyppt.cc/version.json'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
 const gotSingleInstanceLock = app.requestSingleInstanceLock()
@@ -140,15 +140,15 @@ async function fetchLatestRelease(): Promise<UpdateAvailablePayload | null> {
     }
     const manifest = (await response.json()) as {
       version?: unknown
-      downloadUrl?: unknown
-      downloadzhUrl?: unknown
+      downloadhome?: unknown
       changeLog?: unknown
     }
     const latestVersion = String(manifest.version || '').trim()
     const currentVersion = app.getVersion()
-    const downloadUrl = typeof manifest.downloadUrl === 'string' ? manifest.downloadUrl.trim() : ''
-    const downloadzhUrl =
-      typeof manifest.downloadzhUrl === 'string' ? manifest.downloadzhUrl.trim() : ''
+    const rawDownloadhome = typeof manifest.downloadhome === 'string' ? manifest.downloadhome.trim() : ''
+    const downloadhome = rawDownloadhome && !/^https?:\/\//i.test(rawDownloadhome)
+      ? `http://${rawDownloadhome}`
+      : rawDownloadhome
     const changeLog = typeof manifest.changeLog === 'string' ? manifest.changeLog.trim() : ''
 
     if (!latestVersion) return null
@@ -157,8 +157,7 @@ async function fetchLatestRelease(): Promise<UpdateAvailablePayload | null> {
     return {
       currentVersion,
       latestVersion,
-      downloadUrl: downloadUrl || undefined,
-      downloadzhUrl: downloadzhUrl || undefined,
+      downloadUrl: downloadhome || undefined,
       changeLog: changeLog || undefined
     }
   } catch (error) {

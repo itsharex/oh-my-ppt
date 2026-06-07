@@ -117,8 +117,7 @@ export const zh = {
     currentVersion: '当前版本',
     latestVersion: '最新版本',
     download: '下载',
-    downloadZh: '网盘下载',
-    githubRelease: 'GitHub 下载',
+    downloadHome: '官网下载',
     changeLog: '更新日志',
     later: '稍后再说',
     open: '打开'

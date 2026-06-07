@@ -1,5 +1,5 @@
 import type { UpdateAvailablePayload } from '@shared/app-update.js'
-import { Download, ExternalLink, FileText } from 'lucide-react'
+import { Download, FileText } from 'lucide-react'
 import { useT } from '../i18n'
 import { Button } from './ui/Button'
 import {
@@ -26,9 +26,7 @@ export function UpdateAvailableDialog({
   onClose
 }: UpdateAvailableDialogProps): React.JSX.Element {
   const t = useT()
-  const primaryDownloadUrl = update?.downloadzhUrl || update?.downloadUrl
-  const showGithubDownload =
-    Boolean(update?.downloadUrl) && update?.downloadUrl !== primaryDownloadUrl
+  const primaryDownloadUrl = update?.downloadUrl
 
   return (
     <Dialog open={Boolean(update)} onOpenChange={(open) => !open && onClose()}>
@@ -72,18 +70,6 @@ export function UpdateAvailableDialog({
                 {t('app.changeLog')}
               </Button>
             )}
-            {showGithubDownload && (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-8 px-3 text-xs"
-                onClick={() => openExternalUrl(update?.downloadUrl)}
-              >
-                <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
-                {t('app.githubRelease')}
-              </Button>
-            )}
             {primaryDownloadUrl && (
               <Button
                 type="button"
@@ -92,7 +78,7 @@ export function UpdateAvailableDialog({
                 onClick={() => openExternalUrl(primaryDownloadUrl)}
               >
                 <Download className="mr-1.5 h-3.5 w-3.5" />
-                {update?.downloadzhUrl ? t('app.downloadZh') : t('app.download')}
+                {t('app.downloadHome')}
               </Button>
             )}
           </div>
