@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useThinkingStore } from '../store/thinkingStore'
 import { useSessionStore, useToastStore } from '../store'
@@ -68,7 +68,7 @@ const contextSectionOrder = [
 function readMarkdownSection(markdown: string, heading: string): string {
   const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   const match = markdown.match(
-    new RegExp(`^##\\s*${escaped}\\s*\\n([\\s\\S]*?)(?=^##\\s+|(?![\\s\\S]))`, 'm')
+    new RegExp(`^##\\s*${escaped}\\s*\\n([\\s\\S]*?)(?=^##\\s|\\s*$)`, 'm')
   )
   return match?.[1]?.trim() || ''
 }
@@ -127,7 +127,12 @@ export function ThinkingDetailPage(): ReactElement {
   const [deleteTarget, setDeleteTarget] = useState<ThinkingWorkspaceListItem | null>(null)
   const [deletingThinkingId, setDeletingThinkingId] = useState<string | null>(null)
 
+  const refreshHistoryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const refreshHistory = useCallback(async (): Promise<void> => {
+    if (refreshHistoryTimerRef.current) {
+      clearTimeout(refreshHistoryTimerRef.current)
+      refreshHistoryTimerRef.current = null
+    }
     setHistoryLoading(true)
     try {
       const items = await ipc.thinkingListWorkspaces({ limit: 50 })
@@ -140,6 +145,10 @@ export function ThinkingDetailPage(): ReactElement {
       setHistoryLoading(false)
     }
   }, [t, toastError])
+  const debouncedRefreshHistory = useCallback(() => {
+    if (refreshHistoryTimerRef.current) clearTimeout(refreshHistoryTimerRef.current)
+    refreshHistoryTimerRef.current = setTimeout(() => void refreshHistory(), 300)
+  }, [refreshHistory])
 
   useEffect(() => {
     if (!thinkingId && !loading) {
@@ -156,13 +165,13 @@ export function ThinkingDetailPage(): ReactElement {
   useEffect(() => {
     const unsubscribeEnd = ipc.onThinkingStreamEnd((payload) => {
       if (payload.thinkingId === thinkingId) {
-        void refreshHistory()
+        debouncedRefreshHistory()
       }
     })
     return () => {
       unsubscribeEnd()
     }
-  }, [thinkingId, refreshHistory])
+  }, [thinkingId, debouncedRefreshHistory])
 
   const handleCreateWorkspace = async (): Promise<void> => {
     if (creatingWorkspace) return
@@ -291,16 +300,16 @@ export function ThinkingDetailPage(): ReactElement {
   }
 
   const restoredContextMessage = useMemo(() => buildContextMessage(contextMd, t), [contextMd, t])
-  const displayMessages =
-    messages.length > 0
-      ? restoredContextMessage &&
-        !loading &&
-        !messages.some((message) => message.role === 'assistant')
-        ? [...messages, restoredContextMessage]
-        : messages
-      : restoredContextMessage
-        ? [restoredContextMessage]
-        : [buildWelcomeMessage(t)]
+
+  const displayMessages: ThinkingChatMessage[] = useMemo(() => {
+    if (messages.length > 0) {
+      const shouldAppendContext =
+        restoredContextMessage && !loading && !messages.some((m) => m.role === 'assistant')
+      return shouldAppendContext ? [...messages, restoredContextMessage] : messages
+    }
+    if (restoredContextMessage) return [restoredContextMessage]
+    return [buildWelcomeMessage(t)]
+  }, [messages, restoredContextMessage, loading, t])
   const showOutlinePanel = Boolean(thinkingId) && stage !== 'collect'
   const dateFormatter = new Intl.DateTimeFormat(lang === 'zh' ? 'zh-CN' : 'en-US', {
     month: '2-digit',

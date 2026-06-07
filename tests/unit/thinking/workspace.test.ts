@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   createWorkspace,
   readWorkspace,
+  replaceThinkingPageOutline,
   resolveThinkingDir,
   writeMessagesList
 } from '../../../src/main/thinking/workspace'
@@ -59,5 +60,91 @@ describe('thinking workspace messages', () => {
         timestamp: 1001
       }
     ])
+  })
+})
+
+describe('replaceThinkingPageOutline', () => {
+  it('updates only the selected page and keeps the remaining outline', () => {
+    const original = `# Thinking Brief
+
+## Topic
+Quarterly review
+
+## Page 1: Cover
+- Role: cover
+- Objective: Introduce the review
+
+Original summary
+
+- Original point
+
+## Page 2: Results
+- Role: data
+- Objective: Present results
+
+Keep this summary
+
+- Keep this point
+
+## Appendix
+Keep this section
+`
+
+    const updated = replaceThinkingPageOutline(original, {
+      pageNumber: 1,
+      title: 'Executive Overview',
+      role: 'cover',
+      objective: 'Set the context for the review',
+      summary: 'Updated summary',
+      keyPoints: ['Updated point', 'Next point']
+    })
+
+    expect(updated).toContain('## Page 1: Executive Overview')
+    expect(updated).toContain('- Objective: Set the context for the review')
+    expect(updated).toContain('Updated summary')
+    expect(updated).toContain('- Updated point')
+    expect(updated).toContain('## Page 2: Results')
+    expect(updated).toContain('Keep this summary')
+    expect(updated).toContain('## Appendix\nKeep this section')
+    expect(updated).not.toContain('Original summary')
+  })
+
+  it('rejects incomplete page outlines', () => {
+    expect(() =>
+      replaceThinkingPageOutline('## Page 1: Cover\n', {
+        pageNumber: 1,
+        title: '',
+        role: 'cover',
+        objective: 'Introduce',
+        summary: 'Summary',
+        keyPoints: ['Point']
+      })
+    ).toThrow('Page outline fields cannot be empty')
+  })
+
+  it('preserves a non-page section after the edited page', () => {
+    const updated = replaceThinkingPageOutline(
+      `## Page 1: Cover
+- Role: cover
+- Objective: Introduce
+
+Summary
+
+- Point
+
+## Appendix
+Keep this section
+`,
+      {
+        pageNumber: 1,
+        title: 'New cover',
+        role: 'cover',
+        objective: 'Introduce the topic',
+        summary: 'New summary',
+        keyPoints: ['New point']
+      }
+    )
+
+    expect(updated).toContain('## Appendix\nKeep this section')
   })
 })

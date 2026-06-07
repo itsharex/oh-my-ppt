@@ -11,6 +11,8 @@ import {
   scanLatestWorkspace,
   scanWorkspaceList,
   resolveThinkingDir,
+  replaceThinkingPageOutline,
+  writeThinkingMd,
   writeMessagesList
 } from '../../thinking/workspace'
 import {
@@ -21,7 +23,11 @@ import { invalidateRuntime, runThinkingChat } from '../../thinking/thinking-agen
 import { buildThinkingSourceBrief } from '../../thinking/source-brief'
 import { buildThinkingSourcePlan } from '../../thinking/source-plan'
 import { normalizeFontSelection } from '@shared/generation'
-import type { ThinkingChatMessage, ThinkingPrepareGenerationResult } from '@shared/thinking'
+import type {
+  ThinkingChatMessage,
+  ThinkingPageOutlineUpdate,
+  ThinkingPrepareGenerationResult
+} from '@shared/thinking'
 
 async function updateSourcesManifest(
   thinkingDir: string,
@@ -186,6 +192,30 @@ export function registerThinkingHandlers(ctx: IpcContext): void {
     if (result) throw new Error(result)
     return { success: true }
   })
+
+  ipcMain.handle(
+    'thinking:updatePageOutline',
+    async (_event, payload: { thinkingId: string; page: ThinkingPageOutlineUpdate }) => {
+      const thinkingId = String(payload?.thinkingId || '').trim()
+      if (!thinkingId || !payload?.page) {
+        throw new Error('Invalid page outline update')
+      }
+
+      const storagePath = await resolveStoragePath()
+      const workspace = await readWorkspace(storagePath, thinkingId)
+      const dir = resolveThinkingDir(storagePath, thinkingId)
+      const thinkingMd = replaceThinkingPageOutline(workspace.thinkingMd, payload.page)
+      await writeThinkingMd(dir, thinkingMd)
+      invalidateRuntime(thinkingId)
+
+      log.info('[thinking] page outline updated', {
+        thinkingId,
+        pageNumber: payload.page.pageNumber
+      })
+
+      return { success: true, thinkingMd }
+    }
+  )
 
   ipcMain.handle(
     'thinking:uploadSources',

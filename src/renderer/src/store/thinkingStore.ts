@@ -1,6 +1,11 @@
 import { create } from 'zustand'
 import { ipc } from '@renderer/lib/ipc'
-import type { ThinkingStage, ThinkingSource, ThinkingChatMessage } from '@shared/thinking'
+import type {
+  ThinkingStage,
+  ThinkingSource,
+  ThinkingChatMessage,
+  ThinkingPageOutlineUpdate
+} from '@shared/thinking'
 
 interface ThinkingStep {
   type: 'tool_call' | 'tool_result'
@@ -23,6 +28,7 @@ interface ThinkingStore {
   createWorkspace: () => Promise<string>
   loadWorkspace: (thinkingId: string) => Promise<void>
   loadLatestWorkspace: () => Promise<string | null>
+  updatePageOutline: (page: ThinkingPageOutlineUpdate) => Promise<void>
   addMessage: (message: ThinkingChatMessage) => void
   sendMessage: (content: string, attachments?: ThinkingSource[], modelConfigId?: string) => void
   addThinkingStep: (step: ThinkingStep) => void
@@ -232,6 +238,20 @@ export const useThinkingStore = create<ThinkingStore>((set, get) => {
     } catch {
       return null
     }
+    },
+
+    updatePageOutline: async (page) => {
+    const { thinkingId, loading } = get()
+    if (!thinkingId) throw new Error('Thinking workspace is not ready')
+    if (loading) throw new Error('Thinking workspace is busy')
+    const result = await ipc.thinkingUpdatePageOutline({ thinkingId, page })
+    set((state) =>
+      state.thinkingId === thinkingId
+        ? {
+            thinkingMd: result.thinkingMd
+          }
+        : state
+    )
     },
 
     addMessage: (message) =>

@@ -872,6 +872,14 @@ export const ipc = {
     getIpc().invoke('thinking:deleteWorkspace', thinkingId) as Promise<{ success: boolean }>,
   thinkingRevealWorkspace: (thinkingId: string) =>
     getIpc().invoke('thinking:revealWorkspace', thinkingId) as Promise<{ success: boolean }>,
+  thinkingUpdatePageOutline: (payload: {
+    thinkingId: string
+    page: import('@shared/thinking').ThinkingPageOutlineUpdate
+  }) =>
+    getIpc().invoke('thinking:updatePageOutline', payload) as Promise<{
+      success: boolean
+      thinkingMd: string
+    }>,
   thinkingUploadSources: (payload: {
     thinkingId: string
     files: Array<{ path: string; name?: string }>

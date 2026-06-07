@@ -47,3 +47,12 @@ export interface ThinkingPrepareGenerationResult {
   fontSelection: FontSelection
   sourcePlan?: SourceDocumentPlan
 }
+
+export interface ThinkingPageOutlineUpdate {
+  pageNumber: number
+  title: string
+  role: string
+  objective: string
+  summary: string
+  keyPoints: string[]
+}
