@@ -292,7 +292,10 @@ export const zh = {
     renameDescription: '只会修改列表和导出时使用的会话名称，不会重新生成页面内容。',
     renamePlaceholder: '输入新的会话名称',
     pagesCount: '{generated}/{total} 页',
-    failedCount: '失败 {count}'
+    failedCount: '失败 {count}',
+    saveTemplateTooltipDisabled: '至少生成 1 页后才能保存为模板',
+    saveTemplateTooltip: '保存为模板',
+    editTitleTooltip: '编辑会话名称'
   },
   settings: {
     eyebrow: 'Preferences',
@@ -706,10 +709,10 @@ export const zh = {
       '这张图用作 PPT 背景图或插画，不要生成任何可读文字、标题、logo、水印或假图表标签，画面需留出文字空间，不要写画幅比例、尺寸或分辨率。',
     editText: '编辑文字',
     exitTextEdit: '退出编辑',
-    previewMode: '预览模式',
+    previewMode: '预览',
     browseMode: '浏览',
     browseRequiresSavedEdits: '请先保存或放弃未保存编辑，再进入浏览模式',
-    editMode: '编辑模式',
+    editMode: '编辑',
     animationTab: '动画',
     saveCurrentPage: '保存当前页',
     saveCurrentPageTooltip: '保存当前页编辑，并写入版本历史',

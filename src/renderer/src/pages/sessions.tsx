@@ -422,17 +422,25 @@ export function SessionsPage(): React.JSX.Element {
                 <div className="flex items-start justify-between">
                   <CardTitle className="truncate text-base">{session.title}</CardTitle>
                   <div className="flex items-center gap-1">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      title={t('sessions.editTitle')}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        openRenameDialog(session)
-                      }}
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </Button>
+                    <TooltipProvider delayDuration={180}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              openRenameDialog(session)
+                            }}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom" align="end">
+                          {t('sessions.editTitleTooltip')}
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
                     <TooltipProvider delayDuration={180}>
                       <Tooltip>
                         <TooltipTrigger asChild>
@@ -455,8 +463,8 @@ export function SessionsPage(): React.JSX.Element {
                         </TooltipTrigger>
                         <TooltipContent side="bottom" align="end">
                           {editorGate.generatedCount <= 0
-                            ? '至少生成 1 页后才能保存为模板'
-                            : '保存为模板'}
+                            ? t('sessions.saveTemplateTooltipDisabled')
+                            : t('sessions.saveTemplateTooltip')}
                         </TooltipContent>
                       </Tooltip>
                     </TooltipProvider>

@@ -309,7 +309,10 @@ export const en = {
       'Only the session name used in lists and exports will change. Page content will not be regenerated.',
     renamePlaceholder: 'Enter a new session name',
     pagesCount: '{generated}/{total} pages',
-    failedCount: '{count} failed'
+    failedCount: '{count} failed',
+    saveTemplateTooltipDisabled: 'At least 1 page must be generated before saving as template',
+    saveTemplateTooltip: 'Save as template',
+    editTitleTooltip: 'Edit session name'
   },
   settings: {
     eyebrow: 'Preferences',
